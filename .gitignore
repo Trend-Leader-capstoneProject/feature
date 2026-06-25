@@ -1,11 +1,24 @@
 ### 환경 변수 ###
 backend/.env
+.env
+.env.*
+!.env.example
 docker-compose.yml
 init.sql
 
-### VS Code ###
+### VS Code(IDE) ###
 .vscode
 frontend/.idea
 
+### Python ###
+__pycache__/
+*.py[cod]
+
 ### venv 가상 환경 ###
 backend/venv
+.venv/
+venv/
+
+### OS ###
+.DS_Store
+Thumbs.db
