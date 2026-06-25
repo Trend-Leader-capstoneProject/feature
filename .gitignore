@@ -1,0 +1,7 @@
+### 환경 변수 ###
+backend/.env
+docker-compose.yml
+init.sql
+
+# VS Code
+.vscode
