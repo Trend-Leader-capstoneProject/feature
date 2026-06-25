@@ -3,8 +3,9 @@ backend/.env
 docker-compose.yml
 init.sql
 
-# VS Code
+### VS Code ###
 .vscode
-
-
 frontend/.idea
+
+### venv 가상 환경 ###
+backend/venv
