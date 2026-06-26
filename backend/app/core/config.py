@@ -27,7 +27,16 @@ class Settings(BaseSettings):
     db_name: str = "trend_leader"
     db_user: str = "trend_user"
     db_password: str = "trend_pass"
-    database_url: str
+    database_url: str | None = None
+    
+    @property
+    def sync_database_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        return (
+            f"mysql+pymysql://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
     # JWT
     jwt_secret_key: str = Field(..., min_length=16)
