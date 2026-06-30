@@ -1,5 +1,7 @@
 from fastapi import FastAPI
+
 from app.core.config import get_settings
+from app.api.router import router as api_router
 
 settings = get_settings()
 
@@ -8,9 +10,4 @@ app = FastAPI(
     debug=settings.debug,
 )
 
-@app.get("/")
-async def root():
-    return {
-        "success": True,
-        "message": "Trend Leader API is running",    
-    }
+app.include_router(api_router)
