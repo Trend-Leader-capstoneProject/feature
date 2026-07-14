@@ -107,6 +107,8 @@ def readiness_check(
     실패:
     - HTTP 503
     - database: unavailable
+    
+    async 없음 : 스레드풀 실행 / (이벤트 루프 방어 방지)
     """
     checked_at = datetime.now(UTC).isoformat()
 
