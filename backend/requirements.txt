@@ -4,7 +4,7 @@ pydantic
 pydantic-settings
 sqlalchemy>=2.0,<2.1
 pymysql>=1.1,<2.0
-alembic
+alembic>=1.18,<1.19
 python-dotenv
 passlib[bcrypt]
 python-jose[cryptography]
