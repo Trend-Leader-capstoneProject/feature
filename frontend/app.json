@@ -7,11 +7,12 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trendleader.capstone"
     },
     "android": {
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.capstone"
+      "package": "com.trendleader.capstone"
     },
     "plugins": [
       "expo-secure-store",
