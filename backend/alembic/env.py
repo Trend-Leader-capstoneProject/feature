@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from logging.config import fileConfig
 from pathlib import Path
+from typing import Any
 
 from alembic import context
 from sqlalchemy import create_engine, pool
@@ -17,7 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
 from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 
-# 아래 import가 실행되어야 모든 ORM 모델이 Base.metadata에 등록된다.
+# 실제 ORM 모델 모듈을 import해야 Base.metadata에 테이블이 등록된다.
 import app.models  # noqa: E402, F401
 
 
@@ -29,6 +30,12 @@ if config.config_file_name is not None:
 settings = get_settings()
 target_metadata = Base.metadata
 
+COMMON_CONTEXT_OPTIONS: dict[str, Any] = {
+    "target_metadata": target_metadata,
+    "compare_type": True,
+    "compare_server_default": False,
+    "include_schemas": False,
+}
 
 def run_migrations_offline() -> None:
     """
@@ -42,9 +49,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-        compare_server_default=False,
-        include_schemas=False,
+        **COMMON_CONTEXT_OPTIONS,
     )
 
     with context.begin_transaction():
@@ -72,10 +77,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,
-            compare_server_default=True,
-            include_schemas=False,
             transaction_per_migration=True,
+            **COMMON_CONTEXT_OPTIONS,
         )
 
         with context.begin_transaction():
