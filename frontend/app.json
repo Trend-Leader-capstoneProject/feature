@@ -2,17 +2,30 @@
   "expo": {
     "name": "Trend Leader",
     "slug": "trend-leader",
+    "icon": "./assets/images/icon.png",
     "scheme": "trendleader",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trendleader.capstone"
+      "bundleIdentifier": "com.trendleader.capstone",
+      "icon": "./assets/images/icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF",
+        "monochromeImage": "./assets/images/monochrome-icon.png"
+      }
     },
     "android": {
       "predictiveBackGestureEnabled": false,
-      "package": "com.trendleader.capstone"
+      "package": "com.trendleader.capstone",
+      "icon": "./assets/images/icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF",
+        "monochromeImage": "./assets/images/monochrome-icon.png"
+      }
     },
     "plugins": [
       "expo-secure-store",
