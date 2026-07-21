@@ -46,7 +46,6 @@ def run_migrations_offline() -> None:
     """
     context.configure(
         url=settings.sync_database_url,
-        target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         **COMMON_CONTEXT_OPTIONS,
@@ -76,7 +75,6 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata,
             transaction_per_migration=True,
             **COMMON_CONTEXT_OPTIONS,
         )
