@@ -10,12 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trendleader.capstone",
-      "icon": "./assets/images/icon.png",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF",
-        "monochromeImage": "./assets/images/monochrome-icon.png"
-      }
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "predictiveBackGestureEnabled": false,
