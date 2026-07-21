@@ -17,6 +17,7 @@ NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 
+
 class Base(DeclarativeBase):
     """Trend Leader ORM 모델의 공통 Base 클래스."""
     
