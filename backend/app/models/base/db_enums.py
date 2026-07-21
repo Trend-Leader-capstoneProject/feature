@@ -8,7 +8,7 @@ def get_enum_values(enum_class: type[Enum]) -> list[str]:
     return [str(member.value) for member in enum_class]
 
 
-class categoryDepth(str, Enum):
+class CategoryDepth(str, Enum):
     MAIN = "1:대분류"
     SUB = "2.세부분류"
 
