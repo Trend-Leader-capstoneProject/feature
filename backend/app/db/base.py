@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM 모델이 공통으로 상속할 Declarative Base.
 
-모든 ORM 모델은 이 Base를 상속해야 하며,
+모든 ORM 모델은 이 Base를 상속하며,
 Alembic은 Base.metadata를 기준으로 DB 스키마 변경을 감지한다.
 """
 
@@ -16,6 +16,7 @@ NAMING_CONVENTION = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
+
 class Base(DeclarativeBase):
     """Trend Leader ORM 모델의 공통 Base 클래스."""
     
