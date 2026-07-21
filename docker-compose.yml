@@ -1,0 +1,54 @@
+services:
+  db:
+    image: mariadb:${MARIADB_IMAGE_TAG}
+    container_name: trend-leader-db
+
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+
+    ports:
+      - "${DB_EXTERNAL_PORT}:3306"
+
+    volumes:
+      - trend_leader_db:/var/lib/mysql
+      - ./backend/sql_script:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mariadb-admin ping -h localhost -u root -p$${MARIADB_ROOT_PASSWORD} --silent"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+
+    container_name: trend-leader-api
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "${BACKEND_EXTERNAL_PORT}:8000"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  trend_leader_db:
