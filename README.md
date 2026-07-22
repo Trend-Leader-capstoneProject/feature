@@ -487,22 +487,396 @@ http://127.0.0.1:8000/docs
 
 ## 10. Docker 실행
 
-현재 Dockerfile은 FastAPI 서버 실행을 위한 최소 구성입니다.
+Docker Compose를 사용하면 다음 서비스를 함께 실행할 수 있습니다.
 
-```bash
-cd backend
-docker build -t trend-leader-backend .
-docker run -p 8000:8000 trend-leader-backend
+| 서비스 | 컨테이너 이름 | 역할 | 기본 포트 |
+|---|---|---|---|
+| `db` | `trend-leader-db` | MariaDB 데이터베이스 | `3306` |
+| `backend` | `trend-leader-api` | FastAPI 백엔드 서버 | `8000` |
+
+백엔드 컨테이너는 MariaDB의 상태 확인이 성공한 이후 실행됩니다.
+
+> 모든 Docker Compose 명령은 `docker-compose.yml`이 있는 **프로젝트 루트 디렉터리**에서 실행합니다.
+
+### 10.1 사전 준비
+
+Docker Desktop을 실행한 뒤 Docker Engine이 정상 동작하는지 확인합니다.
+
+```powershell
+docker version
+docker compose version
 ```
 
-추후 DB까지 함께 실행하려면 `docker-compose.yml` 구성을 추가합니다.
+명령 실행 중 Docker Engine 연결 오류가 발생하면 Docker Desktop이 실행 중인지 먼저 확인합니다.
 
-권장 구성:
+---
+
+### 10.2 환경변수 파일 생성
+
+프로젝트에서는 환경변수 파일을 다음과 같이 구분합니다.
+
+| 파일 | 역할 |
+|---|---|
+| `.env.compose` | Docker Compose와 MariaDB 실행 설정 |
+| `backend/.env` | FastAPI 애플리케이션 설정 |
+| `.env.compose.example` | Compose 환경변수 예시 |
+| `backend/.env.example` | 백엔드 환경변수 예시 |
+
+#### Windows PowerShell
+
+```powershell
+Copy-Item .env.compose.example .env.compose
+Copy-Item backend/.env.example backend/.env
+```
+
+#### macOS / Linux
+
+```bash
+cp .env.compose.example .env.compose
+cp backend/.env.example backend/.env
+```
+
+이미 실제 환경변수 파일이 존재한다면 다시 복사하지 않고 기존 파일을 사용합니다.
+
+---
+
+### 10.3 `.env.compose` 설정
+
+프로젝트 루트의 `.env.compose` 파일을 확인합니다.
+
+```env
+# Docker Compose / MariaDB settings
+
+MARIADB_IMAGE_TAG=latest
+
+DB_NAME=trend_leader
+DB_USER=trend_user
+DB_PASSWORD=change-me
+DB_ROOT_PASSWORD=change-me
+
+DB_EXTERNAL_PORT=3306
+BACKEND_EXTERNAL_PORT=8000
+```
+
+각 항목의 역할은 다음과 같습니다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `MARIADB_IMAGE_TAG` | 사용할 MariaDB 이미지 태그 |
+| `DB_NAME` | 생성할 데이터베이스 이름 |
+| `DB_USER` | 애플리케이션용 DB 사용자 |
+| `DB_PASSWORD` | 애플리케이션용 DB 사용자 비밀번호 |
+| `DB_ROOT_PASSWORD` | MariaDB root 계정 비밀번호 |
+| `DB_EXTERNAL_PORT` | 호스트에서 MariaDB에 접근할 포트 |
+| `BACKEND_EXTERNAL_PORT` | 호스트에서 FastAPI에 접근할 포트 |
+
+`change-me` 값은 팀 로컬 개발 환경에 맞는 비밀번호로 변경합니다.
+
+> `.env.compose`는 Docker Compose가 자동으로 읽는 기본 파일명이 아닙니다.  
+> 따라서 실행할 때 반드시 `--env-file .env.compose` 옵션을 사용합니다.
+
+---
+
+### 10.4 `backend/.env` 설정 확인
+
+`backend/.env`에서 최소한 다음 항목을 확인합니다.
+
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=trend_leader
+DB_USER=trend_user
+DB_PASSWORD=trend_pass
+
+DATABASE_URL=
+
+JWT_SECRET_KEY=change_this_secret_key_min_16_chars
+```
+
+Docker Compose 실행 시 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`는 Compose 설정값으로 덮어씁니다.
+
+`DATABASE_URL`은 다음과 같이 **빈 값으로 유지합니다.**
+
+```env
+DATABASE_URL=
+```
+
+`DATABASE_URL`에 `127.0.0.1` 기반 주소가 설정되어 있으면 백엔드 컨테이너가 MariaDB 컨테이너 대신 자기 자신에게 접속할 수 있습니다.
+
+`JWT_SECRET_KEY`에는 최소 16자 이상의 값을 설정합니다.
+
+---
+
+### 10.5 Compose 설정 검증
+
+컨테이너를 실행하기 전에 환경변수가 정상적으로 치환되는지 확인합니다.
+
+```powershell
+docker compose --env-file .env.compose config
+```
+
+완성된 Compose 설정이 출력되고 다음과 같은 경고가 없다면 정상입니다.
 
 ```text
-docker-compose.yml
-- backend: FastAPI
-- db: MySQL 또는 MariaDB
+variable is not set
+Defaulting to a blank string
+```
+
+경고가 발생하면 다음 항목을 확인합니다.
+
+1. 프로젝트 루트에 `.env.compose` 파일이 존재하는지 확인
+2. `--env-file .env.compose` 옵션을 사용했는지 확인
+3. `.env.compose`의 환경변수 이름이 누락되지 않았는지 확인
+
+---
+
+### 10.6 컨테이너 실행
+
+MariaDB와 FastAPI 컨테이너를 빌드하고 백그라운드에서 실행합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d
+```
+
+각 옵션의 의미는 다음과 같습니다.
+
+| 옵션 | 설명 |
+|---|---|
+| `--env-file .env.compose` | Compose 치환 변수 파일 지정 |
+| `up` | 서비스 생성 및 실행 |
+| `--build` | 백엔드 Docker 이미지를 다시 빌드 |
+| `-d` | 백그라운드 실행 |
+
+최초 실행 시 MariaDB 이미지 다운로드와 백엔드 의존성 설치 때문에 로그 출력이 많을 수 있습니다.
+
+---
+
+### 10.7 컨테이너 상태 확인
+
+```powershell
+docker compose --env-file .env.compose ps
+```
+
+정상적인 경우 다음 컨테이너가 실행 상태로 표시됩니다.
+
+```text
+trend-leader-db    Up (healthy)
+trend-leader-api   Up
+```
+
+MariaDB가 먼저 초기화되고 상태가 `healthy`가 된 이후 FastAPI 백엔드가 실행됩니다.
+
+---
+
+### 10.8 로그 확인
+
+전체 서비스 로그를 확인합니다.
+
+```powershell
+docker compose --env-file .env.compose logs
+```
+
+MariaDB와 백엔드 로그를 함께 실시간으로 확인합니다.
+
+```powershell
+docker compose --env-file .env.compose logs -f db backend
+```
+
+최근 로그만 확인하려면 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose logs --tail=100 db backend
+```
+
+실시간 로그 확인을 종료할 때는 `Ctrl + C`를 누릅니다. 컨테이너 자체는 계속 실행됩니다.
+
+---
+
+### 10.9 FastAPI 및 DB 연결 확인
+
+브라우저에서 다음 주소에 접속합니다.
+
+| 주소 | 설명 |
+|---|---|
+| `http://localhost:8000/` | FastAPI 기본 실행 상태 |
+| `http://localhost:8000/api/health` | 백엔드 프로세스 상태 |
+| `http://localhost:8000/api/health/ready` | 백엔드와 MariaDB 연결 상태 |
+| `http://localhost:8000/docs` | Swagger API 문서 |
+| `http://localhost:8000/redoc` | ReDoc API 문서 |
+
+Windows PowerShell에서는 다음 명령으로 확인할 수 있습니다.
+
+```powershell
+Invoke-RestMethod http://localhost:8000/
+Invoke-RestMethod http://localhost:8000/api/health
+Invoke-RestMethod http://localhost:8000/api/health/ready
+```
+
+`/api/health/ready` 응답의 `database` 값이 `available`이면 FastAPI와 MariaDB 연결이 정상입니다.
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "message": "Trend Leader API is ready",
+  "data": {
+    "service": "trend-leader-api",
+    "status": "ready",
+    "database": "available"
+  }
+}
+```
+
+---
+
+### 10.10 컨테이너 중지 및 재실행
+
+컨테이너를 중지하고 제거합니다.
+
+```powershell
+docker compose --env-file .env.compose down
+```
+
+MariaDB 데이터는 Docker Volume에 남아 있으므로 다음 실행에서도 유지됩니다.
+
+다시 실행할 때는 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose up -d
+```
+
+백엔드 코드나 의존성이 변경되어 이미지를 다시 빌드해야 한다면 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d
+```
+
+서비스만 재시작하려면 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose restart
+```
+
+백엔드 컨테이너만 재시작하려면 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose restart backend
+```
+
+---
+
+### 10.11 MariaDB 데이터까지 초기화
+
+개발 중 기존 MariaDB 데이터와 Volume을 모두 삭제해야 하는 경우에만 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose down -v
+```
+
+그다음 컨테이너를 다시 생성합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d
+```
+
+> `down -v`는 MariaDB 데이터가 저장된 Docker Volume까지 삭제합니다.  
+> 보존해야 할 데이터가 있다면 실행하지 않습니다.
+
+MariaDB 계정이나 비밀번호를 변경했는데 기존 설정이 계속 적용되는 경우, 기존 Volume에 초기 계정 정보가 남아 있을 수 있습니다. 개발 데이터 삭제가 가능한 상황에서만 Volume 초기화를 수행합니다.
+
+---
+
+### 10.12 자주 발생하는 문제
+
+#### 환경변수 미설정 경고
+
+```text
+The "DB_NAME" variable is not set.
+Defaulting to a blank string.
+```
+
+실행 명령에 `--env-file .env.compose`가 포함되었는지 확인합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d
+```
+
+#### 포트 충돌
+
+```text
+Ports are not available
+address already in use
+```
+
+`.env.compose`에서 외부 포트를 변경합니다.
+
+```env
+DB_EXTERNAL_PORT=3307
+BACKEND_EXTERNAL_PORT=8001
+```
+
+변경 후 접속 주소도 해당 포트를 사용합니다.
+
+```text
+http://localhost:8001/
+http://localhost:8001/docs
+```
+
+컨테이너 내부의 DB 포트 `3306`과 FastAPI 포트 `8000`은 변경하지 않습니다.
+
+#### 백엔드가 MariaDB에 연결하지 못함
+
+다음 항목을 확인합니다.
+
+1. `backend/.env`의 `DATABASE_URL`이 비어 있는지 확인
+2. `.env.compose`의 DB 환경변수가 모두 설정되어 있는지 확인
+3. MariaDB 컨테이너가 `healthy` 상태인지 확인
+4. MariaDB와 백엔드 로그 확인
+
+```powershell
+docker compose --env-file .env.compose ps
+docker compose --env-file .env.compose logs --tail=100 db backend
+```
+
+#### Docker Engine 연결 오류
+
+```text
+failed to connect to the docker API
+open //./pipe/dockerDesktopLinuxEngine
+```
+
+Docker Desktop을 실행하고 Linux Container Engine이 정상적으로 시작될 때까지 확인한 뒤 명령을 다시 실행합니다.
+
+---
+
+### 10.13 빠른 실행 명령 모음
+
+최초 실행:
+
+```powershell
+Copy-Item .env.compose.example .env.compose
+Copy-Item backend/.env.example backend/.env
+docker compose --env-file .env.compose config
+docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose ps
+```
+
+상태 확인:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health/ready
+```
+
+로그 확인:
+
+```powershell
+docker compose --env-file .env.compose logs -f db backend
+```
+
+종료:
+
+```powershell
+docker compose --env-file .env.compose down
 ```
 
 ---
