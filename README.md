@@ -385,7 +385,7 @@ DB_PORT=3306
 DB_NAME=trend_leader
 DB_USER=trend_user
 DB_PASSWORD=trend_pass
-DATABASE_URL=mysql+pymysql://trend_user:trend_pass@127.0.0.1:3306/trend_leader
+DATABASE_URL=
 
 JWT_SECRET_KEY=change_this_secret_key_min_16_chars
 JWT_ALGORITHM=HS256
