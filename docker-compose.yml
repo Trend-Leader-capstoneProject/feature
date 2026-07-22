@@ -19,13 +19,15 @@ services:
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "mariadb-admin ping -h localhost -u root -p$${MARIADB_ROOT_PASSWORD} --silent"
+          "CMD",
+          "healthcheck.sh",
+          "--connect",
+          "--innodb_initialized"
         ]
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      start_period: 30s
 
   backend:
     build:
