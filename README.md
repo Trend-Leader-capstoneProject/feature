@@ -184,100 +184,156 @@ feature/
 
 ## 6. 권장 구조
 
-현재는 초기화 단계이므로, 기능 구현이 진행되면서 아래 구조를 기준으로 확장합니다.
+Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,  
+각 기능의 위치를 쉽게 찾을 수 있도록 계층형·기능 중심 구조를 사용합니다.
 
-### 6.1 Backend 권장 구조
+---
+
+### Backend
 
 ```text
 backend/
 ├── app/
-│   ├── main.py
-│   ├── api/
-│   │   ├── router.py
-│   │   └── routes/
-│   │       ├── health.py
-│   │       ├── auth_router.py
-│   │       ├── user_router.py
-│   │       ├── category_router.py
-│   │       ├── interest_router.py
-│   │       ├── trend_router.py
-│   │       ├── bookmark_router.py
-│   │       └── search_router.py
-│   ├── core/
-│   │   ├── config.py
-│   │   ├── security.py
-│   │   └── exceptions.py
-│   ├── db/
-│   │   ├── base.py
-│   │   └── session.py
-│   ├── models/
-│   ├── repositories/
-│   ├── schemas/
-│   ├── services/
-│   ├── resources/
-│   │   ├── prompts/
-│   │   ├── samples/
-│   │   └── seed/
-│   └── utils/
-│       └── response.py
-├── alembic/
-├── tests/
-├── requirements.txt
+│   ├── api/             # FastAPI Router
+│   ├── core/            # 환경변수 및 애플리케이션 설정
+│   ├── db/              # DB 연결 및 세션 관리
+│   ├── models/          # SQLAlchemy ORM Model
+│   ├── schemas/         # API 요청·응답 Schema
+│   ├── services/        # 비즈니스 로직
+│   ├── repositories/    # DB 접근 로직
+│   ├── resources/       # 프롬프트, Seed, 샘플 데이터
+│   ├── utils/           # 공통 유틸리티
+│   └── main.py          # FastAPI 애플리케이션 진입점
+├── alembic/             # DB Migration
+├── tests/               # 테스트 코드
 ├── .env.example
-└── Dockerfile
+└── README.md
 ```
 
-Backend는 다음 흐름을 기준으로 구현합니다.
+백엔드의 기본 처리 흐름은 다음과 같습니다.
 
 ```text
-Router → Service → Repository → DB
+Client
+  ↓
+Router
+  ↓
+Service
+  ↓
+Repository
+  ↓
+Database
 ```
 
-- **Router**: API 요청/응답 처리
-- **Service**: 비즈니스 로직 처리
-- **Repository**: DB 조회/저장/수정/삭제
-- **Model**: DB 테이블과 매핑되는 ORM 객체
-- **Schema**: Request / Response 데이터 검증
-- **Utils**: 공통 응답, 공통 유틸 함수
+- `Router`: HTTP 요청 및 응답 처리
+- `Service`: 기능의 핵심 비즈니스 로직 처리
+- `Repository`: 데이터베이스 조회·저장·수정·삭제
+- `Model`: 데이터베이스 테이블 매핑
+- `Schema`: API 요청 및 응답 데이터 검증
 
-### 6.2 Frontend 권장 구조
+---
+
+### Frontend
 
 ```text
-frontend/src/
-├── app/
-│   └── navigation/
-│       ├── RootNavigator.tsx
-│       ├── AuthNavigator.tsx
-│       └── MainTabNavigator.tsx
-├── screens/
-│   ├── auth/
-│   │   ├── LoginScreen.tsx
-│   │   └── SignupScreen.tsx
-│   ├── interest/
-│   │   ├── InterestSelectScreen.tsx
-│   │   └── InterestEditScreen.tsx
-│   ├── trend/
-│   │   ├── RecommendedTrendScreen.tsx
-│   │   ├── LatestTrendScreen.tsx
-│   │   └── TrendDetailScreen.tsx
-│   ├── bookmark/
-│   │   └── BookmarkListScreen.tsx
-│   ├── search/
-│   │   └── TrendSearchScreen.tsx
-│   └── my/
-│       └── MyPageScreen.tsx
-├── components/
-│   ├── common/
-│   ├── trend/
-│   └── interest/
-├── services/
-│   └── apiClient.ts
-├── hooks/
-├── types/
-├── constants/
-└── utils/
+frontend/
+├── assets/                # 이미지, 아이콘, 폰트
+├── src/
+│   ├── app/
+│   │   ├── navigation/    # 화면 이동 및 Navigation 타입
+│   │   ├── providers/     # React Query 등 전역 Provider
+│   │   └── config/        # 앱 환경 설정
+│   │
+│   ├── features/
+│   │   ├── auth/          # 로그인 및 회원가입
+│   │   ├── user/          # 사용자 정보 및 마이페이지
+│   │   ├── interest/      # 관심사 선택 및 수정
+│   │   ├── trend/         # 트렌드 목록 및 상세
+│   │   ├── bookmark/      # 저장 트렌드
+│   │   └── search/        # 트렌드 검색
+│   │
+│   └── shared/
+│       ├── api/           # 공통 API Client
+│       ├── components/    # 공통 UI Component
+│       ├── constants/     # 색상, 간격 등 공통 상수
+│       ├── hooks/         # 공통 Custom Hook
+│       ├── storage/       # 토큰 등 로컬 저장소
+│       ├── types/         # 공통 Type
+│       └── utils/         # 공통 유틸리티
+│
+├── App.tsx
+├── index.ts
+├── .env.example
+└── README.md
 ```
 
+각 Feature는 필요한 범위에서 다음 구조를 사용합니다.
+
+```text
+feature/
+├── api/          # FastAPI 서버 통신
+├── components/   # 기능 전용 UI Component
+├── hooks/        # API 요청 및 상태 관리
+├── screens/      # 화면 구성
+└── types/        # 요청·응답 및 기능 Type
+```
+
+프론트엔드의 기본 처리 흐름은 다음과 같습니다.
+
+```text
+User
+  ↓
+Screen
+  ↓
+Custom Hook
+  ↓
+API Function
+  ↓
+FastAPI Backend
+```
+
+- `Screen`: 화면 구성, 사용자 이벤트, Navigation 처리
+- `Hook`: React Query 기반 API 상태 관리
+- `API Function`: 서버 요청 및 응답 반환
+- `Component`: 재사용 가능한 UI
+- `Type`: API 요청·응답 데이터 구조 정의
+
+---
+
+## 구조 관리 원칙
+
+- 백엔드는 `Router → Service → Repository` 책임을 분리합니다.
+- 프론트엔드는 API를 Screen에서 직접 호출하지 않고 Hook을 사용합니다.
+- 여러 기능에서 사용하는 코드는 `shared`에 배치합니다.
+- 특정 기능에만 사용되는 코드는 해당 `features` 내부에 배치합니다.
+- 빈 폴더를 모두 미리 생성하지 않고 실제 코드가 필요할 때 추가합니다.
+
+---
+
+## 상세 코딩 컨벤션
+
+세부 파일명, 함수명, API 작성 규칙은 별도 컨벤션 문서를 따릅니다.
+
+- Backend 코딩 컨벤션
+- Frontend 코딩 컨벤션
+
+---
+
+## 환경변수 관리
+
+환경변수는 프로젝트 루트의 `.env` 파일에서 관리합니다.
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://localhost:8000/api
+```
+
+실제 환경변수 파일은 Git에 포함하지 않습니다.
+
+```text
+.env          → 실제 개발 환경값, Git 제외
+.env.example  → 팀 공유용 예시값, Git 포함
+```
+
+클라이언트에 포함되는 환경변수에는 JWT Secret, DB Password, 외부 API Secret 등 서버 비밀값을 작성하지 않습니다.
 ---
 
 ## 7. 개발 환경 준비
