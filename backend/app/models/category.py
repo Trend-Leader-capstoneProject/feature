@@ -16,7 +16,7 @@ from app.db.base import Base
 
 # Enum 값은 db_enums.py에서 import 해오기 
 
-from app.models.base.db_enums import CategoryDepth, get_enum_values
+from app.models.db_enums import CategoryDepth, get_enum_values
 
 class Category(Base):
     """사용자 관심사와 트렌드를 분류하는 카테고리 모델."""
