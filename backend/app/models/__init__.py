@@ -1,4 +1,4 @@
-from app.models.feat.category import Category
+from app.models.category import Category
 
 __all__ = [
     "Category",
