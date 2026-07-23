@@ -334,6 +334,7 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:8000/api
 ```
 
 클라이언트에 포함되는 환경변수에는 JWT Secret, DB Password, 외부 API Secret 등 서버 비밀값을 작성하지 않습니다.
+
 ---
 
 ## 7. 개발 환경 준비
