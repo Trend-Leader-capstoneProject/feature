@@ -9,14 +9,14 @@ def get_enum_values(enum_class: type[Enum]) -> list[str]:
 
 
 class CategoryDepth(str, Enum):
-    PRIMARY = "1:대분류"
+    MAIN = "1:대분류"
     SUB = "2:세부분류"
 
 
 class OAuthProvider(str, Enum):
     GOOGLE = "GOOGLE"
-
-
+    
+    
 class UserStatus(str, Enum):
     ACTIVE = "ACTIVE"
     WITHDRAWN = "WITHDRAWN"
@@ -53,3 +53,5 @@ class RelatedKeywordType(str, Enum):
     RELATED = "RELATED"
     HASHTAG = "HASHTAG"
     RECOMMENDED = "RECOMMENDED"
+    
+    
