@@ -2,9 +2,10 @@
 
 from enum import Enum
 
+
 def get_enum_values(enum_class: type[Enum]) -> list[str]:
     """SQLAlchemy Enum에 저장할 실제 문자열 값 목록을 반환한다."""
-    
+
     return [str(member.value) for member in enum_class]
 
 
@@ -15,8 +16,8 @@ class CategoryDepth(str, Enum):
 
 class OAuthProvider(str, Enum):
     GOOGLE = "GOOGLE"
-    
-    
+
+
 class UserStatus(str, Enum):
     ACTIVE = "ACTIVE"
     WITHDRAWN = "WITHDRAWN"
@@ -53,5 +54,3 @@ class RelatedKeywordType(str, Enum):
     RELATED = "RELATED"
     HASHTAG = "HASHTAG"
     RECOMMENDED = "RECOMMENDED"
-    
-    
