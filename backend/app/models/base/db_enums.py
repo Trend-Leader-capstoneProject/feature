@@ -15,8 +15,8 @@ class CategoryDepth(str, Enum):
 
 class OAuthProvider(str, Enum):
     GOOGLE = "GOOGLE"
-
-
+    
+    
 class UserStatus(str, Enum):
     ACTIVE = "ACTIVE"
     WITHDRAWN = "WITHDRAWN"
@@ -53,3 +53,5 @@ class RelatedKeywordType(str, Enum):
     RELATED = "RELATED"
     HASHTAG = "HASHTAG"
     RECOMMENDED = "RECOMMENDED"
+    
+    
