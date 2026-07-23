@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 """
-이 방식대로 작성할 것... 참고 클래스 파일
+이 방식대로 작성할 것... 참고 클래스 파일(__init__.py에는 클래스 이름으로 __all__에 추가)
 """
 
 class Example(Base):
