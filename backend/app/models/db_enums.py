@@ -9,41 +9,31 @@ def get_enum_values(enum_class: type[Enum]) -> list[str]:
     return [str(member.value) for member in enum_class]
 
 
-class CategoryDepth(str, Enum):
-    MAIN = "1:대분류"
-    SUB = "2:세부분류"
-
-
 class OAuthProvider(str, Enum):
+    """지원하는 OAuth 제공자."""
+    
     GOOGLE = "GOOGLE"
 
 
 class UserStatus(str, Enum):
+    """사용자 계정 상태."""
+    
     ACTIVE = "ACTIVE"
     WITHDRAWN = "WITHDRAWN"
     SUSPENDED = "SUSPENDED"
 
 
 class TrendStatus(str, Enum):
+    """트렌드 조회 가능 상태."""
+    
     ACTIVE = "ACTIVE"
     HIDDEN = "HIDDEN"
 
 
-class RankChange(str, Enum):
-    UP = "UP"
-    DOWN = "DOWN"
-    SAME = "SAME"
-    NEW = "NEW"
-
-
-class AiModelName(str, Enum):
-    GPT = "GPT"
-    GEMINI = "GEMINI"
-    CLAUDE = "CLAUDE"
-    ETC = "ETC"
-
 
 class TrendSourcePlatform(str, Enum):
+    """트렌드 출처 플랫폼 허용값."""
+
     GOOGLE = "GOOGLE"
     YOUTUBE = "YOUTUBE"
     SNS = "SNS"
@@ -51,6 +41,8 @@ class TrendSourcePlatform(str, Enum):
 
 
 class RelatedKeywordType(str, Enum):
+    """AI 분석 관련 키워드 유형."""
+
     RELATED = "RELATED"
     HASHTAG = "HASHTAG"
     RECOMMENDED = "RECOMMENDED"
