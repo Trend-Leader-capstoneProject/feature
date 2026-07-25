@@ -7,6 +7,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
+    Index,
     text,
 )
 
@@ -16,15 +18,27 @@ from app.db.base import Base
 
 # Enum 값은 db_enums.py에서 import 해오기 
 
-from app.models.db_enums import CategoryDepth, get_enum_values
-
 class Category(Base):
     """사용자 관심사와 트렌드를 분류하는 카테고리 모델."""
     
     __tablename__ = "categories"
-    __table_args__ = {
-        "comment": "카테고리",
-    }
+    __table_args__ = (
+        # 같은 이름의 카테고리가 중복 생성되는 것을 막는다.
+        UniqueConstraint(
+            "category_name",
+            name="uq_categories_category_name",
+        ),
+        # 상위 카테고리별 활성 하위 카테고리를 노출 순서대로 조회한다.
+        Index(
+            "ix_categories_parent_id_is_active_sort_order",
+            "parent_id",
+            "is_active",
+            "sort_order",
+        ),
+        {
+            "comment": "카테고리",
+        },
+    )
     
     category_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -33,31 +47,10 @@ class Category(Base):
         comment="카테고리 ID 일련번호",
     )
     
-    parent_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("categories.category_id"),
-        nullable=True,
-        index=True,
-        comment="상위 카테고리 ID",
-    )
-    
     category_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         comment="카테고리명",
-    )
-    
-    depth: Mapped[CategoryDepth] = mapped_column(
-        SqlEnum(
-            CategoryDepth,
-            name="category_depth",
-            values_callable=get_enum_values,
-            native_enum=True,
-        ),
-        nullable=False,
-        default=CategoryDepth.MAIN,
-        server_default=CategoryDepth.MAIN.value,
-        comment="분류 단계",
     )
     
     sort_order: Mapped[int] = mapped_column(
@@ -71,17 +64,30 @@ class Category(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=False,
-        server_default=text("0"),
+        default=True,
+        server_default=text("1"),
         comment="사용 여부",
     )
     
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "categories.category_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+        comment="상위 카테고리 ID"
+    )
+   
+   
+    # 세부분류에서 상위 대분류로 접근 
     parent: Mapped[Category | None] = relationship(
         "Category",
         back_populates="children",
         remote_side=lambda: [Category.category_id],
     )
     
+    # 대분류에서 소속 세부분류 목록으로 접근
     children: Mapped[list[Category]] = relationship(
         "Category",
         back_populates="parent",
@@ -92,6 +98,5 @@ class Category(Base):
             "Category("
             f"category_id={self.category_id!r}, "
             f"category_name={self.category_name!r}, "
-            f"depth={self.depth!r}"
             ")"
         )
