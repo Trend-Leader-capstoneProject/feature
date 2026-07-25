@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -15,6 +16,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.db_enums import UserStatus, get_enum_values
+
+
+if TYPE_CHECKING:
+    from app.models.oauth_account import OAuthAccount
+    from app.models.user_profile import UserProfile
 
 class User(Base):
     """사용자 계정 정보를 저장하는 모델."""
@@ -108,7 +114,27 @@ class User(Base):
     )
     
     
+    
+    # 사용자 한 명은 하나의 프로필만 가진다.
+    profile: Mapped["UserProfile | None"] = relationship(
+        "UserProfile",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # 하나의 사용자는 여러 OAuth 계정을 연결할 수 있다.
+    oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
+        "OAuthAccount",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
+    
     def __repr__(self) -> str:
+        # 비밀번호 해시와 이메일은 로그에 출력하지 않는다.
         return (
             "User("
             f"user_id={self.user_id!r}, "
@@ -116,5 +142,3 @@ class User(Base):
             f"status={self.status!r}"
             ")"
         )
-        
-        # 민감한 인증 정보는 로그에 출력되지 않도록.
