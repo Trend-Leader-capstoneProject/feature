@@ -3,14 +3,10 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    Boolean,
     Enum as SqlEnum,
-    ForeignKey,
-    Integer,
     String,
     UniqueConstraint,
     func,
-    text,
 )
 
 from datetime import datetime
@@ -61,7 +57,7 @@ class User(Base):
     )
     
     name: Mapped[str] = mapped_column(
-        String(255),
+        String(50),
         nullable=False,
         comment="사용자 이름",
     )
