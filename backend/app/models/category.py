@@ -98,5 +98,6 @@ class Category(Base):
             "Category("
             f"category_id={self.category_id!r}, "
             f"category_name={self.category_name!r}, "
+            f"parent_id={self.parent_id!r}"
             ")"
         )
