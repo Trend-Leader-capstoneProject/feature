@@ -1,4 +1,10 @@
+<div align="center">
+
 # Trend Leader
+
+</div>
+
+---
 
 <div align="center">
 
@@ -87,43 +93,52 @@ Trend Leader는 여러 플랫폼에 흩어진 트렌드 정보를 한곳에서 �
 
 ## 3. 기술 스택
 
+Trend Leader는 2인 개발팀의 숙련도, 개발 기간, 모바일 앱과 API 서버의 연동 편의성, 데이터 구조의 일관성 및 향후 AI 기능 확장 가능성을 기준으로 기술 스택을 선정했습니다.
+
 ### Frontend
 
-| 구분 | 기술 |
-|---|---|
-| Framework | React Native |
-| Runtime / Tooling | Expo |
-| Language | TypeScript |
-| Package Manager | npm |
-| Target | Android 중심 모바일 앱 |
+| 구분 | 기술 | 선정 이유 |
+| --- | --- | --- |
+| Framework | React Native | 하나의 코드베이스로 Android 앱을 개발하고 향후 iOS까지 확장할 수 있으며, 컴포넌트 기반으로 트렌드 카드와 카테고리 버튼 등의 UI를 재사용하기 위해 선택했습니다. |
+| Runtime / Tooling | Expo | React Native의 초기 설정과 Android 실행·빌드 과정을 단순화하여 네이티브 환경 구성보다 기능 개발에 집중하기 위해 사용합니다. |
+| Language | TypeScript | API 요청·응답 데이터와 화면 이동 파라미터의 타입을 명확히 정의하여 데이터 형식 불일치와 런타임 오류를 줄이기 위해 사용합니다. |
+| Package Manager | npm | 프론트엔드 라이브러리의 설치와 버전을 일관되게 관리하고 팀원 간 동일한 의존성 환경을 재현하기 위해 사용합니다. |
+| Target | Android 중심 모바일 앱 | 제한된 개발 기간 내 핵심 기능의 완성도를 확보하기 위해 초기 구현 및 테스트 대상을 Android로 한정했습니다. |
 
 ### Backend
 
-| 구분 | 기술 |
-|---|---|
-| Framework | FastAPI |
-| Language | Python |
-| Server | Uvicorn |
-| Validation | Pydantic |
-| ORM | SQLAlchemy |
-| Migration | Alembic |
-| Auth | JWT Bearer Token |
-| Password Hashing | passlib[bcrypt] |
+| 구분 | 기술 | 선정 이유 |
+| --- | --- | --- |
+| Language | Python | 팀원 모두가 익숙하여 학습 비용을 줄이고 개발 속도를 높일 수 있으며, 향후 AI 분석과 데이터 처리 기능을 동일한 언어 생태계에서 구현하기 위해 선택했습니다. |
+| Framework | FastAPI | Python 타입 힌트 기반의 요청·응답 검증, 비동기 처리, 자동 API 문서 생성을 지원하여 React Native와 연동할 REST API를 효율적으로 개발하기 위해 선택했습니다. |
+| Server | Uvicorn | FastAPI 애플리케이션을 실행하는 경량 ASGI 서버로, 비동기 요청 처리 구조와 간단한 개발·실행 환경을 제공하여 사용합니다. |
+| Validation | Pydantic | 클라이언트의 요청값과 서버의 응답값을 타입 기준으로 검증하고, 잘못된 데이터가 비즈니스 로직이나 DB까지 전달되는 것을 방지하기 위해 사용합니다. |
+| ORM | SQLAlchemy | DB 테이블을 Python 객체로 매핑하고 데이터 접근 코드를 비즈니스 로직과 분리하여 가독성과 유지보수성을 높이기 위해 사용합니다. |
+| Migration | Alembic | 테이블과 컬럼 변경 이력을 버전으로 관리하고, 팀원 및 실행 환경마다 동일한 DB 스키마를 재현하기 위해 사용합니다. |
+| Auth | JWT Bearer Token | 모바일 앱과 REST API 사이에서 인증 정보를 표준화된 토큰 형태로 전달하고, 서버의 세션 저장 의존도를 낮추기 위해 사용합니다. |
+| Password Hashing | pwdlib[argon2] | 비밀번호 원문을 저장하지 않고 단방향 해시값으로 저장하여 DB 유출 시 사용자 비밀번호가 직접 노출되는 위험을 줄이기 위해 사용합니다. (파이썬 FastAPI에 적합하기도 해서) |
 
 ### Database
 
-| 구분 | 기술 |
-|---|---|
-| RDBMS | MySQL 또는 MariaDB |
-| Driver | PyMySQL |
-| Charset | utf8mb4 |
+| 구분 | 기술 | 선정 이유 |
+| --- | --- | --- |
+| RDBMS | MariaDB | 사용자, 관심사, 트렌드, 카테고리, 북마크처럼 관계가 명확한 데이터를 외래 키와 UNIQUE 제약조건으로 일관성 있게 관리할 수 있고, 오픈소스와 MySQL 호환성을 제공하여 선택했습니다. |
+| Driver | PyMySQL | Python과 MariaDB를 연결하고 SQLAlchemy에서 사용할 수 있으며, 개발환경 구성이 간단하여 사용합니다. |
+| Charset | utf8mb4 | 한글, 영문, 특수문자, 해시태그 및 이모지를 포함할 수 있는 트렌드 제목과 검색어를 안정적으로 저장하기 위해 사용합니다. |
 
 ### AI / External
 
-| 구분 | 내용 |
-|---|---|
-| AI Provider | 초기 mock 기반, 이후 OpenAI/Gemini 등 확장 가능 |
-| OAuth | Google OAuth 연동 예정 |
+| 구분 | 기술 | 선정 이유 |
+| --- | --- | --- |
+| AI Provider | 초기 Mock Provider | 외부 AI API가 준비되지 않은 단계에서도 AI 분석 기능과 화면 흐름을 먼저 구현하고 테스트하며, 향후 OpenAI 또는 Gemini 등의 Provider로 교체할 수 있도록 사용합니다. |
+| OAuth | Google OAuth | 사용자가 별도의 계정을 새로 생성하는 부담을 줄이고 기존 Google 계정으로 빠르게 서비스에 진입할 수 있도록 연동합니다. |
+
+### Infrastructure
+
+| 구분 | 기술 | 선정 이유 |
+| --- | --- | --- |
+| Container | Docker | 애플리케이션과 의존성을 격리하여 팀원별 로컬 환경 차이로 인한 문제를 줄이기 위해 사용합니다. |
+| Local Orchestration | Docker Compose | FastAPI 서버와 MariaDB를 동일한 설정과 명령으로 실행하여 개발환경을 쉽게 재현하기 위해 사용합니다. |
 
 ---
 
