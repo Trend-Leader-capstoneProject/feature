@@ -22,6 +22,7 @@ from app.models.db_enums import TrendStatus, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.trend_category_map import TrendCategoryMap
+    from app.models.trend_source import TrendSource
 
 
 class Trend(Base):
@@ -111,7 +112,7 @@ class Trend(Base):
         comment="수정 시각",
     )
 
-    # 트렌드에 연결된 카테고리 매핑 목록이다.
+    # 트렌드에 연결된 카테고리 매핑 목록
     category_links: Mapped[list[TrendCategoryMap]] = relationship(
         "TrendCategoryMap",
         back_populates="trend",
@@ -119,6 +120,13 @@ class Trend(Base):
         passive_deletes=True,
     )
     
+    # 트렌드가 수집된 외부 출처 목록
+    sources: Mapped[list[TrendSource]] = relationship(
+        "TrendSource",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     
     def __repr__(self) -> str:
         return (
