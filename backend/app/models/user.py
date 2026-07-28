@@ -1,25 +1,26 @@
 from __future__ import annotations
+
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    Enum as SqlEnum,
     String,
     UniqueConstraint,
     func,
 )
-
-from datetime import datetime
-
+from sqlalchemy import (
+    Enum as SqlEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.db_enums import UserStatus, get_enum_values
 
-
 if TYPE_CHECKING:
     from app.models.oauth_account import OAuthAccount
+    from app.models.user_interest_category import UserInterestCategory
     from app.models.user_profile import UserProfile
 
 class User(Base):
@@ -132,7 +133,13 @@ class User(Base):
         passive_deletes=True,
     )
     
-    
+    interest_category_links: Mapped[list[UserInterestCategory]] = relationship(
+        "UserInterestCategory",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     def __repr__(self) -> str:
         # 비밀번호 해시와 이메일은 로그에 출력하지 않는다.
         return (

@@ -1,23 +1,28 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    Enum as SqlEnum,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
-    Index,
     text,
 )
-
+from sqlalchemy import (
+    Enum as SqlEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 # Enum 값은 db_enums.py에서 import 해오기 
 
+if TYPE_CHECKING:
+    from app.models.user_interest_category import UserInterestCategory
 class Category(Base):
     """사용자 관심사와 트렌드를 분류하는 카테고리 모델."""
     
@@ -93,6 +98,11 @@ class Category(Base):
         back_populates="parent",
     )
     
+    user_interest_links: Mapped[list[UserInterestCategory]] = relationship(
+        "UserInterestCategory",
+        back_populates="category",
+    )
+
     def __repr__(self) -> str:
         return (
             "Category("
