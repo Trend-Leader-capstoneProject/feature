@@ -11,13 +11,13 @@ def get_enum_values(enum_class: type[Enum]) -> list[str]:
 
 class OAuthProvider(str, Enum):
     """지원하는 OAuth 제공자."""
-    
+
     GOOGLE = "GOOGLE"
 
 
 class UserStatus(str, Enum):
     """사용자 계정 상태."""
-    
+
     ACTIVE = "ACTIVE"
     WITHDRAWN = "WITHDRAWN"
     SUSPENDED = "SUSPENDED"
@@ -25,10 +25,9 @@ class UserStatus(str, Enum):
 
 class TrendStatus(str, Enum):
     """트렌드 조회 가능 상태."""
-    
+
     ACTIVE = "ACTIVE"
     HIDDEN = "HIDDEN"
-
 
 
 class TrendSourcePlatform(str, Enum):

@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    Enum as SqlEnum,
     Index,
     String,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Enum as SqlEnum,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.db_enums import TrendStatus, get_enum_values
+
+if TYPE_CHECKING:
+    from app.models.trend_category_map import TrendCategoryMap
 
 
 class Trend(Base):
@@ -51,7 +57,7 @@ class Trend(Base):
         nullable=False,
         comment="사용자에게 표시할 트렌드 제목",
     )
-    
+
     normalized_title: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -89,7 +95,7 @@ class Trend(Base):
         server_default=func.current_timestamp(),
         comment="최초 수집 시각",
     )
-    
+
     last_collected_at: Mapped[datetime] = mapped_column(
         # 같은 트렌드가 다시 수집된 시각
         DateTime,
@@ -105,6 +111,15 @@ class Trend(Base):
         comment="수정 시각",
     )
 
+    # 트렌드에 연결된 카테고리 매핑 목록이다.
+    category_links: Mapped[list[TrendCategoryMap]] = relationship(
+        "TrendCategoryMap",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
+    
     def __repr__(self) -> str:
         return (
             "Trend("
