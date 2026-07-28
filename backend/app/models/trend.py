@@ -22,6 +22,7 @@ from app.models.db_enums import TrendStatus, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.trend_category_map import TrendCategoryMap
+    from app.models.trend_rank_snapshot import TrendRankSnapshot
     from app.models.trend_source import TrendSource
 
 
@@ -128,11 +129,20 @@ class Trend(Base):
         passive_deletes=True,
     )
     
+    # 트렌드의 플랫폼별 순위 변동 이력
+    rank_snapshots: Mapped[list[TrendRankSnapshot]] = relationship(
+        "TrendRankSnapshot",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="TrendRankSnapshot.snapshot_at",
+    )
+    
     def __repr__(self) -> str:
         return (
             "Trend("
             f"trend_id={self.trend_id!r}, "
-            f"trend_name={self.title!r}, "
+            f"title={self.title!r}, "
             f"status={self.status!r}"
             ")"
         )
