@@ -20,6 +20,7 @@ from app.models.db_enums import UserStatus, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.oauth_account import OAuthAccount
+    from app.models.user_interest_category import UserInterestCategory
     from app.models.user_profile import UserProfile
 
 
@@ -125,6 +126,13 @@ class User(Base):
     # 하나의 사용자는 여러 OAuth 계정을 연결할 수 있다.
     oauth_accounts: Mapped[list[OAuthAccount]] = relationship(
         "OAuthAccount",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
+    interest_category_links: Mapped[list[UserInterestCategory]] = relationship(
+        "UserInterestCategory",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
