@@ -12,18 +12,15 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy import (
-    Enum as SqlEnum,
-)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
-# Enum 값은 db_enums.py에서 import 해오기
-
-
 if TYPE_CHECKING:
+    from app.models.trend_category_map import TrendCategoryMap
     from app.models.user_interest_category import UserInterestCategory
+
+
 class Category(Base):
     """사용자 관심사와 트렌드를 분류하는 카테고리 모델."""
 
@@ -85,22 +82,32 @@ class Category(Base):
         comment="상위 카테고리 ID",
     )
 
-    # 세부분류에서 상위 대분류로 접근
+    # 세부 카테고리에서 상위 카테고리로 접근한다.
     parent: Mapped[Category | None] = relationship(
         "Category",
         back_populates="children",
         remote_side=lambda: [Category.category_id],
     )
 
-    # 대분류에서 소속 세부분류 목록으로 접근
+    # 상위 카테고리에서 소속 세부 카테고리 목록으로 접근한다.
     children: Mapped[list[Category]] = relationship(
         "Category",
         back_populates="parent",
+        passive_deletes="all",
     )
-    
+
+    # 이 카테고리를 관심사로 선택한 사용자 연결 목록이다.
     user_interest_links: Mapped[list[UserInterestCategory]] = relationship(
         "UserInterestCategory",
         back_populates="category",
+        passive_deletes="all",
+    )
+
+    # 이 카테고리가 연결된 트렌드 매핑 목록이다.
+    trend_category_links: Mapped[list[TrendCategoryMap]] = relationship(
+        "TrendCategoryMap",
+        back_populates="category",
+        passive_deletes="all",
     )
 
     def __repr__(self) -> str:
