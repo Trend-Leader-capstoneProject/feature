@@ -18,6 +18,7 @@ from app.models.db_enums import UserStatus, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.oauth_account import OAuthAccount
+    from app.models.search_log import SearchLog
     from app.models.user_interest_category import UserInterestCategory
     from app.models.user_profile import UserProfile
     from app.models.user_trend_bookmark import UserTrendBookmark
@@ -141,6 +142,14 @@ class User(Base):
     # 사용자가 저장한 트렌드 북마크 목록
     trend_bookmarks: Mapped[list[UserTrendBookmark]] = relationship(
         "UserTrendBookmark",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # 사용자가 실행한 최근 검색 기록 목록
+    search_logs: Mapped[list[SearchLog]] = relationship(
+        "SearchLog",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

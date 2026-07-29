@@ -1,5 +1,6 @@
 from app.models.category import Category
 from app.models.oauth_account import OAuthAccount
+from app.models.search_log import SearchLog
 from app.models.trend import Trend
 from app.models.trend_ai_analysis import TrendAiAnalysis
 from app.models.trend_category_map import TrendCategoryMap
@@ -14,6 +15,7 @@ from app.models.user_trend_bookmark import UserTrendBookmark
 __all__ = [
     "Category",
     "OAuthAccount",
+    "SearchLog",
     "Trend",
     "TrendAiAnalysis",
     "TrendCategoryMap",
