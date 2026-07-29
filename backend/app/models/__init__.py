@@ -9,6 +9,7 @@ from app.models.trend_source import TrendSource
 from app.models.user import User
 from app.models.user_interest_category import UserInterestCategory
 from app.models.user_profile import UserProfile
+from app.models.user_trend_bookmark import UserTrendBookmark
 
 __all__ = [
     "Category",
@@ -22,4 +23,5 @@ __all__ = [
     "User",
     "UserInterestCategory",
     "UserProfile",
+    "UserTrendBookmark",
 ]

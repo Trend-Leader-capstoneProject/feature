@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from app.models.trend_category_map import TrendCategoryMap
     from app.models.trend_rank_snapshot import TrendRankSnapshot
     from app.models.trend_source import TrendSource
+    from app.models.user_trend_bookmark import UserTrendBookmark
 
 
 class Trend(Base):
@@ -147,6 +148,15 @@ class Trend(Base):
         passive_deletes=True,
         order_by="TrendAiAnalysis.analysis_version", 
     )
+    
+    # 이 트렌드를 저장한 사용자 북마크 목록
+    user_bookmarks: Mapped[list[UserTrendBookmark]] = relationship(
+        "UserTrendBookmark",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
     
     def __repr__(self) -> str:
         return (
