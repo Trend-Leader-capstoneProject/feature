@@ -21,6 +21,7 @@ from app.db.base import Base
 from app.models.db_enums import TrendStatus, get_enum_values
 
 if TYPE_CHECKING:
+    from app.models.trend_ai_analysis import TrendAiAnalysis
     from app.models.trend_category_map import TrendCategoryMap
     from app.models.trend_rank_snapshot import TrendRankSnapshot
     from app.models.trend_source import TrendSource
@@ -136,6 +137,15 @@ class Trend(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="TrendRankSnapshot.snapshot_at",
+    )
+    
+    # 트렌드에 대해 생성된 AI 분석 버전 목록
+    ai_analyses: Mapped[list[TrendAiAnalysis]] = relationship(
+        "TrendAiAnalysis",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="TrendAiAnalysis.analysis_version", 
     )
     
     def __repr__(self) -> str:
