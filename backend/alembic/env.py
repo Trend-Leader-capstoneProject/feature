@@ -5,8 +5,9 @@ from logging.config import fileConfig
 from pathlib import Path
 from typing import Any
 
-from alembic import context
 from sqlalchemy import create_engine, pool
+
+from alembic import context
 
 # alembic 명령을 repository root에서 실행해도
 # backend/app 패키지를 찾을 수 있도록 경로를 등록한다.
@@ -15,12 +16,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.config import get_settings  # noqa: E402
-from app.db.base import Base  # noqa: E402
-
 # 실제 ORM 모델 모듈을 import해야 Base.metadata에 테이블이 등록된다.
 import app.models  # noqa: E402, F401
-
+from app.core.config import get_settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
 
 config = context.config
 
@@ -36,6 +35,7 @@ COMMON_CONTEXT_OPTIONS: dict[str, Any] = {
     "compare_server_default": False,
     "include_schemas": False,
 }
+
 
 def run_migrations_offline() -> None:
     """
