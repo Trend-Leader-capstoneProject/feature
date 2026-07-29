@@ -20,11 +20,11 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.trend import Trend
     from app.models.trend_related_keyword import TrendRelatedKeyword
-    
-    
+
+
 class TrendAiAnalysis(Base):
     """트렌드에 대한 AI 분석 결과를 버전별로 저장하는 모델."""
-    
+
     __tablename__ = "trend_ai_analyses"
     __table_args__ = (
         # 동일 트렌드에서 같은 분석 버전이 중복 생성되는 것을 막는다.
@@ -37,24 +37,20 @@ class TrendAiAnalysis(Base):
             "comment": "트렌드 AI 분석",
         },
     )
-    
+
     analysis_id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
         autoincrement=True,
         comment="AI 분석 ID 일련번호",
     )
-    
+
     analysis_version: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        comment="트렌드별 AI 분석 버전"
+        Integer, nullable=False, comment="트렌드별 AI 분석 버전"
     )
-    
+
     one_line_summary: Mapped[str] = mapped_column(
-        String(500),
-        nullable=False,
-        comment="AI 한줄 요약"
+        String(500), nullable=False, comment="AI 한줄 요약"
     )
 
     reason_text: Mapped[str] = mapped_column(
@@ -74,7 +70,7 @@ class TrendAiAnalysis(Base):
         nullable=False,
         comment="AI 모델 제공자",
     )
-    
+
     model_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
@@ -109,7 +105,7 @@ class TrendAiAnalysis(Base):
         "Trend",
         back_populates="ai_analyses",
     )
-    
+
     # 이 AI 분석에서 생성된 관련 키워드 목록
     related_keywords: Mapped[list[TrendRelatedKeyword]] = relationship(
         "TrendRelatedKeyword",

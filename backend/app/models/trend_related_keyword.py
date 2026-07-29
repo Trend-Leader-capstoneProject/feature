@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     ForeignKey,
     Index,
     Integer,
@@ -14,9 +15,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy import (
-    Enum as SqlEnum,
-)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -24,21 +22,18 @@ from app.models.db_enums import RelatedKeywordType, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.trend_ai_analysis import TrendAiAnalysis
-    
-    
+
+
 class TrendRelatedKeyword(Base):
     """AI 분석을 통해 생성된 트렌드 관련 키워드를 저장하는 모델."""
-    
+
     __tablename__ = "trend_related_keywords"
     __table_args__ = (
         # 동일 분석에 같은 정규화 키워드가 중복 저장되는 것 방지
         UniqueConstraint(
             "analysis_id",
             "normalized_keyword",
-            name=(
-                "uq_trend_related_keywords_"
-                "analysis_id_normalized_keyword"
-            ),
+            name=("uq_trend_related_keywords_analysis_id_normalized_keyword"),
         ),
         # 분석별 키워드를 유형과 표시 순서에 따라 조회할 때 사용
         Index(
@@ -51,26 +46,24 @@ class TrendRelatedKeyword(Base):
             "comment": "AI 분석 관련 키워드",
         },
     )
-    
+
     related_keyword_id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
         autoincrement=True,
-        comment="관련 키워드 ID 일련번호"
+        comment="관련 키워드 ID 일련번호",
     )
-    
+
     keyword: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         comment="키워드 이름",
     )
-    
+
     normalized_keyword: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        comment="중복 비교용 정규화 키워드"
+        String(100), nullable=False, comment="중복 비교용 정규화 키워드"
     )
-    
+
     keyword_type: Mapped[RelatedKeywordType] = mapped_column(
         SqlEnum(
             RelatedKeywordType,
@@ -81,9 +74,9 @@ class TrendRelatedKeyword(Base):
         nullable=False,
         default=RelatedKeywordType.RELATED,
         server_default=RelatedKeywordType.RELATED.value,
-        comment="관련 키워드 유형"
+        comment="관련 키워드 유형",
     )
-    
+
     sort_order: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -91,7 +84,7 @@ class TrendRelatedKeyword(Base):
         server_default=text("0"),
         comment="표시 순서",
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
@@ -114,7 +107,7 @@ class TrendRelatedKeyword(Base):
         "TrendAiAnalysis",
         back_populates="related_keywords",
     )
-    
+
     def __repr__(self) -> str:
         return (
             "TrendRelatedKeyword("

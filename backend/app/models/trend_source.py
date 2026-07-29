@@ -7,14 +7,12 @@ from sqlalchemy import (
     CHAR,
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     ForeignKey,
     String,
     Text,
     UniqueConstraint,
     func,
-)
-from sqlalchemy import (
-    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,8 +21,8 @@ from app.models.db_enums import TrendSourcePlatform, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.trend import Trend
-    
-    
+
+
 class TrendSource(Base):
     """트렌드가 수집된 외부 플랫폼의 출처 정보를 저장하는 모델."""
 
@@ -40,7 +38,7 @@ class TrendSource(Base):
             "comment": "트렌드 출처 정보 저장",
         },
     )
-    
+
     source_id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
@@ -118,4 +116,3 @@ class TrendSource(Base):
             f"source_key={self.source_key!r}"
             ")"
         )
-    

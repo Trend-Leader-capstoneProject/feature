@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 class UserTrendBookmark(Base):
     """사용자가 저장한 트렌드 북마크 정보를 관리하는 모델."""
-    
+
     __tablename__ = "user_trend_bookmarks"
     __table_args__ = (
         # 한 사용자가 동일한 트렌드를 중복 저장하지 못하게 한다.
@@ -41,21 +41,18 @@ class UserTrendBookmark(Base):
             "comment": "사용자 저장 트렌드",
         },
     )
-    
+
     bookmark_id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-        comment="북마크 ID 일련번호"
+        BigInteger, primary_key=True, autoincrement=True, comment="북마크 ID 일련번호"
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         server_default=func.current_timestamp(),
         comment="북마크 생성 시각",
     )
-    
+
     trend_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
@@ -75,7 +72,7 @@ class UserTrendBookmark(Base):
         nullable=False,
         comment="사용자 ID",
     )
-    
+
     # 이 북마크를 생성한 사용자로 접근
     user: Mapped[User] = relationship(
         "User",
@@ -87,7 +84,7 @@ class UserTrendBookmark(Base):
         "Trend",
         back_populates="user_bookmarks",
     )
-    
+
     def __repr__(self) -> str:
         return (
             "UserTrendBookmark("

@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     String,
     UniqueConstraint,
     func,
-)
-from sqlalchemy import (
-    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -131,7 +129,7 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    
+
     # 하나의 사용자는 여러 관심 카테고리를 선택할 수 있음
     interest_category_links: Mapped[list[UserInterestCategory]] = relationship(
         "UserInterestCategory",
@@ -139,7 +137,7 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    
+
     # 사용자가 저장한 트렌드 북마크 목록
     trend_bookmarks: Mapped[list[UserTrendBookmark]] = relationship(
         "UserTrendBookmark",
@@ -147,7 +145,7 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    
+
     def __repr__(self) -> str:
         # 비밀번호 해시와 이메일은 로그에 출력하지 않음.
         return (

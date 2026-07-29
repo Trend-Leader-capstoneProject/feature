@@ -7,15 +7,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     UniqueConstraint,
     func,
-)
-from sqlalchemy import (
-    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,7 +26,7 @@ if TYPE_CHECKING:
 
 class TrendRankSnapshot(Base):
     """플랫폼별 트렌드 순위를 시계열로 저장하는 모델."""
-    
+
     __tablename__ = "trend_rank_snapshots"
     __table_args__ = (
         # 동일 트렌드·플랫폼·시각의 중복 스냅샷 생성을 막는다.
@@ -36,10 +34,7 @@ class TrendRankSnapshot(Base):
             "trend_id",
             "platform",
             "snapshot_at",
-            name=(
-                "uq_trend_rank_snapshots_"
-                "trend_id_platform_snapshot_at"
-            ),
+            name=("uq_trend_rank_snapshots_trend_id_platform_snapshot_at"),
         ),
         # 특정 플랫폼의 특정 시점 순위를 순위순으로 조회할 때 사용한다.
         Index(
@@ -58,14 +53,14 @@ class TrendRankSnapshot(Base):
             "comment": "트렌드 순위 스냅샷",
         },
     )
-    
+
     rank_snapshot_id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
         autoincrement=True,
         comment="순위 기록 ID 일련번호",
     )
-    
+
     platform: Mapped[TrendSourcePlatform] = mapped_column(
         SqlEnum(
             TrendSourcePlatform,
@@ -79,32 +74,32 @@ class TrendRankSnapshot(Base):
         nullable=False,
         comment="순위 기준 플랫폼",
     )
-    
+
     ranking: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         comment="수집 시점의 플랫폼 순위",
     )
-    
+
     rank_delta: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="직전 순위 대비 순위 변동값",
     )
-    
+
     score: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 4),
         nullable=True,
         comment="플랫폼에서 제공한 트렌드 점수",
     )
-    
+
     snapshot_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         server_default=func.current_timestamp(),
         comment="스냅샷 시각",
     )
-    
+
     trend_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(

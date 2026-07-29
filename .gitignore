@@ -19,6 +19,7 @@ frontend/.idea
 ### Python ###
 __pycache__/
 *.py[cod]
+.ruff_cache
 
 ### venv 가상 환경 ###
 backend/venv
