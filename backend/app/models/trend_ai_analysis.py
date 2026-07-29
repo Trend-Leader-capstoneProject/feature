@@ -19,6 +19,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.trend import Trend
+    from app.models.trend_related_keyword import TrendRelatedKeyword
     
     
 class TrendAiAnalysis(Base):
@@ -107,6 +108,14 @@ class TrendAiAnalysis(Base):
     trend: Mapped[Trend] = relationship(
         "Trend",
         back_populates="ai_analyses",
+    )
+    
+    # 이 AI 분석에서 생성된 관련 키워드 목록
+    related_keywords: Mapped[list[TrendRelatedKeyword]] = relationship(
+        "TrendRelatedKeyword",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:

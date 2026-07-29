@@ -4,6 +4,7 @@ from app.models.trend import Trend
 from app.models.trend_ai_analysis import TrendAiAnalysis
 from app.models.trend_category_map import TrendCategoryMap
 from app.models.trend_rank_snapshot import TrendRankSnapshot
+from app.models.trend_related_keyword import TrendRelatedKeyword
 from app.models.trend_source import TrendSource
 from app.models.user import User
 from app.models.user_interest_category import UserInterestCategory
@@ -16,6 +17,7 @@ __all__ = [
     "TrendAiAnalysis",
     "TrendCategoryMap",
     "TrendRankSnapshot",
+    "TrendRelatedKeyword",
     "TrendSource",
     "User",
     "UserInterestCategory",
