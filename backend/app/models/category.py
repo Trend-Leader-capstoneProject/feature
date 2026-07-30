@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.search_log import SearchLog
     from app.models.trend_category_map import TrendCategoryMap
     from app.models.user_interest_category import UserInterestCategory
 
@@ -108,6 +109,13 @@ class Category(Base):
         "TrendCategoryMap",
         back_populates="category",
         passive_deletes="all",
+    )
+
+    # 이 카테고리를 필터로 사용한 검색 기록 목록
+    search_logs: Mapped[list[SearchLog]] = relationship(
+        "SearchLog",
+        back_populates="category",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:

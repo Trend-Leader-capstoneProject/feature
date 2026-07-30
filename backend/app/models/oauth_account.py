@@ -6,13 +6,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     ForeignKey,
     String,
     UniqueConstraint,
     func,
-)
-from sqlalchemy import (
-    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

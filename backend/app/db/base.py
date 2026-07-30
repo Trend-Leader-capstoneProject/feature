@@ -8,7 +8,6 @@ Alembic은 Base.metadata를 기준으로 DB 스키마 변경을 감지한다.
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 
-
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_name)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -20,6 +19,5 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     """Trend Leader ORM 모델의 공통 Base 클래스."""
-    
-    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)

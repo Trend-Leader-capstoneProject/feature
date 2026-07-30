@@ -1,21 +1,29 @@
 from app.models.category import Category
 from app.models.oauth_account import OAuthAccount
+from app.models.search_log import SearchLog
 from app.models.trend import Trend
+from app.models.trend_ai_analysis import TrendAiAnalysis
 from app.models.trend_category_map import TrendCategoryMap
 from app.models.trend_rank_snapshot import TrendRankSnapshot
+from app.models.trend_related_keyword import TrendRelatedKeyword
 from app.models.trend_source import TrendSource
 from app.models.user import User
 from app.models.user_interest_category import UserInterestCategory
 from app.models.user_profile import UserProfile
+from app.models.user_trend_bookmark import UserTrendBookmark
 
 __all__ = [
     "Category",
     "OAuthAccount",
+    "SearchLog",
     "Trend",
+    "TrendAiAnalysis",
     "TrendCategoryMap",
     "TrendRankSnapshot",
+    "TrendRelatedKeyword",
     "TrendSource",
     "User",
     "UserInterestCategory",
     "UserProfile",
+    "UserTrendBookmark",
 ]

@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     DateTime,
+    Enum as SqlEnum,
     String,
     UniqueConstraint,
     func,
-)
-from sqlalchemy import (
-    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,8 +18,10 @@ from app.models.db_enums import UserStatus, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.oauth_account import OAuthAccount
+    from app.models.search_log import SearchLog
     from app.models.user_interest_category import UserInterestCategory
     from app.models.user_profile import UserProfile
+    from app.models.user_trend_bookmark import UserTrendBookmark
 
 
 class User(Base):
@@ -123,14 +123,15 @@ class User(Base):
         passive_deletes=True,
     )
 
-    # 하나의 사용자는 여러 OAuth 계정을 연결할 수 있다.
+    # 하나의 사용자는 여러 OAuth 계정을 연결할 수 있음
     oauth_accounts: Mapped[list[OAuthAccount]] = relationship(
         "OAuthAccount",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    
+
+    # 하나의 사용자는 여러 관심 카테고리를 선택할 수 있음
     interest_category_links: Mapped[list[UserInterestCategory]] = relationship(
         "UserInterestCategory",
         back_populates="user",
@@ -138,8 +139,24 @@ class User(Base):
         passive_deletes=True,
     )
 
+    # 사용자가 저장한 트렌드 북마크 목록
+    trend_bookmarks: Mapped[list[UserTrendBookmark]] = relationship(
+        "UserTrendBookmark",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # 사용자가 실행한 최근 검색 기록 목록
+    search_logs: Mapped[list[SearchLog]] = relationship(
+        "SearchLog",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     def __repr__(self) -> str:
-        # 비밀번호 해시와 이메일은 로그에 출력하지 않는다.
+        # 비밀번호 해시와 이메일은 로그에 출력하지 않음.
         return (
             "User("
             f"user_id={self.user_id!r}, "
