@@ -210,6 +210,11 @@ Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,
 backend/
 ├── app/
 │   ├── api/             # FastAPI Router
+│   │   ├── dependencies/     # Service·Repository 의존성 조립
+│   │   │   ├── __init__.py
+│   │   │   └── category_dependency.py
+│   │   ├── routes/           # 기능별 FastAPI Router
+│   │   └── router.py         # 전체 Router 등록
 │   ├── core/            # 환경변수 및 애플리케이션 설정
 │   ├── db/              # DB 연결 및 세션 관리
 │   ├── models/          # SQLAlchemy ORM Model
