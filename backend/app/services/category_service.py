@@ -26,15 +26,9 @@ class CategoryService:
             categories,
         )
 
-        root_category_ids = {
-            category.category_id
-            for category in root_categories
-        }
+        root_category_ids = {category.category_id for category in root_categories}
 
-        orphan_parent_ids = (
-            set(children_by_parent_id)
-            - root_category_ids
-        )
+        orphan_parent_ids = set(children_by_parent_id) - root_category_ids
 
         for parent_id in sorted(orphan_parent_ids):
             logger.warning(
@@ -65,11 +59,7 @@ class CategoryService:
     ) -> list[Category]:
         """parent_id가 없는 대분류 카테고리만 반환한다."""
 
-        return [
-            category
-            for category in categories
-            if category.parent_id is None
-        ]
+        return [category for category in categories if category.parent_id is None]
 
     @staticmethod
     def _group_children_by_parent_id(
