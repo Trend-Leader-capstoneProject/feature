@@ -7,7 +7,7 @@ Trend Leader 통합 API Router.
 
 from fastapi import APIRouter
 
-from app.api.routes import health
+from app.api.routes import category_router, health
 
 # GET / 등 API prefix를 사용하지 않는 기본 라우터
 root_router = APIRouter()
@@ -16,4 +16,6 @@ root_router = APIRouter()
 api_router = APIRouter()
 
 root_router.include_router(health.root_router)
+
 api_router.include_router(health.router)
+api_router.include_router(category_router.router)
