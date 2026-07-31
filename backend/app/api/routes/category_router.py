@@ -1,5 +1,3 @@
-from typing import Any
-
 from fastapi import APIRouter, status
 
 from app.api.dependencies.category_dependency import CategoryServiceDep
@@ -25,13 +23,13 @@ router = APIRouter(
 )
 def list_categories(
     service: CategoryServiceDep,
-) -> dict[str, Any]:
+) -> CommonResponse[CategoryListData]:
     """관심사 선택 화면에서 사용하는 카테고리 목록을 조회한다."""
 
     result = service.list_categories()
 
     return success_response(
         message="카테고리 목록을 조회했습니다.",
-        data=result.model_dump(),
+        data=result,
         status_code=status.HTTP_200_OK,
     )
