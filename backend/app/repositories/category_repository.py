@@ -1,5 +1,3 @@
-from collections.abc import Sequence
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,12 +5,12 @@ from app.models.category import Category
 
 
 class CategoryRepository:
-    """카테고리 테이블의 조회 책임을 담당한다."""
+    """카테고리 데이터 접근을 담당하는 Repository."""
     
     def __init__(self, db: Session) -> None:
         self.db = db
         
-    def find_all_active(self) -> Sequence[Category]:
+    def find_all_active(self) -> list[Category]:
         """
         활성 상태인 카테고리 조회
         
@@ -28,5 +26,5 @@ class CategoryRepository:
             )
         )
         
-        return self.db.scalars(statement).all()
+        return list(self.db.scalars(statement).all())
     
