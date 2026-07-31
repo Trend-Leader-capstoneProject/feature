@@ -12,7 +12,10 @@ class CommonResponse(BaseModel, Generic[DataT]):
     )
     
     success: bool
-    status_code: int = Field(alias="statusCode")
+    status_code: int = Field(
+        serialization_alias="statusCode",
+        validation_alias="statusCode",
+    )
     message: str
     data: DataT
     
