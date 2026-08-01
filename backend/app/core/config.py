@@ -5,7 +5,6 @@ from urllib.parse import quote_plus
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 # 현재 파일: backend/app/core/config.py
 # parents[0] = core
@@ -28,11 +27,11 @@ class Settings(BaseSettings):
     db_name: str = "trend_leader"
     db_user: str = "trend_user"
     db_password: str = "trend_pass"
-    
+
     # 운영 환경처럼 완성된 DB URL을 직접 주입할 때 사용한다.
     # 값이 존재하면 아래 DB_HOST, DB_PORT 등의 개별 설정보다 우선한다.
     database_url: str | None = None
-    
+
     # SQLAlchemy Connection Pool
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
@@ -66,10 +65,9 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
-    
+
     @property
     def sync_database_url(self) -> str:
-
         """
         SQLAlchemy 동기식 데이터베이스 URL을 반환한다.
 
@@ -79,10 +77,10 @@ class Settings(BaseSettings):
 
         if self.database_url:
             return self.database_url
-        
+
         encoded_user = quote_plus(self.db_user)
         encoded_password = quote_plus(self.db_password)
-        
+
         return (
             f"mysql+pymysql://{encoded_user}:{encoded_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -92,9 +90,7 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
 
 
