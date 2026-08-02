@@ -13,7 +13,6 @@ def success_response(
     """공통 성공 응답 모델을 생성한다."""
 
     return CommonResponse[DataT](
-        success=True,
         status_code=status_code,
         message=message,
         data=data,
