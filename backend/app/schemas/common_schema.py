@@ -1,4 +1,4 @@
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -12,3 +12,13 @@ class CommonResponse(BaseModel, Generic[DataT]):
     status_code: int = Field(serialization_alias="statusCode")
     message: str
     data: DataT
+
+class ErrorResponse(BaseModel):
+    """Trend Leader 공통 오류 응답 Schema."""
+
+    success: Literal[False] = False
+    status_code: int = Field(
+        serialization_alias="statusCode",
+    )
+    message: str
+    data: Any | None = None
