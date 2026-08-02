@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.common_schema import CommonResponse
+from app.schemas.error_schema import ErrorResponse
 from app.utils.response import success_response
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ router = APIRouter(
 
 @root_router.get(
     "/",
+    response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="서버 기본 실행 확인",
 )
@@ -64,6 +66,7 @@ async def root() -> HealthResponse:
 
 @router.get(
     "",
+    response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="API 상태 확인",
 )
@@ -89,9 +92,10 @@ async def health_check() -> HealthResponse:
     "/ready",
     status_code=status.HTTP_200_OK,
     summary="API 준비 상태 확인",
-    response_model=None,
+    response_model=HealthResponse,
     responses={
         status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
             "description": "데이터베이스 연결 불가",
         },
     },
