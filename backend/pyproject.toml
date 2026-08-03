@@ -12,3 +12,11 @@ select = [
 [tool.ruff.lint.isort]
 combine-as-imports = true
 force-single-line = false
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+markers = [
+    "integration: MariaDB 테스트 DB가 필요한 통합 테스트",
+]

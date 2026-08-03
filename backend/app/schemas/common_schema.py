@@ -1,6 +1,6 @@
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 DataT = TypeVar("DataT")
 
@@ -8,11 +8,7 @@ DataT = TypeVar("DataT")
 class CommonResponse(BaseModel, Generic[DataT]):
     """Trend Leader 공통 성공 응답 Schema."""
 
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-
-    success: bool
+    success: Literal[True] = True
     status_code: int = Field(serialization_alias="statusCode")
     message: str
     data: DataT

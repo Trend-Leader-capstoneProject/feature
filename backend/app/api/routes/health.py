@@ -13,7 +13,7 @@ Readiness:
 
 import logging
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
@@ -23,11 +23,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.schemas.common_schema import CommonResponse
+from app.schemas.error_schema import ErrorResponse
 from app.utils.response import success_response
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+HealthData = dict[str, str]
+HealthResponse = CommonResponse[HealthData]
 
 root_router = APIRouter(
     tags=["Root"],
@@ -41,10 +45,11 @@ router = APIRouter(
 
 @root_router.get(
     "/",
+    response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="서버 기본 실행 확인",
 )
-async def root() -> dict[str, Any]:
+async def root() -> HealthResponse:
     """
     Trend Leader API 서버의 기본 실행 상태를 반환한다.
     """
@@ -61,10 +66,11 @@ async def root() -> dict[str, Any]:
 
 @router.get(
     "",
+    response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="API 상태 확인",
 )
-async def health_check() -> dict[str, Any]:
+async def health_check() -> HealthResponse:
     """
     FastAPI 프로세스의 실행 상태를 확인한다.
 
@@ -86,16 +92,17 @@ async def health_check() -> dict[str, Any]:
     "/ready",
     status_code=status.HTTP_200_OK,
     summary="API 준비 상태 확인",
-    response_model=None,
+    response_model=HealthResponse,
     responses={
         status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
             "description": "데이터베이스 연결 불가",
         },
     },
 )
 def readiness_check(
     db: Annotated[Session, Depends(get_db)],
-) -> Any:
+) -> HealthResponse | JSONResponse:
     """
     DB에 SELECT 1을 실행하여 서비스 준비 상태를 확인한다.
 

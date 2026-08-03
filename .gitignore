@@ -1,9 +1,11 @@
 ### 환경 변수 / 시크릿 ###
 backend/.env
+backend/.env.test
 .env
 .env.*
 !.env.example
 !.env.compose.example
+!.env.test.example
 
 .env
 .env.local
@@ -25,6 +27,7 @@ __pycache__/
 backend/venv
 .venv/
 venv/
+
 
 ### OS ###
 .DS_Store

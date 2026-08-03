@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Enum as SqlEnum,
     ForeignKey,
     Index,
     Integer,
@@ -15,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.db_enums import CategoryCode, get_enum_values
 
 if TYPE_CHECKING:
     from app.models.search_log import SearchLog
@@ -27,13 +29,17 @@ class Category(Base):
 
     __tablename__ = "categories"
     __table_args__ = (
-        # 같은 이름의 카테고리가 중복 생성되는 것을 막는다.
         UniqueConstraint(
+            # 카테고리 중복 생성 방지
             "category_name",
             name="uq_categories_category_name",
         ),
-        # 상위 카테고리별 활성 하위 카테고리를 노출 순서대로 조회한다.
+        UniqueConstraint(
+            "category_code",
+            name="uq_categories_category_code",
+        ),
         Index(
+            # 상위 카테고리별 활성 하위 카테고리를 노출 순서대로 조회
             "ix_categories_parent_id_is_active_sort_order",
             "parent_id",
             "is_active",
@@ -49,6 +55,18 @@ class Category(Base):
         primary_key=True,
         autoincrement=True,
         comment="카테고리 ID 일련번호",
+    )
+
+    category_code: Mapped[CategoryCode | None] = mapped_column(
+        SqlEnum(
+            CategoryCode,
+            name="category_code",
+            values_callable=get_enum_values,
+            native_enum=True,
+            validate_strings=True,
+        ),
+        nullable=True,
+        comment="카테고리 코드",
     )
 
     category_name: Mapped[str] = mapped_column(
