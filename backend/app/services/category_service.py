@@ -90,6 +90,7 @@ class CategoryService:
         child_items = [
             CategoryItem(
                 category_id=child.category_id,
+                category_code=child.category_code,
                 category_name=child.category_name,
                 parent_id=child.parent_id,
                 sort_order=child.sort_order,
@@ -100,6 +101,7 @@ class CategoryService:
 
         return CategoryItem(
             category_id=category.category_id,
+            category_code=category.category_code,
             category_name=category.category_name,
             parent_id=category.parent_id,
             sort_order=category.sort_order,

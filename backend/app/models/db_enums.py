@@ -45,3 +45,14 @@ class RelatedKeywordType(str, Enum):
     RELATED = "RELATED"
     HASHTAG = "HASHTAG"
     RECOMMENDED = "RECOMMENDED"
+    
+class CategoryCode(str, Enum):
+    """대분류 식별 코드."""
+
+    FASHION = "FASHION"
+    FOOD = "FOOD"
+    IT_DIGITAL = "IT_DIGITAL"
+    ENTERTAINMENT = "ENTERTAINMENT"
+    BEAUTY = "BEAUTY"
+    GAME = "GAME"
+    
