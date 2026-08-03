@@ -1,17 +1,17 @@
 services:
   db:
-    image: mariadb:${MARIADB_IMAGE_TAG}
+    image: mariadb:${MARIADB_IMAGE_TAG:-latest}
     container_name: trend-leader-db
 
     environment:
-      MARIADB_DATABASE: ${DB_NAME}
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PASSWORD}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME:?DB_NAME is required}
+      MARIADB_USER: ${DB_USER:?DB_USER is required}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
 
     ports:
-      - "${DB_EXTERNAL_PORT}:3306"
-
+      - "${DB_EXTERNAL_PORT:?DB_EXTERNAL_PORT is required}:3306"
+      
     volumes:
       - trend_leader_db:/var/lib/mysql
       - ./backend/sql_script:/docker-entrypoint-initdb.d:ro
