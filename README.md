@@ -877,6 +877,8 @@ Docker Desktop을 실행하고 Linux Container Engine이 정상적으로 시작�
 ```powershell
 Copy-Item .env.compose.example .env.compose
 Copy-Item backend/.env.example backend/.env
+Copy-Item .env.test.compose.example .env.test.compose
+Copy-Item backend/.env.test.example backend/.env.test
 docker compose --env-file .env.compose config
 docker compose --env-file .env.compose up --build -d
 docker compose --env-file .env.compose ps
