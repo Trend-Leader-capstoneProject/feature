@@ -13,7 +13,6 @@ class CategoryItem(BaseModel):
     세부분류의 category_code는 null일 수 있다.
     """
 
-
     category_id: int
     category_code: CategoryCode | None
     category_name: str

@@ -56,26 +56,24 @@ class Category(Base):
         autoincrement=True,
         comment="카테고리 ID 일련번호",
     )
-    
+
     category_code: Mapped[CategoryCode | None] = mapped_column(
-            SqlEnum(
-                CategoryCode,
-                name="category_code",
-                values_callable=get_enum_values,
-                native_enum=True,
-                validate_strings=True,
-            ),
-            nullable=True,
-            comment="카테고리 코드",
-        )
+        SqlEnum(
+            CategoryCode,
+            name="category_code",
+            values_callable=get_enum_values,
+            native_enum=True,
+            validate_strings=True,
+        ),
+        nullable=True,
+        comment="카테고리 코드",
+    )
 
     category_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         comment="카테고리명",
     )
-    
-    
 
     sort_order: Mapped[int] = mapped_column(
         Integer,

@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.models.category import Category
+from app.models.db_enums import CategoryCode
 from app.repositories.category_repository import CategoryRepository
 from app.services.category_service import CategoryService
 
@@ -14,11 +15,11 @@ def make_category(
     category_name: str,
     sort_order: int,
     parent_id: int | None = None,
+    category_code: CategoryCode | None = None,
 ) -> Category:
-    """테스트용 Category 객체를 생성한다."""
-
     return Category(
         category_id=category_id,
+        category_code=category_code,
         category_name=category_name,
         parent_id=parent_id,
         sort_order=sort_order,
@@ -65,28 +66,33 @@ def test_list_categories_builds_two_level_hierarchy() -> None:
     categories = [
         make_category(
             category_id=1,
+            category_code=CategoryCode.GAME,
             category_name="게임",
             sort_order=1,
         ),
         make_category(
             category_id=3,
+            category_code=None,
             category_name="모바일 게임",
             parent_id=1,
             sort_order=1,
         ),
         make_category(
             category_id=2,
+            category_code=CategoryCode.IT_DIGITAL,
             category_name="IT/디지털",
             sort_order=2,
         ),
         make_category(
             category_id=4,
+            category_code=None,
             category_name="PC 게임",
             parent_id=1,
             sort_order=2,
         ),
         make_category(
             category_id=5,
+            category_code=None,
             category_name="인공지능",
             parent_id=2,
             sort_order=1,
