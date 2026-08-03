@@ -6,6 +6,7 @@ backend/.env.test
 !.env.example
 !.env.compose.example
 !.env.test.example
+!.env.test.compose.example
 
 .env
 .env.local
