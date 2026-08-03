@@ -1,0 +1,27 @@
+services:
+  db-test:
+    image: mariadb:${MARIADB_IMAGE_TAG:-latest}
+    container_name: trend-leader-db-test
+
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+
+    ports:
+      - "3307:3306"
+
+    tmpfs:
+      - /var/lib/mysql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mariadb-admin ping -h 127.0.0.1 -u root -p ${DB_ROOT_PASSWORD} --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
