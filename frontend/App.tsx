@@ -1,16 +1,16 @@
-import { Text, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
+import { RootNavigator } from "./src/app/navigation/RootNavigator";
+import { QueryProvider } from "./src/app/providers/QueryProvider";
 
 export default function AppEntry() {
   return (
-    <View
-      style={{
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Text>Trend Leader</Text>
-      <Text>Expo frontend 연결 성공</Text>
-    </View>
+    <SafeAreaProvider>
+      <QueryProvider>
+        <StatusBar style="dark" />
+        <RootNavigator />
+      </QueryProvider>
+    </SafeAreaProvider>
   );
 }
