@@ -101,21 +101,27 @@ RecommendedTrendsScreen에서는 다음만 구현합니다.
 
 프로젝트의 실제 경로 구조에 맞춰 다음 파일을 생성해주세요.
 
-* RecommendedTrendsScreen.tsx
-* FeaturedTrend.tsx
-* TrendRankingItem.tsx
-* CategorySwitcher.tsx
-* TrendSignalBadge.tsx
-* useRecommendedTrends.ts
-* recommendedTrendTypes.ts
-* recommendedTrendMockData.ts
-* colors.ts
-* spacing.ts
-* typography.ts
-* radius.ts
-* LoadingView.tsx
-* ErrorView.tsx
-* EmptyView.tsx
+* [TARGET_SCREEN_NAME]
+* [IMPLEMENTATION_MODE]
+* [SCREEN_SPECIFICATION]
+* [API_CONTRACT]
+* [CURRENT_PROJECT_STRUCTURE]
+* [EXISTING_RELATED_CODE]
+* [TARGET_FILES]
+* [SCREEN_SPECIFIC_CONSTRAINTS]
+  
+EXISTING_API
+- 기존 API, Hook, Type을 유지하며 화면 구현
+
+MOCK_API
+- 실제 계약과 동일한 mock data source 사용
+
+UI_ONLY
+- 순수 화면·컴포넌트만 구현
+
+REFACTOR
+- 기존 기능을 유지하면서 구조와 UI를 개선
+
 
 기존 프로젝트에 동일한 공통 토큰 또는 상태 컴포넌트가 있다면 새 파일을 중복 생성하지 말고 기존 파일을 재사용하세요.
 
