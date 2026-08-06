@@ -3,12 +3,12 @@ from pydantic import BaseModel, Field, StrictInt, field_validator
 
 class InterestCreateRequest(BaseModel):
     """사용자의 최초 관심사 저장 요청 Schema."""
-    
+
     category_ids: list[StrictInt] = Field(
         min_length=1,
         description="사용자가 선택한 활성 대분류 카테고리 ID 목록",
     )
-    
+
     @field_validator("category_ids")
     @classmethod
     def validate_unique_category_ids(
