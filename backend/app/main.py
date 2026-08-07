@@ -12,6 +12,7 @@ Trend Leader FastAPI 애플리케이션 진입점.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.exception_handler import register_exception_handlers
 from app.api.router import api_router, root_router
 from app.core.config import get_settings
 
@@ -37,7 +38,11 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json",
     )
-
+    
+    register_exception_handlers(
+        application,
+    )
+    
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -47,7 +52,9 @@ def create_app() -> FastAPI:
     )
 
     # 서버 기본 진입점: GET /
-    application.include_router(root_router)
+    application.include_router(
+        root_router,
+    )
 
     # 실제 서비스 API: /api/*
     application.include_router(
