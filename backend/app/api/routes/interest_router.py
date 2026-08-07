@@ -24,7 +24,6 @@ router = APIRouter(
         "활성 대분류 카테고리를 최초 관심사로 저장합니다."
     ),
 )
-
 def create_interests(
     request: InterestCreateRequest,
     current_user: CurrentUserDep,
