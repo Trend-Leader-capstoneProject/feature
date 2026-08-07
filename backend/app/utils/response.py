@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from fastapi.encoders import jsonable_encoder
@@ -26,7 +27,7 @@ def error_response(
     message: str,
     status_code: int,
     data: Any | None = None,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     """공통 오류 응답을 생성한다."""
 
