@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies.category_dependency import get_category_service
 from app.main import create_app
+from app.models.db_enums import CategoryCode
 from app.schemas.category_schema import CategoryItem, CategoryListData
 from app.services.category_service import CategoryService
 
@@ -53,12 +54,14 @@ def test_list_categories_returns_hierarchical_response(
         categories=[
             CategoryItem(
                 category_id=1,
+                category_code=CategoryCode.GAME,
                 category_name="게임",
                 parent_id=None,
                 sort_order=1,
                 children=[
                     CategoryItem(
                         category_id=2,
+                        category_code=None,
                         category_name="PC 게임",
                         parent_id=1,
                         sort_order=1,
@@ -82,12 +85,14 @@ def test_list_categories_returns_hierarchical_response(
             "categories": [
                 {
                     "category_id": 1,
+                    "category_code": "GAME",
                     "category_name": "게임",
                     "parent_id": None,
                     "sort_order": 1,
                     "children": [
                         {
                             "category_id": 2,
+                            "category_code": "",
                             "category_name": "PC 게임",
                             "parent_id": 1,
                             "sort_order": 1,
