@@ -92,7 +92,7 @@ def test_list_categories_returns_hierarchical_response(
                     "children": [
                         {
                             "category_id": 2,
-                            "category_code": "",
+                            "category_code": None,
                             "category_name": "PC 게임",
                             "parent_id": 1,
                             "sort_order": 1,

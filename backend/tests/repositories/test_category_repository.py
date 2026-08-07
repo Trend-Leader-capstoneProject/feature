@@ -108,3 +108,50 @@ def test_find_all_active_returns_parent_and_children(
         result_by_name["통합 테스트 세부분류"].parent_id
         == root_category.category_id
     )
+    
+def test_find_list_by_ids_returns_matching_categories(
+    db_session: Session,
+) -> None:
+    """요청한 ID에 해당하는 카테고리를 활성 여부와 관계없이 조회한다."""
+
+    active_category = Category(
+        category_code=CategoryCode.GAME,
+        category_name="ID 조회 활성 카테고리",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+    inactive_category = Category(
+        category_code=CategoryCode.FOOD,
+        category_name="ID 조회 비활성 카테고리",
+        sort_order=2,
+        is_active=False,
+        parent_id=None,
+    )
+
+    db_session.add_all(
+        [
+            active_category,
+            inactive_category,
+        ]
+    )
+    db_session.flush()
+
+    repository = CategoryRepository(
+        db=db_session,
+    )
+
+    result = repository.find_list_by_ids(
+        [
+            active_category.category_id,
+            inactive_category.category_id,
+        ]
+    )
+
+    assert {
+        category.category_id
+        for category in result
+    } == {
+        active_category.category_id,
+        inactive_category.category_id,
+    }
