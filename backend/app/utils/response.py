@@ -1,6 +1,10 @@
-from typing import TypeVar
+from typing import Any, TypeVar
+
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
 from app.schemas.common_schema import CommonResponse
+from app.schemas.error_schema import ErrorResponse
 
 DataT = TypeVar("DataT")
 
@@ -16,4 +20,27 @@ def success_response(
         status_code=status_code,
         message=message,
         data=data,
+    )
+
+def error_response(
+    message: str,
+    status_code: int,
+    data: Any | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    """공통 오류 응답을 생성한다."""
+
+    response = ErrorResponse(
+        status_code=status_code,
+        message=message,
+        data=data,
+    )
+
+    return JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(
+            response,
+            by_alias=True,
+        ),
+        headers=headers,
     )
