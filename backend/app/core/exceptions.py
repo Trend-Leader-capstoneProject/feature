@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import status
@@ -13,7 +14,7 @@ class ApplicationException(Exception):
         self,
         message: str | None = None,
         data: Any | None = None,
-        headers: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.message = message or self.default_message
         self.data = data
@@ -39,7 +40,7 @@ class UnauthorizedException(ApplicationException):
         self,
         message: str | None = None,
         data: Any | None = None,
-        headers: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(
             message=message,
