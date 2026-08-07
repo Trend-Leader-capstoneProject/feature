@@ -28,3 +28,15 @@ class CategoryRepository:
         )
 
         return list(self.db.scalars(statement).all())
+    
+    def find_list_by_ids(
+        self,
+        category_ids: list[int],
+    ) -> list[Category]:
+        """카테고리 ID 목록에 해당하는 카테고리를 조회한다."""
+
+        statement = select(Category).where(
+            Category.category_id.in_(category_ids),
+        )
+
+        return list(self.db.scalars(statement).all())
