@@ -27,15 +27,19 @@ def test_database_url() -> str:
 
     database_url = os.getenv("TEST_DATABASE_URL")
 
-    if not database_url:
-        pytest.skip("TEST_DATABASE_URL이 설정되지 않아 DB 통합 테스트를 건너뜁니다.")
+    if not database_url or database_url == "input_here":
+        pytest.skip(
+            "TEST_DATABASE_URL이 설정되지 않아 "
+            "DB 통합 테스트를 건너뜁니다."
+        )
 
     parsed_url = make_url(database_url)
     database_name = parsed_url.database
 
     if database_name != "trend_leader_test":
         raise RuntimeError(
-            "DB 통합 테스트는 trend_leader_test 데이터베이스에서만 실행할 수 있습니다."
+            "DB 통합 테스트는 trend_leader_test "
+            "데이터베이스에서만 실행할 수 있습니다."
         )
 
     return database_url
