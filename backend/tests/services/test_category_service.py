@@ -105,50 +105,51 @@ def test_list_categories_builds_two_level_hierarchy() -> None:
 
     assert result.model_dump() == {
         "categories": [
-                {
-                    "category_id": 1,
-                    "category_code": CategoryCode.GAME,
-                    "category_name": "게임",
-                    "parent_id": None,
-                    "sort_order": 1,
-                    "children": [
-                        {
-                            "category_id": 3,
-                            "category_code": None,
-                            "category_name": "모바일 게임",
-                            "parent_id": 1,
-                            "sort_order": 1,
-                            "children": [],
-                        },
-                        {
-                            "category_id": 4,
-                            "category_code": None,
-                            "category_name": "PC 게임",
-                            "parent_id": 1,
-                            "sort_order": 2,
-                            "children": [],
-                        },
-                    ],
-                },
-                {
-                    "category_id": 2,
-                    "category_code": CategoryCode.IT_DIGITAL,
-                    "category_name": "IT/디지털",
-                    "parent_id": None,
-                    "sort_order": 2,
-                    "children": [
-                        {
-                            "category_id": 5,
-                            "category_code": None,
-                            "category_name": "인공지능",
-                            "parent_id": 2,
-                            "sort_order": 1,
-                            "children": [],
-                        },
-                    ],
-                }
-            ],
-        }
+            {
+                "category_id": 1,
+                "category_code": CategoryCode.GAME,
+                "category_name": "게임",
+                "parent_id": None,
+                "sort_order": 1,
+                "children": [
+                    {
+                        "category_id": 3,
+                        "category_code": None,
+                        "category_name": "모바일 게임",
+                        "parent_id": 1,
+                        "sort_order": 1,
+                        "children": [],
+                    },
+                    {
+                        "category_id": 4,
+                        "category_code": None,
+                        "category_name": "PC 게임",
+                        "parent_id": 1,
+                        "sort_order": 2,
+                        "children": [],
+                    },
+                ],
+            },
+            {
+                "category_id": 2,
+                "category_code": CategoryCode.IT_DIGITAL,
+                "category_name": "IT/디지털",
+                "parent_id": None,
+                "sort_order": 2,
+                "children": [
+                    {
+                        "category_id": 5,
+                        "category_code": None,
+                        "category_name": "인공지능",
+                        "parent_id": 2,
+                        "sort_order": 1,
+                        "children": [],
+                    },
+                ],
+            },
+        ],
+    }
+
     repository_mock.find_all_active.assert_called_once_with()
 
 
@@ -189,12 +190,14 @@ def test_list_categories_excludes_third_level_category(
         "categories": [
             {
                 "category_id": 1,
+                "category_code": None,
                 "category_name": "게임",
                 "parent_id": None,
                 "sort_order": 1,
                 "children": [
                     {
                         "category_id": 2,
+                        "category_code": None,
                         "category_name": "PC 게임",
                         "parent_id": 1,
                         "sort_order": 1,
@@ -205,7 +208,10 @@ def test_list_categories_excludes_third_level_category(
         ],
     }
 
-    assert "활성 세부분류의 유효한 상위 대분류를 찾을 수 없습니다" in caplog.text
+    assert (
+        "활성 세부분류의 유효한 상위 대분류를 찾을 수 없습니다"
+        in caplog.text
+    )
     assert "parent_id=2" in caplog.text
     assert "child_count=1" in caplog.text
 
