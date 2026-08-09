@@ -461,7 +461,7 @@ DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=trend_leader
 DB_USER=trend_user
-DB_PASSWORD=trend_pass
+DB_PASSWORD=change-me
 DATABASE_URL=
 
 JWT_SECRET_KEY=change_this_secret_key_min_16_chars
