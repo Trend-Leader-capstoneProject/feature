@@ -18,10 +18,3 @@ export interface CategoryItem {
 export interface CategoryListData {
     categories: CategoryItem[];
 }
-
-export interface CommonResponse<Data> {
-    success: true;
-    statusCode: number;
-    message: string;
-    data: Data;
-}
