@@ -1,4 +1,5 @@
-import { CategoryListData, CommonResponse } from "../types/category";
+import { CommonResponse } from "../../../shared/types/api";
+import { CategoryListData } from "../types/category";
 import { apiClient } from './../../../shared/api/apiClient';
 
 
