@@ -23,23 +23,37 @@ import {
 } from "../../../shared/constants";
 import { InterestCategoryOption } from "../components";
 import { useCategories } from "../hooks/useCategories";
+import { useSaveInterests } from "../hooks/useSaveInterests";
 import type { CategoryItem } from "../types/category";
 
 export function InterestSelectScreen() {
   const {
     data,
-    isError,
-    isFetching,
-    isPending,
+    isError: isCategoryError,
+    isFetching: isCategoryFetching,
+    isPending: isCategoryPending,
     refetch,
   } = useCategories();
+
+  const saveInterestsMutation = useSaveInterests();
 
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<number[]>([]);
 
   const categories = data?.categories ?? [];
+
   const hasSelectedCategories =
     selectedCategoryIds.length > 0;
+
+  const isAlreadySaved =
+    saveInterestsMutation.error?.response?.data.statusCode ===
+    409;
+
+  const isSubmitDisabled =
+    !hasSelectedCategories ||
+    saveInterestsMutation.isPending ||
+    saveInterestsMutation.isSuccess ||
+    isAlreadySaved;
 
   function toggleCategory(categoryId: number): void {
     setSelectedCategoryIds((currentIds) => {
@@ -54,9 +68,83 @@ export function InterestSelectScreen() {
   }
 
   function handleComplete(): void {
-    Alert.alert(
-      "선택 결과",
-      `선택한 카테고리 ID: ${selectedCategoryIds.join(", ")}`,
+    if (isSubmitDisabled) {
+      return;
+    }
+
+    saveInterestsMutation.mutate(
+      {
+        category_ids: selectedCategoryIds,
+      },
+      {
+        onSuccess: (result) => {
+          Alert.alert(
+            "관심사 저장 완료",
+            `${result.selected_count}개의 관심 분야를 저장했습니다.`,
+          );
+        },
+        onError: (error) => {
+          const errorResponse = error.response?.data;
+
+          if (!errorResponse) {
+            Alert.alert(
+              "네트워크 오류",
+              "서버에 연결할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.",
+            );
+            return;
+          }
+
+          switch (errorResponse.statusCode) {
+            case 400:
+              setSelectedCategoryIds([]);
+              void refetch();
+
+              Alert.alert(
+                "관심 분야를 다시 선택해 주세요",
+                errorResponse.message,
+              );
+              return;
+
+            case 401:
+              Alert.alert(
+                "로그인이 필요합니다",
+                errorResponse.message,
+              );
+              return;
+
+            case 404:
+              setSelectedCategoryIds([]);
+              void refetch();
+
+              Alert.alert(
+                "관심 분야 정보를 갱신합니다",
+                errorResponse.message,
+              );
+              return;
+
+            case 409:
+              Alert.alert(
+                "이미 저장된 관심사입니다",
+                errorResponse.message,
+              );
+              return;
+
+            case 422:
+              Alert.alert(
+                "선택 정보를 확인해 주세요",
+                errorResponse.message,
+              );
+              return;
+
+            case 500:
+              Alert.alert(
+                "관심사를 저장할 수 없습니다",
+                errorResponse.message,
+              );
+              return;
+          }
+        },
+      },
     );
   }
 
@@ -76,7 +164,7 @@ export function InterestSelectScreen() {
   }
 
   function renderContent() {
-    if (isPending) {
+    if (isCategoryPending) {
       return (
         <LoadingView
           message="관심 분야를 불러오고 있습니다."
@@ -85,12 +173,12 @@ export function InterestSelectScreen() {
       );
     }
 
-    if (isError && data === undefined) {
+    if (isCategoryError && data === undefined) {
       return (
         <ErrorView
           message="잠시 후 다시 시도해 주세요."
           onRetry={() => void refetch()}
-          retrying={isFetching}
+          retrying={isCategoryFetching}
           style={styles.feedbackView}
           title="관심 분야를 불러오지 못했습니다."
         />
@@ -143,8 +231,15 @@ export function InterestSelectScreen() {
       </View>
 
       <PrimaryButton
-        disabled={!hasSelectedCategories}
-        label="선택 완료"
+        disabled={isSubmitDisabled}
+        label={
+          saveInterestsMutation.isSuccess
+            ? "저장 완료"
+            : isAlreadySaved
+              ? "이미 저장됨"
+              : "선택 완료"
+        }
+        loading={saveInterestsMutation.isPending}
         onPress={handleComplete}
       />
     </ScreenContainer>
