@@ -49,6 +49,11 @@ export function InterestSelectScreen() {
     saveInterestsMutation.error?.response?.data.statusCode ===
     409;
 
+  const isSelectionLocked =
+    saveInterestsMutation.isPending ||
+    saveInterestsMutation.isSuccess ||
+    isAlreadySaved;
+
   const isSubmitDisabled =
     !hasSelectedCategories ||
     saveInterestsMutation.isPending ||
@@ -56,6 +61,10 @@ export function InterestSelectScreen() {
     isAlreadySaved;
 
   function toggleCategory(categoryId: number): void {
+    if (isSelectionLocked) {
+      return;
+    }
+
     setSelectedCategoryIds((currentIds) => {
       if (currentIds.includes(categoryId)) {
         return currentIds.filter(
@@ -154,6 +163,7 @@ export function InterestSelectScreen() {
     return (
       <InterestCategoryOption
         category={item}
+        disabled={isSelectionLocked}
         onPress={toggleCategory}
         selected={selectedCategoryIds.includes(
           item.category_id,
