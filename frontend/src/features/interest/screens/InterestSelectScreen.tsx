@@ -200,7 +200,10 @@ export function InterestSelectScreen() {
         columnWrapperStyle={styles.categoryRow}
         contentContainerStyle={styles.categoryList}
         data={categories}
-        extraData={selectedCategoryIds}
+        extraData={{
+          selectedCategoryIds,
+          isSelectionLocked,
+        }}
         keyExtractor={(item) =>
           item.category_id.toString()
         }
