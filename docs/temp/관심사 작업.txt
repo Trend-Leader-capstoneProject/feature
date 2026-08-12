@@ -1,0 +1,48 @@
+[1] 공통 API Type 정리
+
+NEW
+frontend/src/shared/types/api.ts
+
+MODIFY
+frontend/src/features/interest/types/category.ts
+frontend/src/features/interest/api/getCategories.ts
+
+
+[2] Interest 저장 Type
+
+NEW
+frontend/src/features/interest/types/interest.ts
+
+
+[3] API Function
+
+NEW
+frontend/src/features/interest/api/saveUserInterests.ts
+
+
+[4] Mutation Hook
+
+NEW
+frontend/src/features/interest/hooks/useSaveInterests.ts
+
+
+[5] Screen 연결
+
+MODIFY
+frontend/src/features/interest/screens/InterestSelectScreen.tsx
+
+
+[현재 수정 불필요]
+
+frontend/src/app/providers/QueryProvider.tsx
+frontend/src/shared/components/PrimaryButton.tsx
+frontend/src/app/config/apiConfig.ts
+
+
+[추후 별도 연결 필요]
+
+frontend/src/shared/api/apiClient.ts
+→ Access Token 주입
+
+frontend/src/app/navigation/RootNavigator.tsx
+→ 저장 성공 후 실제 목적지 Route가 생긴 뒤 연결

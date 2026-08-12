@@ -18,6 +18,7 @@ import type { CategoryItem } from "../types/category";
 
 export type InterestCategoryOptionProps = {
   category: CategoryItem;
+  disabled?: boolean;
   onPress: (categoryId: number) => void;
   selected: boolean;
   style?: StyleProp<ViewStyle>;
@@ -25,30 +26,40 @@ export type InterestCategoryOptionProps = {
 
 export function InterestCategoryOption({
   category,
+  disabled = false,
   onPress,
   selected,
   style,
 }: InterestCategoryOptionProps) {
-  const accessibilityHint = selected
-    ? "두 번 탭하여 관심 분야 선택을 해제합니다."
-    : "두 번 탭하여 관심 분야로 선택합니다.";
+  const accessibilityHint = disabled
+    ? "현재는 관심 분야 선택을 변경할 수 없습니다."
+    : selected
+      ? "두 번 탭하여 관심 분야 선택을 해제합니다."
+      : "두 번 탭하여 관심 분야로 선택합니다.";
 
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
       accessibilityLabel={category.category_name}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityState={{ 
+        disabled,
+        selected,
+      }}
+      disabled={disabled}
       onPress={() => onPress(category.category_id)}
       style={({ pressed }) => [
         styles.option,
         selected && styles.selectedOption,
         pressed &&
+          !disabled &&
           !selected &&
           styles.pressedOption,
         pressed &&
+          !disabled &&
           selected &&
           styles.pressedSelectedOption,
+        disabled && styles.disabledOption,
         style,
       ]}
     >
@@ -96,6 +107,9 @@ const styles = StyleSheet.create({
   },
   pressedSelectedOption: {
     backgroundColor: colors.backgroundBrandMuted,
+  },
+    disabledOption: {
+    opacity: 0.6,
   },
   categoryName: {
     ...typography.itemTitle,
