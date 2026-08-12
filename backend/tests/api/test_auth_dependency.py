@@ -220,7 +220,8 @@ def test_get_current_user_rejects_inactive_user(
     repository_mock.find_by_id.assert_called_once_with(
         10,
     )
-    
+
+
 def test_get_current_user_rejects_token_without_expiration() -> None:
     """만료 시간이 없는 Access Token을 거부한다."""
 
