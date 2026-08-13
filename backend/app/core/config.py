@@ -40,9 +40,15 @@ class Settings(BaseSettings):
     db_connection_timeout: int = Field(default=5, ge=1)
 
     # JWT
-    jwt_secret_key: str = Field(..., min_length=16)
+    jwt_secret_key: str = Field(
+        ...,
+        min_length=32,
+    )
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60
+    access_token_expire_minutes: int = Field(
+        default=60,
+        ge=1,
+    )
 
     # OAuth
     google_client_id: str | None = None
