@@ -1,4 +1,5 @@
-from typing import cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -19,7 +20,12 @@ def make_access_token(
 ) -> str:
     """테스트용 JWT Access Token을 생성한다."""
 
-    payload: dict[str, str] = {}
+    payload: dict[str, Any] = {
+        "exp": datetime.now(UTC)
+        + timedelta(
+            minutes=settings.access_token_expire_minutes,
+        ),
+    }
 
     if subject is not None:
         payload["sub"] = subject
@@ -214,3 +220,32 @@ def test_get_current_user_rejects_inactive_user(
     repository_mock.find_by_id.assert_called_once_with(
         10,
     )
+
+
+def test_get_current_user_rejects_token_without_expiration() -> None:
+    """만료 시간이 없는 Access Token을 거부한다."""
+
+    token = jwt.encode(
+        {
+            "sub": "10",
+        },
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    repository_mock = make_user_repository_mock(
+        None,
+    )
+
+    with pytest.raises(
+        UnauthorizedException,
+    ):
+        get_current_user(
+            token=token,
+            user_repository=cast(
+                UserRepository,
+                repository_mock,
+            ),
+        )
+
+    repository_mock.find_by_id.assert_not_called()

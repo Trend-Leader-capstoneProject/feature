@@ -1,17 +1,15 @@
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jose import JWTError
 
 from app.api.dependencies.db_dependency import DbSessionDep
-from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedException
+from app.core.security import decode_access_token
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
-
-settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/auth/login",
@@ -45,18 +43,16 @@ def _extract_user_id_from_token(
     """Access Token을 검증하고 subject에서 사용자 ID를 반환한다."""
 
     try:
-        payload: dict[str, Any] = jwt.decode(
+        payload = decode_access_token(
             token,
-            settings.jwt_secret_key,
-            algorithms=[
-                settings.jwt_algorithm,
-            ],
         )
 
     except JWTError as exc:
         raise UnauthorizedException() from exc
 
-    subject = payload.get("sub")
+    subject = payload.get(
+        "sub",
+    )
 
     if not isinstance(
         subject,
@@ -65,7 +61,9 @@ def _extract_user_id_from_token(
         raise UnauthorizedException()
 
     try:
-        user_id = int(subject)
+        user_id = int(
+            subject,
+        )
 
     except ValueError as exc:
         raise UnauthorizedException() from exc
