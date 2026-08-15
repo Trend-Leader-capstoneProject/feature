@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -22,3 +23,17 @@ class UserRepository:
             User,
             user_id,
         )
+        
+    def find_by_login_id(
+        self,
+        login_id: str,
+    ) -> User | None:
+        """로그인 ID에 해당하는 사용자를 조회한다."""
+        
+        statement = select(User).where(
+            User.login_id == login_id,
+        )
+        
+        return self.db.scalars(
+            statement,
+        ).one_or_none()
