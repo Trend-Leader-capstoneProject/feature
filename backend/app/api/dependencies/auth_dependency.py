@@ -1,23 +1,47 @@
 from typing import Annotated
 
 from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
 from jose import JWTError
 
 from app.api.dependencies.db_dependency import DbSessionDep
+from app.api.dependencies.interest_dependency import InterestRepositoryDep
 from app.core.exceptions import UnauthorizedException
 from app.core.security import decode_access_token
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/auth/login",
+bearer_scheme = HTTPBearer(
+    bearerFormat="JWT",
+    scheme_name="BearerAuth",
+    description=(
+        "POST /api/auth/login에서 발급받은 "
+        "JWT Access Token을 입력합니다."
+    ),
 )
+
+BearerCredentialsDep = Annotated[
+    HTTPAuthorizationCredentials,
+    Depends(bearer_scheme),
+]
+
+
+def get_access_token(
+    credentials: BearerCredentialsDep,
+) -> str:
+    """Authorization Bearer Header에서 Access Token을 추출한다."""
+
+    return credentials.credentials
+
 
 AccessTokenDep = Annotated[
     str,
-    Depends(oauth2_scheme),
+    Depends(get_access_token),
 ]
 
 
@@ -34,6 +58,24 @@ def get_user_repository(
 UserRepositoryDep = Annotated[
     UserRepository,
     Depends(get_user_repository),
+]
+
+
+def get_auth_service(
+    user_repository: UserRepositoryDep,
+    interest_repository: InterestRepositoryDep,
+) -> AuthService:
+    """로그인에 필요한 Repository를 조립해 AuthService를 생성한다."""
+
+    return AuthService(
+        user_repository=user_repository,
+        interest_repository=interest_repository,
+    )
+
+
+AuthServiceDep = Annotated[
+    AuthService,
+    Depends(get_auth_service),
 ]
 
 

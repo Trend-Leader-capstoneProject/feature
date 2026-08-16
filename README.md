@@ -209,7 +209,7 @@ Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,
 ```text
 backend/
 ├── app/
-│   ├── api/             # FastAPI Router
+│   ├── api/             # FastAPI Router 및 HTTP Dependency
 │   │   ├── dependencies/     # Service·Repository 의존성 조립
 │   │   │   ├── __init__.py
 │   │   │   └── category_dependency.py
@@ -464,7 +464,7 @@ DB_USER=trend_user
 DB_PASSWORD=change-me
 DATABASE_URL=
 
-JWT_SECRET_KEY=change_this_secret_key_min_16_chars
+JWT_SECRET_KEY=change_this_secret_key_min_32_chars
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
@@ -611,7 +611,7 @@ DB_PASSWORD=trend_pass
 
 DATABASE_URL=
 
-JWT_SECRET_KEY=change_this_secret_key_min_16_chars
+JWT_SECRET_KEY=change_this_secret_key_min_32_chars
 ```
 
 Docker Compose 실행 시 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`는 Compose 설정값으로 덮어씁니다.
