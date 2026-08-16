@@ -209,7 +209,7 @@ Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,
 ```text
 backend/
 ├── app/
-│   ├── api/             # FastAPI Router
+│   ├── api/             # FastAPI Router 및 HTTP Dependency
 │   │   ├── dependencies/     # Service·Repository 의존성 조립
 │   │   │   ├── __init__.py
 │   │   │   └── category_dependency.py
