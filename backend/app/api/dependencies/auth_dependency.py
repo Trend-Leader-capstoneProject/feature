@@ -5,11 +5,13 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 
 from app.api.dependencies.db_dependency import DbSessionDep
+from app.api.dependencies.interest_dependency import InterestRepositoryDep
 from app.core.exceptions import UnauthorizedException
 from app.core.security import decode_access_token
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/auth/login",
@@ -36,6 +38,24 @@ UserRepositoryDep = Annotated[
     Depends(get_user_repository),
 ]
 
+
+def get_auth_service(
+    user_repository: UserRepositoryDep,
+    interest_repository: InterestRepositoryDep,
+) -> AuthService:
+    """로그인에 필요한 Repository를 조립해 AuthService를 생성한다."""
+    
+    return AuthService(
+        user_repository=user_repository,
+        interest_repository=interest_repository,
+    )
+    
+    
+AuthServiceDep = Annotated[
+    AuthService,
+    Depends(get_auth_service),
+]
+    
 
 def _extract_user_id_from_token(
     token: str,
