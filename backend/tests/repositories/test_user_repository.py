@@ -92,5 +92,3 @@ def test_find_by_login_id_returns_none_when_user_does_not_exist(
     )
     
     assert result is None
-    
-    
