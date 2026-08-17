@@ -45,18 +45,81 @@ interface LoginErrorPresentation {
   highlightFields: boolean;
 }
 
+function isNativeNetworkError(
+  error: unknown,
+): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+
+  return (
+    message.includes("network request failed") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch") ||
+    message.includes("fetch failed")
+  );
+}
+
 function getLoginErrorPresentation(
   error: unknown,
 ): LoginErrorPresentation {
-  if (!axios.isAxiosError(error)) {
-    return {
-      message:
-        "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-      highlightFields: false,
-    };
+  if (axios.isAxiosError(error)) {
+    if (!error.response) {
+      return {
+        message:
+          "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+        highlightFields: false,
+      };
+    }
+
+    const errorResponse: unknown =
+      error.response.data;
+
+    const responseMessage =
+      typeof errorResponse === "object" &&
+      errorResponse !== null &&
+      "message" in errorResponse &&
+      typeof errorResponse.message === "string"
+        ? errorResponse.message
+        : null;
+
+    switch (error.response.status) {
+      case 401:
+        return {
+          message:
+            responseMessage ??
+            "아이디 또는 비밀번호가 올바르지 않습니다.",
+          highlightFields: true,
+        };
+
+      case 422:
+        return {
+          message:
+            responseMessage ??
+            "입력 정보를 확인해 주세요.",
+          highlightFields: true,
+        };
+
+      case 500:
+        return {
+          message:
+            responseMessage ??
+            "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          highlightFields: false,
+        };
+
+      default:
+        return {
+          message:
+            "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          highlightFields: false,
+        };
+    }
   }
 
-  if (!error.response) {
+  if (isNativeNetworkError(error)) {
     return {
       message:
         "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
@@ -64,49 +127,11 @@ function getLoginErrorPresentation(
     };
   }
 
-  const errorResponse: unknown =
-    error.response.data;
-
-  const responseMessage =
-    typeof errorResponse === "object" &&
-    errorResponse !== null &&
-    "message" in errorResponse &&
-    typeof errorResponse.message === "string"
-      ? errorResponse.message
-      : null;
-
-  switch (error.response.status) {
-    case 401:
-      return {
-        message:
-          responseMessage ??
-          "아이디 또는 비밀번호가 올바르지 않습니다.",
-        highlightFields: true,
-      };
-
-    case 422:
-      return {
-        message:
-          responseMessage ??
-          "입력 정보를 확인해 주세요.",
-        highlightFields: true,
-      };
-
-    case 500:
-      return {
-        message:
-          responseMessage ??
-          "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-        highlightFields: false,
-      };
-
-    default:
-      return {
-        message:
-          "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-        highlightFields: false,
-      };
-  }
+  return {
+    message:
+      "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+    highlightFields: false,
+  };
 }
 
 
@@ -200,6 +225,20 @@ export function LoginScreen({
           );
         },
         onError: (error) => {
+
+            console.log("[Login] raw error:", error);
+            console.log("[Login] error info:", {
+              isAxiosError: axios.isAxiosError(error),
+              name:
+                error instanceof Error
+                  ? error.name
+                  : null,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : null,
+            });
+
           const presentation =
             getLoginErrorPresentation(error);
 
