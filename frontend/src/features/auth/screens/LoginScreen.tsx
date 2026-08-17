@@ -29,9 +29,6 @@ import {
   typography,
 } from "../../../shared/constants";
 import { useLogin } from "../hooks/useLogin";
-import type {
-  LoginErrorResponse
-} from "../types/auth";
 
 type FocusedField =
   | "loginId"
@@ -51,7 +48,7 @@ interface LoginErrorPresentation {
 function getLoginErrorPresentation(
   error: unknown,
 ): LoginErrorPresentation {
-  if (!axios.isAxiosError<LoginErrorResponse>(error)) {
+  if (!axios.isAxiosError(error)) {
     return {
       message:
         "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
@@ -59,9 +56,7 @@ function getLoginErrorPresentation(
     };
   }
 
-  const errorResponse = error.response?.data;
-
-  if (!errorResponse) {
+  if (!error.response) {
     return {
       message:
         "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
@@ -69,27 +64,50 @@ function getLoginErrorPresentation(
     };
   }
 
-  switch (errorResponse.statusCode) {
+  const errorResponse: unknown =
+    error.response.data;
+
+  const responseMessage =
+    typeof errorResponse === "object" &&
+    errorResponse !== null &&
+    "message" in errorResponse &&
+    typeof errorResponse.message === "string"
+      ? errorResponse.message
+      : null;
+
+  switch (error.response.status) {
     case 401:
       return {
-        message: errorResponse.message,
+        message:
+          responseMessage ??
+          "아이디 또는 비밀번호가 올바르지 않습니다.",
         highlightFields: true,
       };
 
     case 422:
       return {
-        message: errorResponse.message,
+        message:
+          responseMessage ??
+          "입력 정보를 확인해 주세요.",
         highlightFields: true,
       };
 
     case 500:
       return {
-        message: errorResponse.message,
+        message:
+          responseMessage ??
+          "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        highlightFields: false,
+      };
+
+    default:
+      return {
+        message:
+          "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
         highlightFields: false,
       };
   }
 }
-
 
 
 export function LoginScreen({
