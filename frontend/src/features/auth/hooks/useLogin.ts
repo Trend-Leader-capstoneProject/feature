@@ -1,16 +1,30 @@
 import { useMutation } from "@tanstack/react-query";
-import type { AxiosError } from "axios";
 
+import { saveAccessToken } from "../../../shared/storage/tokenStorage";
 import { login } from "../api/login";
-import type { LoginErrorResponse, LoginRequest, LoginResponse } from "../types/auth";
+import type { LoginRequest, LoginResponse } from "../types/auth";
+
+async function loginAndSaveAccessToken(
+  request: LoginRequest,
+): Promise<LoginResponse> {
+  const result = await login(
+    request,
+  );
+
+  await saveAccessToken(
+    result.access_token,
+  );
+
+  return result;
+}
 
 export function useLogin() {
     return useMutation<
         LoginResponse,
-        AxiosError<LoginErrorResponse>,
+        unknown,
         LoginRequest
     >({
-        mutationFn: login,
+        mutationFn: loginAndSaveAccessToken,
         retry: 0,
     });
 }
