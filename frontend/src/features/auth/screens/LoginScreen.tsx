@@ -12,6 +12,8 @@ import {
   View,
 } from "react-native";
 
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { RootStackParamList } from "../../../app/navigation/RootNavigator";
 import { appImages } from "../../../assets";
 import {
   PrimaryButton,
@@ -28,14 +30,18 @@ import {
 } from "../../../shared/constants";
 import { useLogin } from "../hooks/useLogin";
 import type {
-  LoginErrorResponse,
-  LoginResponse,
+  LoginErrorResponse
 } from "../types/auth";
 
 type FocusedField =
   | "loginId"
   | "password"
   | null;
+
+type LoginScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  "Login"
+>;
 
 interface LoginErrorPresentation {
   message: string;
@@ -82,25 +88,13 @@ function getLoginErrorPresentation(
         highlightFields: false,
       };
   }
-
-  return {
-    message:
-      "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-    highlightFields: false,
-  };
 }
 
-function getNextStepMessage(
-  result: LoginResponse,
-): string {
-  if (result.next_step === "INTEREST_SELECTION") {
-    return "다음 단계는 관심 분야 선택 화면입니다.";
-  }
 
-  return "다음 단계는 메인 화면입니다.";
-}
 
-export function LoginScreen() {
+export function LoginScreen({
+  navigation,
+}: LoginScreenProps) {
   const loginMutation = useLogin();
 
   const passwordInputRef =
@@ -170,11 +164,21 @@ export function LoginScreen() {
       },
       {
         onSuccess: (result) => {
+          setPassword("");
+
+          if (
+            result.next_step ===
+            "INTEREST_SELECTION"
+          ) {
+            navigation.replace(
+              "InterestSelect",
+            );
+            return;
+          }
+
           Alert.alert(
-            "로그인 성공",
-            `${result.user.name}님, 환영합니다.\n${getNextStepMessage(
-              result,
-            )}`,
+            "로그인 완료",
+            `${result.user.name}님, 로그인되었습니다.\n메인 화면은 구현 후 연결할 예정입니다.`,
           );
         },
         onError: (error) => {
