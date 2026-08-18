@@ -1,0 +1,1 @@
+python -c "from getpass import getpass; from pwdlib import PasswordHash; print(PasswordHash.recommended().hash(getpass('테스트 비밀번호: ')))"
