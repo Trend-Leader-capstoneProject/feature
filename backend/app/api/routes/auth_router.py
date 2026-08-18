@@ -59,7 +59,7 @@ def get_session(
     )
     
     return success_response(
-        message="인증 세션을 완료했습니다.",
+        message="인증 세션을 확인했습니다.",
         data=result,
         status_code=status.HTTP_200_OK,
     )
