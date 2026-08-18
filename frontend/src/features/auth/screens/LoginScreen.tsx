@@ -225,20 +225,6 @@ export function LoginScreen({
           );
         },
         onError: (error) => {
-
-            console.log("[Login] raw error:", error);
-            console.log("[Login] error info:", {
-              isAxiosError: axios.isAxiosError(error),
-              name:
-                error instanceof Error
-                  ? error.name
-                  : null,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : null,
-            });
-
           const presentation =
             getLoginErrorPresentation(error);
 
