@@ -1,6 +1,6 @@
 import { publicApiClient } from "../../../shared/api/publicApiClient";
-import { CommonResponse } from "../../../shared/types/api";
-import { LoginRequest, LoginResponse } from "../types/auth";
+import type { CommonResponse } from "../../../shared/types/api";
+import type { LoginRequest, LoginResponse } from "../types/auth";
 
 export async function login(
     request: LoginRequest,
