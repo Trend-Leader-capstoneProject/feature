@@ -14,6 +14,7 @@ import {
 
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../../app/navigation/RootNavigator";
+import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
 import {
   PrimaryButton,
@@ -138,7 +139,13 @@ function getLoginErrorPresentation(
 export function LoginScreen({
   navigation,
 }: LoginScreenProps) {
-  const loginMutation = useLogin();
+
+  const {
+    establishSession,
+  } = useAuth();
+
+  const loginMutation =
+    useLogin(establishSession);
 
   const passwordInputRef =
     useRef<TextInput>(null);
