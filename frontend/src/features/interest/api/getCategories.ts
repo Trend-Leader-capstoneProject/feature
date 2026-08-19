@@ -1,10 +1,10 @@
+import { publicApiClient } from "../../../shared/api/publicApiClient";
 import { CommonResponse } from "../../../shared/types/api";
 import { CategoryListData } from "../types/category";
-import { apiClient } from './../../../shared/api/apiClient';
 
 
 export async function getCategories(): Promise<CategoryListData> {
-    const response = await apiClient<
+    const response = await publicApiClient<
         CommonResponse<CategoryListData>
     >("/categories");
 
