@@ -185,13 +185,47 @@ export function AuthProvider({
         }
 
         try {
-          const session =
-            await getAuthSession();
+          const revalidateSession =
+            useCallback(async (): Promise<void> => {
+              const requestAccessToken =
+                await getAccessToken();
 
-          setAuthState({
-            status: "AUTHENTICATED",
-            session,
-          });
+              if (!requestAccessToken) {
+                await terminateSession();
+                return;
+              }
+
+              try {
+                const session =
+                  await getAuthSession();
+
+                const currentAccessToken =
+                  await getAccessToken();
+
+                if (
+                  currentAccessToken !==
+                    requestAccessToken ||
+                  sessionTerminationPromiseRef.current ||
+                  sessionTerminationCompletedRef.current
+                ) {
+                  return;
+                }
+
+                setAuthState({
+                  status: "AUTHENTICATED",
+                  session,
+                });
+              } catch (error) {
+                if (
+                  isUnauthorizedError(error)
+                ) {
+                  await terminateSession();
+                  return;
+                }
+
+                throw error;
+              }
+            }, [terminateSession]);
         } catch (error) {
           if (
             isUnauthorizedError(error)
