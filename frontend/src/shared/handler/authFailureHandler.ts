@@ -4,17 +4,17 @@ export type AuthFailureHandler =
 let authFailureHandler:
   AuthFailureHandler | null = null;
 
-  export function registerAuthFailureHandler(
-    handler: AuthFailureHandler,
-  ): () => void {
-    authFailureHandler = handler;
+export function registerAuthFailureHandler(
+  handler: AuthFailureHandler,
+): () => void {
+  authFailureHandler = handler;
 
-    return () => {
-      if (authFailureHandler === handler) {
-        authFailureHandler = null;
-      }
-    };
-  }
+  return () => {
+    if (authFailureHandler === handler) {
+      authFailureHandler = null;
+    }
+  };
+}
 
 export function notifyAuthFailure(): void {
   const handler = authFailureHandler;
