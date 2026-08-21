@@ -1,26 +1,28 @@
 import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import {
-    createContext,
-    type PropsWithChildren,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  createContext,
+  type PropsWithChildren,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 
 import { getAuthSession } from "../../features/auth/api/getAuthSession";
 import type {
-    LoginResponse,
-    SessionResponse,
+  LoginResponse,
+  SessionResponse,
 } from "../../features/auth/types/auth";
+import { registerAuthFailureHandler } from "../../shared/handler/authFailureHandler";
 import {
-    deleteAccessToken,
-    getAccessToken,
-    saveAccessToken,
+  deleteAccessToken,
+  getAccessToken,
+  saveAccessToken,
 } from "../../shared/storage/tokenStorage";
+
 
 export type AuthState =
   | {
@@ -84,11 +86,20 @@ export function AuthProvider({
   const sessionTerminationPromiseRef =
     useRef<Promise<void> | null>(null);
 
+  const sessionTerminationCompletedRef =
+    useRef(false);
+
   const initialRestoreStartedRef =
     useRef(false);
 
   const terminateSession =
     useCallback(async (): Promise<void> => {
+      if (
+        sessionTerminationCompletedRef.current
+      ) {
+        return;
+      }
+
       if (
         sessionTerminationPromiseRef.current
       ) {
@@ -103,6 +114,9 @@ export function AuthProvider({
           await deleteAccessToken();
 
           queryClient.removeQueries();
+
+          sessionTerminationCompletedRef.current =
+            true;
 
           setAuthState({
             status: "UNAUTHENTICATED",
@@ -130,9 +144,19 @@ export function AuthProvider({
       async (
         loginResponse: LoginResponse,
       ): Promise<void> => {
+        const activeTermination =
+          sessionTerminationPromiseRef.current;
+
+        if (activeTermination) {
+          await activeTermination;
+        }
+
         await saveAccessToken(
           loginResponse.access_token,
         );
+
+        sessionTerminationCompletedRef.current =
+          false;
 
         setAuthState({
           status: "AUTHENTICATED",
@@ -249,6 +273,12 @@ export function AuthProvider({
     useCallback(async (): Promise<void> => {
       await terminateSession();
     }, [terminateSession]);
+
+  useEffect(() => {
+    return registerAuthFailureHandler(
+      terminateSession,
+    );
+  }, [terminateSession]);
 
   useEffect(() => {
     if (
