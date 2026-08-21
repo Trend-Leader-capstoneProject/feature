@@ -1,7 +1,6 @@
 import axios from "axios";
 import { useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,8 +11,6 @@ import {
   View,
 } from "react-native";
 
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../../../app/navigation/RootNavigator";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
 import {
@@ -36,10 +33,6 @@ type FocusedField =
   | "password"
   | null;
 
-type LoginScreenProps = NativeStackScreenProps<
-  RootStackParamList,
-  "Login"
->;
 
 interface LoginErrorPresentation {
   message: string;
@@ -136,9 +129,7 @@ function getLoginErrorPresentation(
 }
 
 
-export function LoginScreen({
-  navigation,
-}: LoginScreenProps) {
+export function LoginScreen() {
 
   const {
     establishSession,
@@ -213,23 +204,8 @@ export function LoginScreen({
         password,
       },
       {
-        onSuccess: (result) => {
+        onSuccess: () => {
           setPassword("");
-
-          if (
-            result.next_step ===
-            "INTEREST_SELECTION"
-          ) {
-            navigation.replace(
-              "InterestSelect",
-            );
-            return;
-          }
-
-          Alert.alert(
-            "로그인 완료",
-            `${result.user.name}님, 로그인되었습니다.\n메인 화면은 구현 후 연결할 예정입니다.`,
-          );
         },
         onError: (error) => {
           const presentation =
