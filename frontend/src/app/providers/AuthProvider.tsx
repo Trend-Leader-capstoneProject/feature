@@ -17,6 +17,7 @@ import type {
   SessionResponse,
 } from "../../features/auth/types/auth";
 import { registerAuthFailureHandler } from "../../shared/handler/authFailureHandler";
+import { allowAuthenticatedRequests, blockAuthenticatedRequests } from "../../shared/handler/authRequestGate";
 import {
   deleteAccessToken,
   getAccessToken,
@@ -93,22 +94,25 @@ export function AuthProvider({
     useRef(false);
 
   const terminateSession =
-    useCallback(async (): Promise<void> => {
-      if (
-        sessionTerminationCompletedRef.current
-      ) {
-        return;
-      }
+  useCallback(async (): Promise<void> => {
+    if (
+      sessionTerminationCompletedRef.current
+    ) {
+      return;
+    }
 
-      if (
-        sessionTerminationPromiseRef.current
-      ) {
-        await sessionTerminationPromiseRef.current;
-        return;
-      }
+    if (
+      sessionTerminationPromiseRef.current
+    ) {
+      await sessionTerminationPromiseRef.current;
+      return;
+    }
 
-      const terminationPromise =
-        (async (): Promise<void> => {
+    blockAuthenticatedRequests();
+
+    const terminationPromise =
+      (async (): Promise<void> => {
+        try {
           await queryClient.cancelQueries();
 
           await deleteAccessToken();
@@ -121,23 +125,28 @@ export function AuthProvider({
           setAuthState({
             status: "UNAUTHENTICATED",
           });
-        })();
+        } catch (error) {
+          allowAuthenticatedRequests();
 
-      sessionTerminationPromiseRef.current =
-        terminationPromise;
-
-      try {
-        await terminationPromise;
-      } finally {
-        if (
-          sessionTerminationPromiseRef.current ===
-          terminationPromise
-        ) {
-          sessionTerminationPromiseRef.current =
-            null;
+          throw error;
         }
+      })();
+
+    sessionTerminationPromiseRef.current =
+      terminationPromise;
+
+    try {
+      await terminationPromise;
+    } finally {
+      if (
+        sessionTerminationPromiseRef.current ===
+        terminationPromise
+      ) {
+        sessionTerminationPromiseRef.current =
+          null;
       }
-    }, [queryClient]);
+    }
+  }, [queryClient]);
 
   const establishSession =
     useCallback(
