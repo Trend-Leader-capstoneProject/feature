@@ -189,6 +189,9 @@ const restoreSession =
         await getAccessToken();
 
       if (!accessToken) {
+        blockAuthenticatedRequests();
+
+
         sessionTerminationCompletedRef.current =
           true;
 
@@ -201,6 +204,8 @@ const restoreSession =
       try {
         const session =
           await getAuthSession();
+
+        allowAuthenticatedRequests();
 
         sessionTerminationCompletedRef.current =
           false;
