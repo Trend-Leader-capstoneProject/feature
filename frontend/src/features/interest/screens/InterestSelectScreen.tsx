@@ -94,7 +94,7 @@ export function InterestSelectScreen() {
       },
       {
         onSuccess: () => {
-          completeInterestSelection;
+          completeInterestSelection();
         },
 
         onError: (error) => {
