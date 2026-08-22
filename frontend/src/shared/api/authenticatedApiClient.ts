@@ -5,6 +5,7 @@ import axios, {
 import {
   notifyAuthFailure,
 } from "../handler/authFailureHandler";
+import { areAuthenticatedRequestsBlocked } from "../handler/authRequestGate";
 import {
   getAccessToken,
 } from "../storage/tokenStorage";
@@ -39,8 +40,24 @@ function getRequestAccessToken(
 
 authenticatedApiClient.interceptors.request.use(
   async (config) => {
+    if (
+      areAuthenticatedRequestsBlocked()
+    ) {
+      throw new Error(
+        "Authenticated request is blocked during session termination.",
+      );
+    }
+
     const accessToken =
       await getAccessToken();
+
+    if (
+      areAuthenticatedRequestsBlocked()
+    ) {
+      throw new Error(
+        "Authenticated request is blocked during session termination.",
+      );
+    }
 
     if (accessToken) {
       config.headers.set(
