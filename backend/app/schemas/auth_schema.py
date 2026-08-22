@@ -4,6 +4,10 @@ from pydantic import BaseModel, Field, SecretStr
 
 from app.models.db_enums import UserStatus
 
+AuthNextStep = Literal[
+    "MAIN",
+    "INTEREST_SELECTION",
+]
 
 class LoginRequest(BaseModel):
     """일반 로그인 요청 Schema."""
@@ -26,6 +30,13 @@ class LoginUserData(BaseModel):
     status: UserStatus
     
     
+class SessionData(BaseModel):
+    """현재 인증 세션 조회 응답의 실제 데이터."""
+    
+    user: LoginUserData
+    has_selected_interests: bool
+    next_step: AuthNextStep
+    
 class LoginData(BaseModel):
     """로그인 성공 응답의 실제 데이터."""
     
@@ -33,8 +44,5 @@ class LoginData(BaseModel):
     token_type: Literal["Bearer"] = "Bearer"
     user: LoginUserData
     has_selected_interests: bool
-    next_step: Literal[
-        "MAIN",
-        "INTEREST_SELECTION",
-    ]
+    next_step: AuthNextStep
     
