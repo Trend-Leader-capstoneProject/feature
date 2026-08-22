@@ -167,104 +167,32 @@ export function AuthProvider({
       [],
     );
 
-  const restoreSession =
-    useCallback(async (): Promise<void> => {
-      setAuthState({
-        status: "RESTORING",
-      });
+const restoreSession =
+  useCallback(async (): Promise<void> => {
+    setAuthState({
+      status: "RESTORING",
+    });
 
-      try {
-        const accessToken =
-          await getAccessToken();
-
-        if (!accessToken) {
-          setAuthState({
-            status: "UNAUTHENTICATED",
-          });
-          return;
-        }
-
-        try {
-          const revalidateSession =
-            useCallback(async (): Promise<void> => {
-              const requestAccessToken =
-                await getAccessToken();
-
-              if (!requestAccessToken) {
-                await terminateSession();
-                return;
-              }
-
-              try {
-                const session =
-                  await getAuthSession();
-
-                const currentAccessToken =
-                  await getAccessToken();
-
-                if (
-                  currentAccessToken !==
-                    requestAccessToken ||
-                  sessionTerminationPromiseRef.current ||
-                  sessionTerminationCompletedRef.current
-                ) {
-                  return;
-                }
-
-                setAuthState({
-                  status: "AUTHENTICATED",
-                  session,
-                });
-              } catch (error) {
-                if (
-                  isUnauthorizedError(error)
-                ) {
-                  await terminateSession();
-                  return;
-                }
-
-                throw error;
-              }
-            }, [terminateSession]);
-        } catch (error) {
-          if (
-            isUnauthorizedError(error)
-          ) {
-            try {
-              await terminateSession();
-            } catch {
-              setAuthState({
-                status: "RESTORE_ERROR",
-              });
-            }
-
-            return;
-          }
-
-          setAuthState({
-            status: "RESTORE_ERROR",
-          });
-        }
-      } catch {
-        setAuthState({
-          status: "RESTORE_ERROR",
-        });
-      }
-    }, [terminateSession]);
-
-  const revalidateSession =
-    useCallback(async (): Promise<void> => {
+    try {
       const accessToken =
         await getAccessToken();
 
       if (!accessToken) {
-        await terminateSession();
+        sessionTerminationCompletedRef.current =
+          true;
+
+        setAuthState({
+          status: "UNAUTHENTICATED",
+        });
         return;
       }
 
       try {
         const session =
           await getAuthSession();
+
+        sessionTerminationCompletedRef.current =
+          false;
 
         setAuthState({
           status: "AUTHENTICATED",
@@ -274,13 +202,69 @@ export function AuthProvider({
         if (
           isUnauthorizedError(error)
         ) {
-          await terminateSession();
+          try {
+            await terminateSession();
+          } catch {
+            setAuthState({
+              status: "RESTORE_ERROR",
+            });
+          }
+
           return;
         }
 
-        throw error;
+        setAuthState({
+          status: "RESTORE_ERROR",
+        });
       }
-    }, [terminateSession]);
+    } catch {
+      setAuthState({
+        status: "RESTORE_ERROR",
+      });
+    }
+  }, [terminateSession]);
+
+const revalidateSession =
+  useCallback(async (): Promise<void> => {
+    const requestAccessToken =
+      await getAccessToken();
+
+    if (!requestAccessToken) {
+      await terminateSession();
+      return;
+    }
+
+    try {
+      const session =
+        await getAuthSession();
+
+      const currentAccessToken =
+        await getAccessToken();
+
+      if (
+        currentAccessToken !==
+          requestAccessToken ||
+        sessionTerminationPromiseRef.current ||
+        sessionTerminationCompletedRef.current
+      ) {
+        return;
+      }
+
+      setAuthState({
+        status: "AUTHENTICATED",
+        session,
+      });
+    } catch (error) {
+      if (
+        isUnauthorizedError(error)
+      ) {
+        await terminateSession();
+        return;
+      }
+
+      throw error;
+    }
+  }, [terminateSession]);
 
   const completeInterestSelection =
     useCallback((): void => {
