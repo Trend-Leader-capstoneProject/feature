@@ -94,59 +94,59 @@ export function AuthProvider({
     useRef(false);
 
   const terminateSession =
-  useCallback(async (): Promise<void> => {
-    if (
-      sessionTerminationCompletedRef.current
-    ) {
-      return;
-    }
-
-    if (
-      sessionTerminationPromiseRef.current
-    ) {
-      await sessionTerminationPromiseRef.current;
-      return;
-    }
-
-    blockAuthenticatedRequests();
-
-    const terminationPromise =
-      (async (): Promise<void> => {
-        try {
-          await queryClient.cancelQueries();
-
-          await deleteAccessToken();
-
-          queryClient.removeQueries();
-
-          sessionTerminationCompletedRef.current =
-            true;
-
-          setAuthState({
-            status: "UNAUTHENTICATED",
-          });
-        } catch (error) {
-          allowAuthenticatedRequests();
-
-          throw error;
-        }
-      })();
-
-    sessionTerminationPromiseRef.current =
-      terminationPromise;
-
-    try {
-      await terminationPromise;
-    } finally {
+    useCallback(async (): Promise<void> => {
       if (
-        sessionTerminationPromiseRef.current ===
-        terminationPromise
+        sessionTerminationCompletedRef.current
       ) {
-        sessionTerminationPromiseRef.current =
-          null;
+        return;
       }
-    }
-  }, [queryClient]);
+
+      if (
+        sessionTerminationPromiseRef.current
+      ) {
+        await sessionTerminationPromiseRef.current;
+        return;
+      }
+
+      blockAuthenticatedRequests();
+
+      const terminationPromise =
+        (async (): Promise<void> => {
+          try {
+            await queryClient.cancelQueries();
+
+            await deleteAccessToken();
+
+            queryClient.removeQueries();
+
+            sessionTerminationCompletedRef.current =
+              true;
+
+            setAuthState({
+              status: "UNAUTHENTICATED",
+            });
+          } catch (error) {
+            allowAuthenticatedRequests();
+
+            throw error;
+          }
+        })();
+
+      sessionTerminationPromiseRef.current =
+        terminationPromise;
+
+      try {
+        await terminationPromise;
+      } finally {
+        if (
+          sessionTerminationPromiseRef.current ===
+          terminationPromise
+        ) {
+          sessionTerminationPromiseRef.current =
+            null;
+        }
+      }
+    }, [queryClient]);
 
   const establishSession =
     useCallback(
@@ -163,6 +163,8 @@ export function AuthProvider({
         await saveAccessToken(
           loginResponse.access_token,
         );
+
+        allowAuthenticatedRequests();
 
         sessionTerminationCompletedRef.current =
           false;
