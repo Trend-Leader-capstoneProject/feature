@@ -62,12 +62,14 @@ UserRepositoryDep = Annotated[
 
 
 def get_auth_service(
+    db: DbSessionDep,
     user_repository: UserRepositoryDep,
     interest_repository: InterestRepositoryDep,
 ) -> AuthService:
     """로그인에 필요한 Repository를 조립해 AuthService를 생성한다."""
 
     return AuthService(
+        db=db,
         user_repository=user_repository,
         interest_repository=interest_repository,
     )
