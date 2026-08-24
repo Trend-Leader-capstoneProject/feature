@@ -1,12 +1,28 @@
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import UnauthorizedException
-from app.core.security import create_access_token, verify_password
+from app.core.exceptions import (
+    ConflictException,
+    UnauthorizedException,
+)
+from app.core.security import (
+    create_access_token,
+    hash_password,
+    verify_password,
+)
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.interest_repository import InterestRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth_schema import LoginData, LoginRequest, LoginUserData, SessionData
+from app.schemas.auth_schema import (
+    LoginData,
+    LoginRequest,
+    LoginUserData,
+    SessionData,
+    SignupConflictData,
+    SignupData,
+    SignupRequest,
+)
 
 INVALID_LOGIN_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니다."
 
@@ -23,6 +39,81 @@ class AuthService:
         self.db = db
         self.user_repository = user_repository
         self.interest_repository = interest_repository
+
+    def signup(
+        self,
+        signup_request: SignupRequest,
+    ) -> SignupData:
+        """회원가입 사용자를 생성하고 Access Token과 세션 정보를 반환한다."""
+
+        existing_user = self.user_repository.find_by_login_id(
+            signup_request.login_id,
+        )
+
+        if existing_user is not None:
+            raise ConflictException(
+                data=SignupConflictData(
+                    field="login_id",
+                    reason="DUPLICATED_LOGIN_ID",
+                ),
+            )
+
+        email = (
+            str(signup_request.email)
+            if signup_request.email is not None
+            else None
+        )
+
+        if email is not None:
+            existing_user = self.user_repository.find_by_email(
+                email,
+            )
+
+            if existing_user is not None:
+                raise ConflictException(
+                    data=SignupConflictData(
+                        field="email",
+                        reason="DUPLICATED_EMAIL",
+                    ),
+                )
+
+        password = signup_request.password.get_secret_value()
+
+        user = User(
+            login_id=signup_request.login_id,
+            password_hash=hash_password(
+                password,
+            ),
+            name=signup_request.name,
+            email=email,
+            status=UserStatus.ACTIVE,
+        )
+
+        try:
+            saved_user = self.user_repository.save(
+                user,
+            )
+            self.db.commit()
+
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+
+        session = self.get_session(
+            user=saved_user,
+        )
+
+        access_token = create_access_token(
+            saved_user.user_id,
+        )
+
+        return SignupData(
+            access_token=access_token,
+            user=session.user,
+            has_selected_interests=session.has_selected_interests,
+            next_step=session.next_step,
+        )
+
 
     def login(
         self,
