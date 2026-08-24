@@ -1,3 +1,5 @@
+from sqlalchemy.orm import Session
+
 from app.core.exceptions import UnauthorizedException
 from app.core.security import create_access_token, verify_password
 from app.models.db_enums import UserStatus
@@ -14,9 +16,11 @@ class AuthService:
 
     def __init__(
         self,
+        db: Session,
         user_repository: UserRepository,
         interest_repository: InterestRepository,
     ) -> None:
+        self.db = db
         self.user_repository = user_repository
         self.interest_repository = interest_repository
 
@@ -54,11 +58,11 @@ class AuthService:
             raise UnauthorizedException(
                 message=INVALID_LOGIN_MESSAGE,
             )
-        
+
         session = self.get_session(
             user=user,
         )
-        
+
         access_token = create_access_token(
             user.user_id,
         )
@@ -69,22 +73,22 @@ class AuthService:
             has_selected_interests=session.has_selected_interests,
             next_step=session.next_step,
         )
-        
+
     def get_session(
         self,
         user: User,
     ) -> SessionData:
         """인증된 사용자의 현재 앱 진입 상태를 반환한다."""
-        
+
         if user.login_id is None:
             raise UnauthorizedException()
-        
+
         has_selected_interests = (
             self.interest_repository.exists_by_user_id(
                 user.user_id,
             )
         )
-        
+
         return SessionData(
             user=LoginUserData(
                 user_id=user.user_id,
