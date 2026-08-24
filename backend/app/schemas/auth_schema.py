@@ -169,3 +169,21 @@ class LoginData(BaseModel):
     user: LoginUserData
     has_selected_interests: bool
     next_step: AuthNextStep
+
+class SignupData(LoginData):
+    """회원가입 성공 응답의 실제 데이터."""
+
+
+class CheckLoginIdData(BaseModel):
+    """로그인 ID 사용 가능 여부 조회 응답 데이터."""
+
+    login_id: str
+    is_available: bool
+    reason: LoginIdAvailabilityReason | None = None
+
+
+class SignupConflictData(BaseModel):
+    """회원가입 중복 충돌의 machine-readable 오류 데이터."""
+
+    field: SignupConflictField
+    reason: SignupConflictReason
