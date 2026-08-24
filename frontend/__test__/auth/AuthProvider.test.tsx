@@ -1,31 +1,31 @@
 import {
-    QueryClient,
-    QueryClientProvider,
+  QueryClient,
+  QueryClientProvider,
 } from "@tanstack/react-query";
 import {
-    renderHook,
-    waitFor,
+  renderHook,
+  waitFor,
 } from "@testing-library/react-native";
 import type {
-    AxiosError,
+  AxiosError,
 } from "axios";
 import type {
-    PropsWithChildren,
+  PropsWithChildren,
 } from "react";
 
 import {
-    AuthProvider,
-    useAuth,
+  AuthProvider,
+  useAuth,
 } from "../../src/app/providers/AuthProvider";
 import {
-    getAuthSession,
+  getAuthSession,
 } from "../../src/features/auth/api/getAuthSession";
 import type {
-    SessionResponse,
+  SessionResponse,
 } from "../../src/features/auth/types/auth";
 import {
-    deleteAccessToken,
-    getAccessToken,
+  deleteAccessToken,
+  getAccessToken,
 } from "../../src/shared/storage/tokenStorage";
 
 jest.mock(
