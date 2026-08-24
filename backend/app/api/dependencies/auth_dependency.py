@@ -66,7 +66,7 @@ def get_auth_service(
     user_repository: UserRepositoryDep,
     interest_repository: InterestRepositoryDep,
 ) -> AuthService:
-    """로그인에 필요한 Repository를 조립해 AuthService를 생성한다."""
+    """인증에 필요한 의존성을 조립해 AuthService를 생성한다."""
 
     return AuthService(
         db=db,
