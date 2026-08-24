@@ -1,40 +1,56 @@
 import {
-    NavigationContainer,
+  NavigationContainer,
 } from "@react-navigation/native";
+
 import {
-    createNativeStackNavigator,
-} from "@react-navigation/native-stack";
-
-import { LoginScreen } from "../../features/auth/screens/LoginScreen";
-import { InterestSelectScreen } from "../../features/interest/screens/InterestSelectScreen";
-
-export type RootStackParamList = {
-  Login: undefined;
-  InterestSelect: undefined;
-};
-
-const Stack =
-  createNativeStackNavigator<RootStackParamList>();
+  useAuth,
+} from "../providers/AuthProvider";
+import {
+  SessionRestoreErrorScreen,
+} from "../screens/SessionRestoreErrorScreen";
+import {
+  SessionRestoreScreen,
+} from "../screens/SessionRestoreScreen";
+import {
+  AppNavigator,
+} from "./AppNavigator";
+import {
+  AuthNavigator,
+} from "./AuthNavigator";
+import {
+  OnboardingNavigator,
+} from "./OnboardingNavigator";
 
 export function RootNavigator() {
+  const {
+    authState,
+  } = useAuth();
+
+  if (
+    authState.status === "RESTORING"
+  ) {
+    return <SessionRestoreScreen />;
+  }
+
+  if (
+    authState.status === "RESTORE_ERROR"
+  ) {
+    return (
+      <SessionRestoreErrorScreen />
+    );
+  }
+
   return (
     <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Login"
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-        />
-
-        <Stack.Screen
-          name="InterestSelect"
-          component={InterestSelectScreen}
-        />
-      </Stack.Navigator>
+      {authState.status ===
+      "UNAUTHENTICATED" ? (
+        <AuthNavigator />
+      ) : authState.session.next_step ===
+        "INTEREST_SELECTION" ? (
+        <OnboardingNavigator />
+      ) : (
+        <AppNavigator />
+      )}
     </NavigationContainer>
   );
 }

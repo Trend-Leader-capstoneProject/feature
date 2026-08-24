@@ -8,6 +8,7 @@ import {
   type ListRenderItemInfo,
 } from "react-native";
 
+import { useAuth } from "../../../app/providers/AuthProvider";
 import {
   EmptyView,
   ErrorView,
@@ -25,6 +26,7 @@ import { InterestCategoryOption } from "../components";
 import { useCategories } from "../hooks/useCategories";
 import { useSaveInterests } from "../hooks/useSaveInterests";
 import type { CategoryItem } from "../types/category";
+
 
 export function InterestSelectScreen() {
   const {
@@ -60,6 +62,11 @@ export function InterestSelectScreen() {
     saveInterestsMutation.isSuccess ||
     isAlreadySaved;
 
+  const  {
+    completeInterestSelection,
+    revalidateSession,
+  } = useAuth();
+
   function toggleCategory(categoryId: number): void {
     if (isSelectionLocked) {
       return;
@@ -86,12 +93,10 @@ export function InterestSelectScreen() {
         category_ids: selectedCategoryIds,
       },
       {
-        onSuccess: (result) => {
-          Alert.alert(
-            "관심사 저장 완료",
-            `${result.selected_count}개의 관심 분야를 저장했습니다.`,
-          );
+        onSuccess: () => {
+          completeInterestSelection();
         },
+
         onError: (error) => {
           const errorResponse = error.response?.data;
 
@@ -114,13 +119,6 @@ export function InterestSelectScreen() {
               );
               return;
 
-            case 401:
-              Alert.alert(
-                "로그인이 필요합니다",
-                errorResponse.message,
-              );
-              return;
-
             case 404:
               setSelectedCategoryIds([]);
               void refetch();
@@ -132,10 +130,7 @@ export function InterestSelectScreen() {
               return;
 
             case 409:
-              Alert.alert(
-                "이미 저장된 관심사입니다",
-                errorResponse.message,
-              );
+              revalidateAfterConflict();
               return;
 
             case 422:
@@ -155,6 +150,26 @@ export function InterestSelectScreen() {
         },
       },
     );
+  }
+
+
+  function revalidateAfterConflict(): void {
+    void revalidateSession().catch(() => {
+      Alert.alert(
+        "로그인 상태 확인 실패",
+        "서버의 현재 상태를 확인하지 못했습니다.",
+        [
+          {
+            text: "취소",
+            style: "cancel",
+          },
+          {
+            text: "다시 시도",
+            onPress: revalidateAfterConflict,
+          },
+        ],
+      );
+    });
   }
 
   function renderCategory({
