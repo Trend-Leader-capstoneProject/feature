@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { Alert } from "react-native";
 import { getAuthSession } from "../../features/auth/api/getAuthSession";
 import type {
   LoginResponse,
@@ -91,6 +92,9 @@ export function AuthProvider({
     useRef(false);
 
   const initialRestoreStartedRef =
+    useRef(false);
+
+  const authFailureAlertVisibleRef =
     useRef(false);
 
   const terminateSession =
@@ -178,67 +182,67 @@ export function AuthProvider({
       [],
     );
 
-const restoreSession =
-  useCallback(async (): Promise<void> => {
-    setAuthState({
-      status: "RESTORING",
-    });
-
-    try {
-      const accessToken =
-        await getAccessToken();
-
-      if (!accessToken) {
-        blockAuthenticatedRequests();
-
-
-        sessionTerminationCompletedRef.current =
-          true;
-
-        setAuthState({
-          status: "UNAUTHENTICATED",
-        });
-        return;
-      }
+  const restoreSession =
+    useCallback(async (): Promise<void> => {
+      setAuthState({
+        status: "RESTORING",
+      });
 
       try {
-        const session =
-          await getAuthSession();
+        const accessToken =
+          await getAccessToken();
 
-        allowAuthenticatedRequests();
+        if (!accessToken) {
+          blockAuthenticatedRequests();
 
-        sessionTerminationCompletedRef.current =
-          false;
 
-        setAuthState({
-          status: "AUTHENTICATED",
-          session,
-        });
-      } catch (error) {
-        if (
-          isUnauthorizedError(error)
-        ) {
-          try {
-            await terminateSession();
-          } catch {
-            setAuthState({
-              status: "RESTORE_ERROR",
-            });
-          }
+          sessionTerminationCompletedRef.current =
+            true;
 
+          setAuthState({
+            status: "UNAUTHENTICATED",
+          });
           return;
         }
 
+        try {
+          const session =
+            await getAuthSession();
+
+          allowAuthenticatedRequests();
+
+          sessionTerminationCompletedRef.current =
+            false;
+
+          setAuthState({
+            status: "AUTHENTICATED",
+            session,
+          });
+        } catch (error) {
+          if (
+            isUnauthorizedError(error)
+          ) {
+            try {
+              await terminateSession();
+            } catch {
+              setAuthState({
+                status: "RESTORE_ERROR",
+              });
+            }
+
+            return;
+          }
+
+          setAuthState({
+            status: "RESTORE_ERROR",
+          });
+        }
+      } catch {
         setAuthState({
           status: "RESTORE_ERROR",
         });
       }
-    } catch {
-      setAuthState({
-        status: "RESTORE_ERROR",
-      });
-    }
-  }, [terminateSession]);
+    }, [terminateSession]);
 
 const revalidateSession =
   useCallback(async (): Promise<void> => {
@@ -309,8 +313,50 @@ const revalidateSession =
     }, [terminateSession]);
 
   useEffect(() => {
+    async function handleAuthFailure(): Promise<void> {
+      try {
+        await terminateSession();
+      } catch {
+        if (
+          authFailureAlertVisibleRef.current
+        ) {
+          return;
+        }
+
+        authFailureAlertVisibleRef.current =
+          true;
+
+        Alert.alert(
+          "인증 정보 삭제 실패",
+          "저장된 인증 정보를 삭제하지 못했습니다. 다시 시도해 주세요.",
+          [
+            {
+              text: "확인",
+              style: "cancel",
+              onPress: () => {
+                authFailureAlertVisibleRef.current =
+                  false;
+              },
+            },
+            {
+              text: "다시 시도",
+              onPress: () => {
+                authFailureAlertVisibleRef.current =
+                  false;
+
+                void handleAuthFailure();
+              },
+            },
+          ],
+          {
+            cancelable: false,
+          },
+        );
+      }
+    }
+
     return registerAuthFailureHandler(
-      terminateSession,
+      handleAuthFailure,
     );
   }, [terminateSession]);
 

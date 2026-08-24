@@ -11,6 +11,7 @@ import type {
     PropsWithChildren,
 } from "react";
 
+import { Alert } from "react-native";
 import {
     AuthProvider,
     useAuth,
@@ -405,6 +406,102 @@ describe(
           result.current.authState.status,
         ).toBe("UNAUTHENTICATED");
       },
+    );
+
+    test(
+        "401 강제 종료 중 Token 삭제 실패 시 안내를 한 번만 표시하고 재시도할 수 있다",
+        async () => {
+            const queryClient =
+            createTestQueryClient();
+
+            const {
+            result,
+            } =
+            await renderAuthenticatedProvider(
+                queryClient,
+            );
+
+            clearTerminationMockCalls();
+
+            const alertSpy =
+            jest.spyOn(
+                Alert,
+                "alert",
+            ).mockImplementation(
+                () => undefined,
+            );
+
+            mockedDeleteAccessToken
+            .mockRejectedValueOnce(
+                new Error(
+                "SecureStore deletion failed",
+                ),
+            )
+            .mockResolvedValueOnce(
+                undefined,
+            );
+
+            const handler =
+            registeredAuthFailureHandler;
+
+            if (!handler) {
+            throw new Error(
+                "Auth Failure Handler가 등록되지 않았습니다.",
+            );
+            }
+
+            await act(async () => {
+            await Promise.all([
+                handler(),
+                handler(),
+            ]);
+            });
+
+            expect(
+            mockedDeleteAccessToken,
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+            mockedAllowAuthenticatedRequests,
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+            alertSpy,
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+            result.current.authState.status,
+            ).toBe("AUTHENTICATED");
+
+            const buttons =
+            alertSpy.mock.calls[0]?.[2];
+
+            const retryButton =
+            buttons?.find(
+                (button) =>
+                button.text === "다시 시도",
+            );
+
+            if (!retryButton?.onPress) {
+            throw new Error(
+                "재시도 버튼을 찾을 수 없습니다.",
+            );
+            }
+
+            retryButton.onPress();
+
+            await waitFor(() => {
+            expect(
+                result.current.authState.status,
+            ).toBe("UNAUTHENTICATED");
+            });
+
+            expect(
+            mockedDeleteAccessToken,
+            ).toHaveBeenCalledTimes(2);
+
+            alertSpy.mockRestore();
+        },
     );
 
     test(
