@@ -23,17 +23,44 @@ class UserRepository:
             User,
             user_id,
         )
-        
+
     def find_by_login_id(
         self,
         login_id: str,
     ) -> User | None:
         """로그인 ID에 해당하는 사용자를 조회한다."""
-        
+
         statement = select(User).where(
             User.login_id == login_id,
         )
-        
+
         return self.db.scalars(
             statement,
         ).one_or_none()
+
+    def find_by_email(
+        self,
+        email: str,
+    ) -> User | None:
+        """이메일에 해당하는 사용자를 조회한다."""
+
+        statement = select(User).where(
+            User.email == email,
+        )
+
+        return self.db.scalars(
+            statement,
+        ).one_or_none()
+
+    def save(
+        self,
+        user: User,
+    ) -> User:
+        """사용자를 현재 Transaction에 추가하고 DB에 flush한다."""
+
+        self.db.add(
+            user,
+        )
+        self.db.flush()
+
+        return user
