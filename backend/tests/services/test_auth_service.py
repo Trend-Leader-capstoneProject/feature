@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 from pwdlib import PasswordHash
 from pydantic import SecretStr
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import UnauthorizedException
 from app.core.security import decode_access_token
@@ -53,6 +54,10 @@ def make_service(
 ) -> tuple[AuthService, Mock, Mock]:
     """Mock Repository를 사용하는 AuthService를 생성한다."""
 
+    db_mock = Mock(
+        spec=Session,
+    )
+
     user_repository_mock = Mock(
         spec=UserRepository,
     )
@@ -66,6 +71,10 @@ def make_service(
     )
 
     service = AuthService(
+        db=cast(
+            Session,
+            db_mock,
+        ),
         user_repository=cast(
             UserRepository,
             user_repository_mock,
