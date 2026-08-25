@@ -1,4 +1,6 @@
-from sqlalchemy.exc import SQLAlchemyError
+import re
+
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -24,11 +26,20 @@ from app.schemas.auth_schema import (
     SignupRequest,
 )
 
+MARIADB_DUPLICATE_ENTRY_ERROR_CODE = 1062
+
+LOGIN_ID_UNIQUE_CONSTRAINT = "uq_users_login_id"
+EMAIL_UNIQUE_CONSTRAINT = "uq_users_email"
+
+DUPLICATE_KEY_PATTERN = re.compile(
+    r"for key ['`](?:[^'`]+\.)?(?P<constraint>[^'`]+)['`]"
+)
+
 INVALID_LOGIN_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니다."
 
 
 class AuthService:
-    """일반 로그인 및 인증 세션 비즈니스 로직을 담당하는 Service."""
+    """일반 회원가입, 로그인 및 인증 세션 비즈니스 로직을 담당하는 Service."""
 
     def __init__(
         self,
@@ -95,6 +106,20 @@ class AuthService:
             )
             self.db.commit()
 
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            conflict_data = self._get_signup_conflict_data(
+                exc,
+            )
+
+            if conflict_data is None:
+                raise
+
+            raise ConflictException(
+                data=conflict_data,
+            ) from exc
+
         except SQLAlchemyError:
             self.db.rollback()
             raise
@@ -114,6 +139,57 @@ class AuthService:
             next_step=session.next_step,
         )
 
+    def _get_signup_conflict_data(
+        self,
+        exc: IntegrityError,
+    ) -> SignupConflictData | None:
+        """알려진 회원가입 UNIQUE 위반을 Conflict 데이터로 변환한다."""
+
+        original_error = exc.orig
+
+        if original_error is None:
+            return None
+
+        error_args = getattr(
+            original_error,
+            "args",
+            (),
+        )
+
+        if (
+            len(error_args) < 2
+            or error_args[0] != MARIADB_DUPLICATE_ENTRY_ERROR_CODE
+        ):
+            return None
+
+        error_message = str(
+            error_args[1],
+        )
+
+        match = DUPLICATE_KEY_PATTERN.search(
+            error_message,
+        )
+
+        if match is None:
+            return None
+
+        constraint_name = match.group(
+            "constraint",
+        )
+
+        if constraint_name == LOGIN_ID_UNIQUE_CONSTRAINT:
+            return SignupConflictData(
+                field="login_id",
+                reason="DUPLICATED_LOGIN_ID",
+            )
+
+        if constraint_name == EMAIL_UNIQUE_CONSTRAINT:
+            return SignupConflictData(
+                field="email",
+                reason="DUPLICATED_EMAIL",
+            )
+
+        return None
 
     def login(
         self,
