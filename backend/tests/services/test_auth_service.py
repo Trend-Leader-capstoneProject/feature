@@ -4,7 +4,8 @@ from unittest.mock import Mock
 import pytest
 from pwdlib import PasswordHash
 from pydantic import SecretStr
-from sqlalchemy.exc import SQLAlchemyError
+from pymysql.err import IntegrityError as PyMySQLIntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -646,5 +647,175 @@ def test_signup_rolls_back_when_commit_fails() -> None:
 
     db_mock.commit.assert_called_once_with()
     db_mock.rollback.assert_called_once_with()
+
+    interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+def make_integrity_error(
+    *,
+    error_code: int,
+    message: str,
+) -> IntegrityError:
+    """테스트용 SQLAlchemy/PyMySQL IntegrityError를 생성한다."""
+
+    original_error = PyMySQLIntegrityError(
+        error_code,
+        message,
+    )
+
+    return IntegrityError(
+        statement="INSERT INTO users (...) VALUES (...)",
+        params={},
+        orig=original_error,
+    )
+
+
+def test_signup_maps_login_id_unique_race_to_conflict() -> None:
+    """동시 가입으로 login_id UNIQUE가 충돌하면 rollback 후 409로 변환한다."""
+
+    (
+        service,
+        db_mock,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_signup_service()
+
+    integrity_error = make_integrity_error(
+        error_code=1062,
+        message=(
+            "Duplicate entry 'signup_user' "
+            "for key 'uq_users_login_id'"
+        ),
+    )
+
+    user_repository_mock.save.side_effect = integrity_error
+
+    with pytest.raises(
+        ConflictException,
+    ) as exc_info:
+        service.signup(
+            signup_request=make_signup_request(),
+        )
+
+    error_data = exc_info.value.data
+
+    assert isinstance(
+        error_data,
+        SignupConflictData,
+    )
+    assert error_data.field == "login_id"
+    assert error_data.reason == "DUPLICATED_LOGIN_ID"
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_not_called()
+
+    interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+def test_signup_maps_email_unique_race_to_conflict() -> None:
+    """동시 가입으로 email UNIQUE가 충돌하면 rollback 후 409로 변환한다."""
+
+    (
+        service,
+        db_mock,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_signup_service()
+
+    integrity_error = make_integrity_error(
+        error_code=1062,
+        message=(
+            "Duplicate entry 'signup@example.com' "
+            "for key 'uq_users_email'"
+        ),
+    )
+
+    user_repository_mock.save.side_effect = integrity_error
+
+    with pytest.raises(
+        ConflictException,
+    ) as exc_info:
+        service.signup(
+            signup_request=make_signup_request(),
+        )
+
+    error_data = exc_info.value.data
+
+    assert isinstance(
+        error_data,
+        SignupConflictData,
+    )
+    assert error_data.field == "email"
+    assert error_data.reason == "DUPLICATED_EMAIL"
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_not_called()
+
+    interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+def test_signup_reraises_unknown_unique_integrity_error() -> None:
+    """알려지지 않은 UNIQUE 위반은 회원가입 중복 409로 오인하지 않는다."""
+
+    (
+        service,
+        db_mock,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_signup_service()
+
+    integrity_error = make_integrity_error(
+        error_code=1062,
+        message=(
+            "Duplicate entry 'value' "
+            "for key 'uq_unknown_constraint'"
+        ),
+    )
+
+    user_repository_mock.save.side_effect = integrity_error
+
+    with pytest.raises(
+        IntegrityError,
+    ) as exc_info:
+        service.signup(
+            signup_request=make_signup_request(),
+        )
+
+    assert exc_info.value is integrity_error
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_not_called()
+
+    interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+def test_signup_reraises_non_duplicate_integrity_error() -> None:
+    """Duplicate가 아닌 IntegrityError는 원래 DB 오류로 전달한다."""
+
+    (
+        service,
+        db_mock,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_signup_service()
+
+    integrity_error = make_integrity_error(
+        error_code=1452,
+        message="Cannot add or update a child row",
+    )
+
+    user_repository_mock.save.side_effect = integrity_error
+
+    with pytest.raises(
+        IntegrityError,
+    ) as exc_info:
+        service.signup(
+            signup_request=make_signup_request(),
+        )
+
+    assert exc_info.value is integrity_error
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_not_called()
 
     interest_repository_mock.exists_by_user_id.assert_not_called()
