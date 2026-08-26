@@ -511,8 +511,18 @@ def test_signup_allows_email_none() -> None:
     db_mock.rollback.assert_not_called()
 
 
-def test_signup_rejects_duplicated_login_id() -> None:
-    """이미 존재하는 로그인 ID는 회원가입 전에 409 충돌로 거부한다."""
+@pytest.mark.parametrize(
+    "user_status",
+    [
+        UserStatus.ACTIVE,
+        UserStatus.WITHDRAWN,
+        UserStatus.SUSPENDED,
+    ],
+)
+def test_signup_rejects_duplicated_login_id(
+    user_status: UserStatus,
+) -> None:
+    """상태와 관계없이 이미 존재하는 로그인 ID는 회원가입을 거부한다."""
 
     (
         service,
@@ -525,7 +535,7 @@ def test_signup_rejects_duplicated_login_id() -> None:
         user_id=10,
         login_id="signup_user",
         name="기존 사용자",
-        status=UserStatus.WITHDRAWN,
+        status=user_status,
     )
 
     with pytest.raises(
