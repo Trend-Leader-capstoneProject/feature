@@ -43,7 +43,6 @@ class LoginRequest(BaseModel):
 
     password: SecretStr
 
-
 class SignupRequest(BaseModel):
     """일반 회원가입 요청 Schema."""
 
@@ -144,7 +143,6 @@ class SignupRequest(BaseModel):
 
         return normalized_email.lower()
 
-
 class LoginUserData(BaseModel):
     """로그인 성공 응답에 포함되는 사용자 기본 정보."""
 
@@ -180,7 +178,6 @@ class CheckLoginIdData(BaseModel):
     login_id: str
     is_available: bool
     reason: LoginIdAvailabilityReason | None = None
-
 
 class SignupConflictData(BaseModel):
     """회원가입 중복 충돌의 machine-readable 오류 데이터."""
