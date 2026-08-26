@@ -17,6 +17,7 @@ from app.models.user import User
 from app.repositories.interest_repository import InterestRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth_schema import (
+    CheckLoginIdData,
     LoginData,
     LoginRequest,
     LoginUserData,
@@ -50,6 +51,29 @@ class AuthService:
         self.db = db
         self.user_repository = user_repository
         self.interest_repository = interest_repository
+
+    def check_login_id(
+        self,
+        login_id: str,
+    ) -> CheckLoginIdData:
+        """로그인 ID의 사용 가능 여부를 반환한다."""
+
+        existing_user = self.user_repository.find_by_login_id(
+            login_id,
+        )
+
+        if existing_user is None:
+            return CheckLoginIdData(
+                login_id=login_id,
+                is_available=True,
+                reason=None,
+            )
+
+        return CheckLoginIdData(
+            login_id=login_id,
+            is_available=False,
+            reason="DUPLICATED_LOGIN_ID",
+        )
 
     def signup(
         self,
