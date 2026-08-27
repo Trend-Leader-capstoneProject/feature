@@ -26,11 +26,10 @@ SignupConflictReason = Literal[
     "DUPLICATED_EMAIL",
 ]
 
-LoginIdAvailabilityReason = Literal[
-    "DUPLICATED_LOGIN_ID",
-]
+LoginIdAvailabilityReason = Literal["DUPLICATED_LOGIN_ID",]
 
 LOGIN_ID_PATTERN = r"^[a-z][a-z0-9_]*$"
+
 
 class LoginRequest(BaseModel):
     """일반 로그인 요청 Schema."""
@@ -42,6 +41,7 @@ class LoginRequest(BaseModel):
     )
 
     password: SecretStr
+
 
 class SignupRequest(BaseModel):
     """일반 회원가입 요청 Schema."""
@@ -75,9 +75,7 @@ class SignupRequest(BaseModel):
         password = value.get_secret_value()
 
         if not 15 <= len(password) <= 128:
-            raise ValueError(
-                "비밀번호는 15자 이상 128자 이하여야 합니다."
-            )
+            raise ValueError("비밀번호는 15자 이상 128자 이하여야 합니다.")
 
         return value
 
@@ -94,12 +92,9 @@ class SignupRequest(BaseModel):
 
         if (
             isinstance(password, SecretStr)
-            and value.get_secret_value()
-            != password.get_secret_value()
+            and value.get_secret_value() != password.get_secret_value()
         ):
-            raise ValueError(
-                "비밀번호 확인이 일치하지 않습니다."
-            )
+            raise ValueError("비밀번호 확인이 일치하지 않습니다.")
 
         return value
 
@@ -143,6 +138,7 @@ class SignupRequest(BaseModel):
 
         return normalized_email.lower()
 
+
 class LoginUserData(BaseModel):
     """로그인 성공 응답에 포함되는 사용자 기본 정보."""
 
@@ -159,6 +155,7 @@ class SessionData(BaseModel):
     has_selected_interests: bool
     next_step: AuthNextStep
 
+
 class LoginData(BaseModel):
     """로그인 성공 응답의 실제 데이터."""
 
@@ -167,6 +164,7 @@ class LoginData(BaseModel):
     user: LoginUserData
     has_selected_interests: bool
     next_step: AuthNextStep
+
 
 class SignupData(LoginData):
     """회원가입 성공 응답의 실제 데이터."""
@@ -178,6 +176,7 @@ class CheckLoginIdData(BaseModel):
     login_id: str
     is_available: bool
     reason: LoginIdAvailabilityReason | None = None
+
 
 class SignupConflictData(BaseModel):
     """회원가입 중복 충돌의 machine-readable 오류 데이터."""
