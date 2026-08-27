@@ -10,9 +10,14 @@ from app.core.exceptions import UnauthorizedException
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.schemas.auth_schema import (
+    CheckLoginIdData,
     LoginData,
+    LoginIdAvailabilityReason,
     LoginRequest,
     LoginUserData,
+    SignupConflictData,
+    SignupData,
+    SignupRequest,
 )
 from app.services.auth_service import AuthService
 
@@ -21,11 +26,11 @@ INVALID_LOGIN_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니
 @pytest.fixture
 def auth_service_mock() -> Mock:
     """Router 테스트용 AuthService Mock을 생성한다."""
-    
+
     return Mock(
         spec=AuthService,
     )
-    
+
 
 @pytest.fixture
 def client(
@@ -34,24 +39,24 @@ def client(
     """Mock AuthService를 사용하는 TestClient를 생성한다."""
 
     application = create_app()
-    
+
     def override_auth_service() -> AuthService:
         return cast(
             AuthService,
             auth_service_mock,
         )
-        
+
     application.dependency_overrides[
         get_auth_service
     ] = override_auth_service
-    
+
     try:
         with TestClient(application) as test_client:
             yield test_client
     finally:
         application.dependency_overrides.clear()
-        
-        
+
+
 def test_login_returns_success_response(
     client: TestClient,
     auth_service_mock: Mock,
@@ -115,7 +120,7 @@ def test_login_returns_success_response(
         login_request.password.get_secret_value()
         == "correct-password"
     )
-    
+
 
 def test_login_returns_401_when_authentication_fails(
     client: TestClient,
@@ -188,3 +193,161 @@ def test_login_returns_422_for_invalid_request(
     assert body["message"] == "요청 데이터가 올바르지 않습니다."
 
     auth_service_mock.login.assert_not_called()
+
+
+def test_signup_returns_created_response(
+    client: TestClient,
+    auth_service_mock: Mock,
+) -> None:
+    """회원가입 성공 시 201과 초기 인증 세션을 반환한다."""
+
+    auth_service_mock.signup.return_value = SignupData(
+        access_token="signup-access-token",
+        user=LoginUserData(
+            user_id=200,
+            login_id="signup_user",
+            name="회원가입 사용자",
+            status=UserStatus.ACTIVE,
+        ),
+        has_selected_interests=False,
+        next_step="INTEREST_SELECTION",
+    )
+
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "login_id": "signup_user",
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+            "name": "회원가입 사용자",
+            "email": None,
+        },
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["success"] is True
+    assert body["statusCode"] == 201
+    assert body["message"] == "회원가입이 완료되었습니다."
+    assert body["data"]["access_token"] == "signup-access-token"
+    assert body["data"]["token_type"] == "Bearer"
+    assert body["data"]["has_selected_interests"] is False
+    assert body["data"]["next_step"] == "INTEREST_SELECTION"
+
+    auth_service_mock.signup.assert_called_once()
+
+    signup_request = (
+        auth_service_mock.signup.call_args.kwargs[
+            "signup_request"
+        ]
+    )
+
+    assert isinstance(
+        signup_request,
+        SignupRequest,
+    )
+    assert signup_request.login_id == "signup_user"
+
+
+@pytest.mark.parametrize(
+    (
+        "is_available",
+        "reason",
+        "expected_message",
+    ),
+    [
+        (
+            True,
+            None,
+            "사용 가능한 아이디입니다.",
+        ),
+        (
+            False,
+            "DUPLICATED_LOGIN_ID",
+            "이미 사용 중인 아이디입니다.",
+        ),
+    ],
+)
+def test_check_login_id_returns_availability(
+    client: TestClient,
+    auth_service_mock: Mock,
+    is_available: bool,
+    reason: LoginIdAvailabilityReason | None,
+    expected_message: str,
+) -> None:
+    """로그인 ID 사용 가능 여부를 200으로 반환한다."""
+
+    auth_service_mock.check_login_id.return_value = CheckLoginIdData(
+        login_id="trend_user",
+        is_available=is_available,
+        reason=reason,
+    )
+
+    response = client.get(
+        "/api/auth/check-login-id",
+        params={
+            "login_id": "trend_user",
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["success"] is True
+    assert body["statusCode"] == 200
+    assert body["message"] == expected_message
+    assert body["data"] == {
+        "login_id": "trend_user",
+        "is_available": is_available,
+        "reason": reason,
+    }
+
+    auth_service_mock.check_login_id.assert_called_once_with(
+        login_id="trend_user",
+    )
+
+@pytest.mark.parametrize(
+    "login_id",
+    [
+        "abc",
+        "TrendUser",
+        "1user",
+        "_user",
+        "user-name",
+        "a" * 51,
+    ],
+)
+def test_check_login_id_returns_422_for_invalid_login_id(
+    client: TestClient,
+    auth_service_mock: Mock,
+    login_id: str,
+) -> None:
+    """잘못된 로그인 ID Query는 422로 거부한다."""
+
+    response = client.get(
+        "/api/auth/check-login-id",
+        params={
+            "login_id": login_id,
+        },
+    )
+
+    assert response.status_code == 422
+
+    auth_service_mock.check_login_id.assert_not_called()
+
+
+def test_check_login_id_returns_422_when_login_id_is_missing(
+    client: TestClient,
+    auth_service_mock: Mock,
+) -> None:
+    """login_id Query가 없으면 422로 거부한다."""
+
+    response = client.get(
+        "/api/auth/check-login-id",
+    )
+
+    assert response.status_code == 422
+    auth_service_mock.check_login_id.assert_not_called()
