@@ -829,3 +829,70 @@ def test_signup_reraises_non_duplicate_integrity_error() -> None:
     db_mock.commit.assert_not_called()
 
     interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+def test_check_login_id_returns_available_when_user_does_not_exist() -> None:
+    """존재하지 않는 로그인 ID는 사용 가능으로 반환한다."""
+
+    (
+        service,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_service(
+        None,
+    )
+
+    result = service.check_login_id(
+        login_id="available_user",
+    )
+
+    assert result.login_id == "available_user"
+    assert result.is_available is True
+    assert result.reason is None
+
+    user_repository_mock.find_by_login_id.assert_called_once_with(
+        "available_user",
+    )
+    interest_repository_mock.exists_by_user_id.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "user_status",
+    [
+        UserStatus.ACTIVE,
+        UserStatus.WITHDRAWN,
+        UserStatus.SUSPENDED,
+    ],
+)
+def test_check_login_id_returns_unavailable_when_user_exists(
+    user_status: UserStatus,
+) -> None:
+    """사용자 상태와 관계없이 존재하는 로그인 ID는 사용할 수 없다."""
+
+    user = User(
+        user_id=300,
+        login_id="existing_user",
+        name="기존 사용자",
+        status=user_status,
+    )
+
+    (
+        service,
+        user_repository_mock,
+        interest_repository_mock,
+    ) = make_service(
+        user,
+    )
+
+    result = service.check_login_id(
+        login_id="existing_user",
+    )
+
+    assert result.login_id == "existing_user"
+    assert result.is_available is False
+    assert result.reason == "DUPLICATED_LOGIN_ID"
+
+    user_repository_mock.find_by_login_id.assert_called_once_with(
+        "existing_user",
+    )
+    interest_repository_mock.exists_by_user_id.assert_not_called()
