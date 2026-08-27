@@ -15,7 +15,6 @@ from app.schemas.auth_schema import (
     LoginIdAvailabilityReason,
     LoginRequest,
     LoginUserData,
-    SignupConflictData,
     SignupData,
     SignupRequest,
 )
