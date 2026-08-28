@@ -6,7 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies.auth_dependency import get_auth_service
-from app.core.exceptions import UnauthorizedException
+from app.core.exceptions import (
+    ConflictException,
+    UnauthorizedException,
+)
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.schemas.auth_schema import (
@@ -15,6 +18,9 @@ from app.schemas.auth_schema import (
     LoginIdAvailabilityReason,
     LoginRequest,
     LoginUserData,
+    SignupConflictData,
+    SignupConflictField,
+    SignupConflictReason,
     SignupData,
     SignupRequest,
 )
@@ -308,6 +314,7 @@ def test_check_login_id_returns_availability(
         login_id="trend_user",
     )
 
+
 @pytest.mark.parametrize(
     "login_id",
     [
@@ -350,3 +357,126 @@ def test_check_login_id_returns_422_when_login_id_is_missing(
 
     assert response.status_code == 422
     auth_service_mock.check_login_id.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    (
+        "field",
+        "reason",
+    ),
+    [
+        (
+            "login_id",
+            "DUPLICATED_LOGIN_ID",
+        ),
+        (
+            "email",
+            "DUPLICATED_EMAIL",
+        ),
+    ],
+)
+def test_signup_returns_409_for_duplicate_conflict(
+    client: TestClient,
+    auth_service_mock: Mock,
+    field: SignupConflictField,
+    reason: SignupConflictReason,
+) -> None:
+    """회원가입 중복 충돌은 machine-readable 409 응답으로 반환한다."""
+
+    auth_service_mock.signup.side_effect = ConflictException(
+        data=SignupConflictData.model_validate(
+            {
+                "field": field,
+                "reason": reason,
+            }
+        ),
+    )
+
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "login_id": "signup_user",
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+            "name": "회원가입 사용자",
+            "email": "signup@example.com",
+        },
+    )
+
+    assert response.status_code == 409
+
+    body = response.json()
+
+    assert body["success"] is False
+    assert body["statusCode"] == 409
+    assert body["message"] == "이미 존재하는 데이터입니다."
+    assert body["data"] == {
+        "field": field,
+        "reason": reason,
+    }
+
+    auth_service_mock.signup.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "request_body",
+    [
+        {
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+            "name": "회원가입 사용자",
+        },
+        {
+            "login_id": "Bad-User",
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+            "name": "회원가입 사용자",
+        },
+        {
+            "login_id": "signup_user",
+            "password": "a" * 14,
+            "password_confirm": "a" * 14,
+            "name": "회원가입 사용자",
+        },
+        {
+            "login_id": "signup_user",
+            "password": "signup-password",
+            "password_confirm": "different-password",
+            "name": "회원가입 사용자",
+        },
+        {
+            "login_id": "signup_user",
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+        },
+        {
+            "login_id": "signup_user",
+            "password": "signup-password",
+            "password_confirm": "signup-password",
+            "name": "회원가입 사용자",
+            "email": "not-an-email",
+        },
+    ],
+)
+def test_signup_returns_422_for_invalid_request(
+    client: TestClient,
+    auth_service_mock: Mock,
+    request_body: dict[str, Any],
+) -> None:
+    """잘못된 회원가입 요청은 422로 거부하고 Service를 호출하지 않는다."""
+
+    response = client.post(
+        "/api/auth/signup",
+        json=request_body,
+    )
+
+    assert response.status_code == 422
+
+    body = response.json()
+
+    assert body["success"] is False
+    assert body["statusCode"] == 422
+    assert body["message"] == "요청 데이터가 올바르지 않습니다."
+    assert body["data"]["errors"]
+
+    auth_service_mock.signup.assert_not_called()
