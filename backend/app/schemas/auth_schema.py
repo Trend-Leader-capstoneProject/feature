@@ -62,7 +62,11 @@ class SignupRequest(BaseModel):
         description="사용자 이름",
     )
 
-    email: EmailStr | None = None
+    email: EmailStr | None = Field(
+        default=None,
+        max_length=255,
+        description="이메일",
+    )
 
     @field_validator("password")
     @classmethod
