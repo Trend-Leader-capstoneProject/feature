@@ -261,3 +261,18 @@ def test_signup_request_rejects_invalid_email() -> None:
                 email="not-an-email",
             )
         )
+
+
+def test_signup_request_rejects_email_longer_than_255_characters() -> None:
+    """255자를 초과하는 이메일을 거부한다."""
+
+    email = f"{'a' * 244}@example.com"
+
+    assert len(email) == 256
+
+    with pytest.raises(ValidationError):
+        SignupRequest.model_validate(
+            make_signup_request(
+                email=email,
+            )
+        )
