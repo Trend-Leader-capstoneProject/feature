@@ -12,6 +12,16 @@ settings = get_settings()
 _password_hasher = PasswordHash.recommended()
 
 
+def hash_password(
+    password: str,
+) -> str:
+    """평문 비밀번호를 안전한 비밀번호 해시로 변환한다."""
+
+    return _password_hasher.hash(
+        password,
+    )
+
+
 def verify_password(
     password: str,
     password_hash: str,

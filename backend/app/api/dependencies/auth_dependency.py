@@ -20,7 +20,7 @@ bearer_scheme = HTTPBearer(
     bearerFormat="JWT",
     scheme_name="BearerAuth",
     description=(
-        "POST /api/auth/login에서 발급받은 "
+        "POST /api/auth/login 또는 POST /api/auth/signup에서 발급받은 "
         "JWT Access Token을 입력합니다."
     ),
 )
@@ -62,12 +62,14 @@ UserRepositoryDep = Annotated[
 
 
 def get_auth_service(
+    db: DbSessionDep,
     user_repository: UserRepositoryDep,
     interest_repository: InterestRepositoryDep,
 ) -> AuthService:
-    """로그인에 필요한 Repository를 조립해 AuthService를 생성한다."""
+    """인증에 필요한 의존성을 조립해 AuthService를 생성한다."""
 
     return AuthService(
+        db=db,
         user_repository=user_repository,
         interest_repository=interest_repository,
     )

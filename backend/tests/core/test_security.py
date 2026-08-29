@@ -9,12 +9,29 @@ from app.core.config import get_settings
 from app.core.security import (
     create_access_token,
     decode_access_token,
+    hash_password,
     verify_password,
 )
 
 settings = get_settings()
 
 _password_hasher = PasswordHash.recommended()
+
+
+def test_hash_password_creates_verifiable_hash() -> None:
+    """생성된 비밀번호 해시는 원문과 다르고 기존 검증 함수로 확인할 수 있다."""
+
+    password = "signup-password"
+
+    password_hash = hash_password(
+        password,
+    )
+
+    assert password_hash != password
+    assert verify_password(
+        password,
+        password_hash,
+    ) is True
 
 
 @pytest.fixture(scope="module")
