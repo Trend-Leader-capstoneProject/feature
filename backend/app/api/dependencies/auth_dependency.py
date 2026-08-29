@@ -20,7 +20,7 @@ bearer_scheme = HTTPBearer(
     bearerFormat="JWT",
     scheme_name="BearerAuth",
     description=(
-        "POST /api/auth/login에서 발급받은 "
+        "POST /api/auth/login 또는 POST /api/auth/signup에서 발급받은 "
         "JWT Access Token을 입력합니다."
     ),
 )
