@@ -1,7 +1,18 @@
-import { useMutation } from "@tanstack/react-query";
-import { AxiosError } from "axios";
-import { signup } from "../api/signup";
-import { SignupErrorResponse, SignupRequest, SignupResponse } from "../types/auth";
+import {
+    useMutation,
+} from "@tanstack/react-query";
+import type {
+    AxiosError,
+} from "axios";
+
+import {
+    signup,
+} from "../api/signup";
+import type {
+    SignupErrorResponse,
+    SignupRequest,
+    SignupResponse,
+} from "../types/auth";
 
 type SignupSuccessHandler = (
   result: SignupResponse,
@@ -10,13 +21,13 @@ type SignupSuccessHandler = (
 export function useSignup(
   onSuccess?: SignupSuccessHandler,
 ) {
-    return useMutation<
-      SignupResponse,
-      AxiosError<SignupErrorResponse>,
-      SignupRequest
-    >({
-        mutationFn: signup,
-        onSuccess,
-        retry: 0,
-    })
+  return useMutation<
+    SignupResponse,
+    AxiosError<SignupErrorResponse>,
+    SignupRequest
+  >({
+    mutationFn: signup,
+    onSuccess,
+    retry: 0,
+  });
 }
