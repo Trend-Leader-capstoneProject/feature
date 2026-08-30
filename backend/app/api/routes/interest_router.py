@@ -30,12 +30,12 @@ def create_interests(
     service: InterestServiceDep,
 ) -> CommonResponse[InterestCreateData]:
     """현재 사용자의 최초 관심사를 저장한다."""
-    
+
     result = service.create_interests(
         user_id=current_user.user_id,
         category_ids=request.category_ids,
     )
-    
+
     return success_response(
         message="관심사를 저장했습니다.",
         data=result,
