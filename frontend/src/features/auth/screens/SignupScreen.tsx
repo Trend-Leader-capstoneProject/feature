@@ -262,6 +262,8 @@ export function SignupScreen({
       return;
     }
 
+    clearFieldError("loginId");
+
     const requestedLoginId = loginId;
 
     setLoginIdCheckFeedback(null);
