@@ -4,12 +4,21 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  View,
+  View
 } from "react-native";
+
+import type {
+  NativeStackScreenProps,
+} from "@react-navigation/native-stack";
+
+import type {
+  AuthStackParamList,
+} from "../../../app/navigation/AuthNavigator";
 
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
@@ -28,11 +37,16 @@ import {
 } from "../../../shared/constants";
 import { useLogin } from "../hooks/useLogin";
 
+type LoginScreenProps =
+  NativeStackScreenProps<
+    AuthStackParamList,
+    "Login"
+  >;
+
 type FocusedField =
   | "loginId"
   | "password"
   | null;
-
 
 interface LoginErrorPresentation {
   message: string;
@@ -129,7 +143,9 @@ function getLoginErrorPresentation(
 }
 
 
-export function LoginScreen() {
+export function LoginScreen({
+  navigation,
+}: LoginScreenProps) {
 
   const {
     establishSession,
@@ -384,6 +400,23 @@ export function LoginScreen() {
               onPress={handleLogin}
               style={styles.loginButton}
             />
+            <View style={styles.signupPrompt}>
+              <Text style={styles.signupPromptText}>
+                아직 계정이 없으신가요?
+              </Text>
+
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() =>
+                  navigation.navigate("Signup")
+                }
+              >
+                <Text style={styles.signupLink}>
+                  회원가입
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -454,5 +487,20 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: spacing.space2,
+  },
+  signupPrompt: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.space2,
+    marginTop: spacing.space2,
+  },
+  signupPromptText: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  signupLink: {
+    ...typography.bodyStrong,
+    color: colors.textLink,
   },
 });
