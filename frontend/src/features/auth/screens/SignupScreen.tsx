@@ -409,7 +409,6 @@ export function SignupScreen({
                 ref={nameInputRef}
                 accessibilityLabel="이름"
                 autoCorrect={false}
-                maxLength={50}
                 onBlur={() =>
                   setFocusedField(null)
                 }
@@ -460,7 +459,6 @@ export function SignupScreen({
                 autoComplete="email"
                 autoCorrect={false}
                 keyboardType="email-address"
-                maxLength={255}
                 onBlur={() =>
                   setFocusedField(null)
                 }
