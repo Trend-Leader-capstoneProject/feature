@@ -14,8 +14,8 @@ import {
 import { Alert } from "react-native";
 import { getAuthSession } from "../../features/auth/api/getAuthSession";
 import type {
-  LoginResponse,
-  SessionResponse,
+  AuthSuccessResponse,
+  SessionResponse
 } from "../../features/auth/types/auth";
 import { registerAuthFailureHandler } from "../../shared/handler/authFailureHandler";
 import {
@@ -45,7 +45,9 @@ export type AuthState =
 
 interface AuthContextValue {
   authState: AuthState;
-  establishSession: (loginResponse: LoginResponse) => Promise<void>;
+  establishSession: (
+    authResponse: AuthSuccessResponse,
+  ) => Promise<void>;
   restoreSession: () => Promise<void>;
   revalidateSession: () => Promise<void>;
   completeInterestSelection: () => void;
@@ -58,11 +60,13 @@ function isUnauthorizedError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 401;
 }
 
-function toSessionResponse(loginResponse: LoginResponse): SessionResponse {
+function toSessionResponse(
+  authResponse: AuthSuccessResponse,
+): SessionResponse {
   return {
-    user: loginResponse.user,
-    has_selected_interests: loginResponse.has_selected_interests,
-    next_step: loginResponse.next_step,
+    user: authResponse.user,
+    has_selected_interests: authResponse.has_selected_interests,
+    next_step: authResponse.next_step,
   };
 }
 
@@ -125,14 +129,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [queryClient]);
 
   const establishSession = useCallback(
-    async (loginResponse: LoginResponse): Promise<void> => {
+    async (
+      authResponse: AuthSuccessResponse,
+    ): Promise<void> => {
       const activeTermination = sessionTerminationPromiseRef.current;
 
       if (activeTermination) {
         await activeTermination;
       }
 
-      await saveAccessToken(loginResponse.access_token);
+      await saveAccessToken(
+        authResponse.access_token,
+      );
 
       allowAuthenticatedRequests();
 
@@ -140,7 +148,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       setAuthState({
         status: "AUTHENTICATED",
-        session: toSessionResponse(loginResponse),
+        session: toSessionResponse(authResponse),
       });
     },
     [],
