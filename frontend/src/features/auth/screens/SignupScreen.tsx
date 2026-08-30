@@ -1,11 +1,13 @@
 import type {
     NativeStackScreenProps,
 } from "@react-navigation/native-stack";
+import axios from "axios";
 import {
     useRef,
     useState,
 } from "react";
 import {
+    Alert,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -19,6 +21,9 @@ import {
 import type {
     AuthStackParamList,
 } from "../../../app/navigation/AuthNavigator";
+import {
+    useAuth,
+} from "../../../app/providers/AuthProvider";
 import {
     PrimaryButton,
     ScreenContainer,
@@ -34,6 +39,12 @@ import {
 import {
     useCheckLoginId,
 } from "../hooks/useCheckLoginId";
+import {
+    useSignup,
+} from "../hooks/useSignup";
+import type {
+    SignupErrorResponse,
+} from "../types/auth";
 
 type SignupScreenProps =
   NativeStackScreenProps<
@@ -156,11 +167,68 @@ function validateSignupForm({
   return errors;
 }
 
+function mapBackendValidationField(
+  field: string,
+): SignupField | null {
+  const normalizedField =
+    field.startsWith("body.")
+      ? field.slice("body.".length)
+      : field;
+
+  switch (normalizedField) {
+    case "login_id":
+      return "loginId";
+
+    case "password":
+      return "password";
+
+    case "password_confirm":
+      return "passwordConfirm";
+
+    case "name":
+      return "name";
+
+    case "email":
+      return "email";
+
+    default:
+      return null;
+  }
+}
+
+function getBackendValidationMessage(
+  field: SignupField,
+): string {
+  switch (field) {
+    case "loginId":
+      return "아이디 형식을 확인해 주세요.";
+
+    case "password":
+      return "비밀번호는 15자 이상 128자 이하여야 합니다.";
+
+    case "passwordConfirm":
+      return "비밀번호 확인이 일치하지 않습니다.";
+
+    case "name":
+      return "이름을 확인해 주세요.";
+
+    case "email":
+      return "올바른 이메일 형식을 입력해 주세요.";
+  }
+}
+
 export function SignupScreen({
   navigation,
 }: SignupScreenProps) {
+  const {
+    establishSession,
+  } = useAuth();
+
   const checkLoginIdMutation =
     useCheckLoginId();
+
+  const signupMutation =
+    useSignup();
 
   const passwordInputRef =
     useRef<TextInput>(null);
@@ -188,6 +256,15 @@ export function SignupScreen({
     useState("");
 
   const [
+    isPasswordVisible,
+    setIsPasswordVisible,
+  ] = useState(false);
+  const [
+    isPasswordConfirmVisible,
+    setIsPasswordConfirmVisible,
+  ] = useState(false);
+
+  const [
     focusedField,
     setFocusedField,
   ] = useState<SignupField | null>(null);
@@ -202,6 +279,16 @@ export function SignupScreen({
     setLoginIdCheckFeedback,
   ] = useState<LoginIdCheckFeedback>(null);
 
+  const [
+    formErrorMessage,
+    setFormErrorMessage,
+  ] = useState<string | null>(null);
+
+  const [
+    hasSignupSucceeded,
+    setHasSignupSucceeded,
+  ] = useState(false);
+
   const currentLoginIdCheckFeedback =
     loginIdCheckFeedback?.loginId === loginId
       ? loginIdCheckFeedback
@@ -214,10 +301,15 @@ export function SignupScreen({
   const loginIdValidationError =
     getLoginIdValidationError(loginId);
 
+  const isFormInteractionDisabled =
+    signupMutation.isPending ||
+    hasSignupSucceeded;
+
   const canCheckLoginId =
     loginId.length > 0 &&
     loginIdValidationError === null &&
-    !checkLoginIdMutation.isPending;
+    !checkLoginIdMutation.isPending &&
+    !isFormInteractionDisabled;
 
   function clearFieldError(
     field: SignupField,
@@ -237,6 +329,12 @@ export function SignupScreen({
     });
   }
 
+  function clearFormError(): void {
+    if (formErrorMessage !== null) {
+      setFormErrorMessage(null);
+    }
+  }
+
   function handleLoginIdChange(
     value: string,
   ): void {
@@ -244,11 +342,16 @@ export function SignupScreen({
 
     setLoginId(value);
     clearFieldError("loginId");
+    clearFormError();
 
     setLoginIdCheckFeedback(null);
   }
 
   function handleCheckLoginId(): void {
+    if (isFormInteractionDisabled) {
+      return;
+    }
+
     const validationError =
       getLoginIdValidationError(loginId);
 
@@ -263,6 +366,7 @@ export function SignupScreen({
     }
 
     clearFieldError("loginId");
+    clearFormError();
 
     const requestedLoginId = loginId;
 
@@ -324,7 +428,125 @@ export function SignupScreen({
     );
   }
 
-  function handleSignup(): void {
+  function handleSignupError(
+    error: unknown,
+  ): void {
+    if (
+      !axios.isAxiosError<SignupErrorResponse>(
+        error,
+      )
+    ) {
+      setFormErrorMessage(
+        "회원가입 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+      );
+      return;
+    }
+
+    if (!error.response) {
+      setFormErrorMessage(
+        "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+      );
+      return;
+    }
+
+    const errorResponse =
+      error.response.data;
+
+    switch (errorResponse.statusCode) {
+      case 409: {
+        const conflictData =
+          errorResponse.data;
+
+        if (
+          conflictData.field ===
+          "login_id"
+        ) {
+          setFieldErrors((current) => ({
+            ...current,
+            loginId:
+              "이미 사용 중인 아이디입니다.",
+          }));
+
+          setLoginIdCheckFeedback({
+            loginId,
+            status: "DUPLICATED",
+          });
+
+          return;
+        }
+
+        setFieldErrors((current) => ({
+          ...current,
+          email:
+            "이미 사용 중인 이메일입니다.",
+        }));
+
+        return;
+      }
+
+      case 422: {
+        const nextErrors:
+          SignupFieldErrors = {};
+
+        for (
+          const validationError
+          of errorResponse.data.errors
+        ) {
+          const field =
+            mapBackendValidationField(
+              validationError.field,
+            );
+
+          if (field === null) {
+            continue;
+          }
+
+          nextErrors[field] =
+            getBackendValidationMessage(
+              field,
+            );
+        }
+
+        if (
+          Object.keys(nextErrors).length >
+          0
+        ) {
+          setFieldErrors((current) => ({
+            ...current,
+            ...nextErrors,
+          }));
+
+          return;
+        }
+
+        setFormErrorMessage(
+          "입력 정보를 다시 확인해 주세요.",
+        );
+        return;
+      }
+
+      case 500:
+        setFormErrorMessage(
+          "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+
+      default:
+        setFormErrorMessage(
+          "회원가입 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+    }
+  }
+
+  async function handleSignup(): Promise<void> {
+    if (
+      isFormInteractionDisabled
+    ) {
+      return;
+    }
+
+    clearFormError();
+
     const errors = validateSignupForm({
       loginId,
       password,
@@ -352,7 +574,49 @@ export function SignupScreen({
       return;
     }
 
-    // Phase 3-5c에서 실제 Signup Mutation 연결
+    try {
+      const signupResponse =
+        await signupMutation.mutateAsync({
+          login_id: loginId,
+          password,
+          password_confirm:
+            passwordConfirm,
+          name,
+          email:
+            email.length === 0
+              ? null
+              : email,
+        });
+
+      setHasSignupSucceeded(true);
+
+      setPassword("");
+      setPasswordConfirm("");
+
+      try {
+        await establishSession(
+          signupResponse,
+        );
+      } catch {
+        Alert.alert(
+          "회원가입 완료",
+          "회원가입은 완료되었지만 로그인 정보를 저장하지 못했습니다.\n로그인 화면에서 다시 로그인해 주세요.",
+          [
+            {
+              text: "확인",
+              onPress: () => {
+                navigation.goBack();
+              },
+            },
+          ],
+          {
+            cancelable: false,
+          },
+        );
+      }
+    } catch (error) {
+      handleSignupError(error);
+    }
   }
 
   return (
@@ -400,6 +664,9 @@ export function SignupScreen({
                   autoCapitalize="none"
                   autoComplete="username-new"
                   autoCorrect={false}
+                  editable={
+                    !isFormInteractionDisabled
+                  }
                   maxLength={50}
                   onBlur={() =>
                     setFocusedField(null)
@@ -508,56 +775,105 @@ export function SignupScreen({
                 비밀번호
               </Text>
 
-              <TextInput
-                ref={passwordInputRef}
-                accessibilityLabel="비밀번호"
-                autoCapitalize="none"
-                autoComplete="new-password"
-                autoCorrect={false}
-                maxLength={128}
-                onBlur={() =>
-                  setFocusedField(null)
+              <View
+                style={
+                  styles.passwordInputWrapper
                 }
-                onChangeText={(value) => {
-                  setPassword(value);
-                  clearFieldError(
-                    "password",
-                  );
-
-                  if (
-                    fieldErrors.passwordConfirm
-                  ) {
-                    clearFieldError(
-                      "passwordConfirm",
-                    );
+              >
+                <TextInput
+                  ref={passwordInputRef}
+                  accessibilityLabel="비밀번호"
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  autoCorrect={false}
+                  editable={
+                    !isFormInteractionDisabled
                   }
-                }}
-                onFocus={() =>
-                  setFocusedField(
-                    "password",
-                  )
-                }
-                onSubmitEditing={() =>
-                  passwordConfirmInputRef
-                    .current?.focus()
-                }
-                placeholder="비밀번호를 입력하세요"
-                placeholderTextColor={
-                  colors.textDisabled
-                }
-                returnKeyType="next"
-                secureTextEntry
-                style={[
-                  styles.input,
-                  focusedField ===
-                    "password" &&
-                    styles.inputFocused,
-                  fieldErrors.password &&
-                    styles.inputError,
-                ]}
-                textContentType="newPassword"
-                value={password}
-              />
+                  maxLength={128}
+                  onBlur={() =>
+                    setFocusedField(null)
+                  }
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    clearFieldError(
+                      "password",
+                    );
+                    clearFormError();
+
+                    if (
+                      fieldErrors.passwordConfirm
+                    ) {
+                      clearFieldError(
+                        "passwordConfirm",
+                      );
+                    }
+                  }}
+                  onFocus={() =>
+                    setFocusedField(
+                      "password",
+                    )
+                  }
+                  onSubmitEditing={() =>
+                    passwordConfirmInputRef
+                      .current?.focus()
+                  }
+                  placeholder="비밀번호를 입력하세요"
+                  placeholderTextColor={
+                    colors.textDisabled
+                  }
+                  returnKeyType="next"
+                  secureTextEntry={
+                    !isPasswordVisible
+                  }
+                  style={[
+                    styles.input,
+                    styles.passwordInput,
+                    focusedField ===
+                      "password" &&
+                      styles.inputFocused,
+                    fieldErrors.password &&
+                      styles.inputError,
+                  ]}
+                  textContentType="newPassword"
+                  value={password}
+                />
+
+                <Pressable
+                  accessibilityLabel={
+                    isPasswordVisible
+                      ? "비밀번호 숨기기"
+                      : "비밀번호 보기"
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    disabled:
+                      isFormInteractionDisabled,
+                  }}
+                  disabled={
+                    isFormInteractionDisabled
+                  }
+                  hitSlop={8}
+                  onPress={() =>
+                    setIsPasswordVisible(
+                      (current) =>
+                        !current,
+                    )
+                  }
+                  style={
+                    styles.passwordVisibilityButton
+                  }
+                >
+                  <Text
+                    style={
+                      styles.passwordVisibilityText
+                    }
+                  >
+                    {isPasswordVisible
+                      ? "숨기기"
+                      : "보기"}
+                  </Text>
+                </Pressable>
+              </View>
 
               <Text style={styles.helperText}>
                 15자 이상 128자 이하로 입력해 주세요.
@@ -575,49 +891,98 @@ export function SignupScreen({
                 비밀번호 확인
               </Text>
 
-              <TextInput
-                ref={
-                  passwordConfirmInputRef
+              <View
+                style={
+                  styles.passwordInputWrapper
                 }
-                accessibilityLabel="비밀번호 확인"
-                autoCapitalize="none"
-                autoComplete="new-password"
-                autoCorrect={false}
-                maxLength={128}
-                onBlur={() =>
-                  setFocusedField(null)
-                }
-                onChangeText={(value) => {
-                  setPasswordConfirm(value);
-                  clearFieldError(
-                    "passwordConfirm",
-                  );
-                }}
-                onFocus={() =>
-                  setFocusedField(
-                    "passwordConfirm",
-                  )
-                }
-                onSubmitEditing={() =>
-                  nameInputRef.current?.focus()
-                }
-                placeholder="비밀번호를 다시 입력하세요"
-                placeholderTextColor={
-                  colors.textDisabled
-                }
-                returnKeyType="next"
-                secureTextEntry
-                style={[
-                  styles.input,
-                  focusedField ===
-                    "passwordConfirm" &&
-                    styles.inputFocused,
-                  fieldErrors.passwordConfirm &&
-                    styles.inputError,
-                ]}
-                textContentType="newPassword"
-                value={passwordConfirm}
-              />
+              >
+                <TextInput
+                  ref={
+                    passwordConfirmInputRef
+                  }
+                  accessibilityLabel="비밀번호 확인"
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  autoCorrect={false}
+                  editable={
+                    !isFormInteractionDisabled
+                  }
+                  maxLength={128}
+                  onBlur={() =>
+                    setFocusedField(null)
+                  }
+                  onChangeText={(value) => {
+                    setPasswordConfirm(value);
+                    clearFieldError(
+                      "passwordConfirm",
+                    );
+                    clearFormError();
+                  }}
+                  onFocus={() =>
+                    setFocusedField(
+                      "passwordConfirm",
+                    )
+                  }
+                  onSubmitEditing={() =>
+                    nameInputRef.current?.focus()
+                  }
+                  placeholder="비밀번호를 다시 입력하세요"
+                  placeholderTextColor={
+                    colors.textDisabled
+                  }
+                  returnKeyType="next"
+                  secureTextEntry={
+                    !isPasswordConfirmVisible
+                  }
+                  style={[
+                    styles.input,
+                    styles.passwordInput,
+                    focusedField ===
+                      "passwordConfirm" &&
+                      styles.inputFocused,
+                    fieldErrors.passwordConfirm &&
+                      styles.inputError,
+                  ]}
+                  textContentType="newPassword"
+                  value={passwordConfirm}
+                />
+
+                <Pressable
+                  accessibilityLabel={
+                    isPasswordConfirmVisible
+                      ? "비밀번호 확인 숨기기"
+                      : "비밀번호 확인 보기"
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    disabled:
+                      isFormInteractionDisabled,
+                  }}
+                  disabled={
+                    isFormInteractionDisabled
+                  }
+                  hitSlop={8}
+                  onPress={() =>
+                    setIsPasswordConfirmVisible(
+                      (current) =>
+                        !current,
+                    )
+                  }
+                  style={
+                    styles.passwordVisibilityButton
+                  }
+                >
+                  <Text
+                    style={
+                      styles.passwordVisibilityText
+                    }
+                  >
+                    {isPasswordConfirmVisible
+                      ? "숨기기"
+                      : "보기"}
+                  </Text>
+                </Pressable>
+              </View>
 
               {fieldErrors.passwordConfirm && (
                 <Text style={styles.errorText}>
@@ -637,12 +1002,16 @@ export function SignupScreen({
                 ref={nameInputRef}
                 accessibilityLabel="이름"
                 autoCorrect={false}
+                editable={
+                  !isFormInteractionDisabled
+                }
                 onBlur={() =>
                   setFocusedField(null)
                 }
                 onChangeText={(value) => {
                   setName(value);
                   clearFieldError("name");
+                  clearFormError();
                 }}
                 onFocus={() =>
                   setFocusedField("name")
@@ -688,6 +1057,9 @@ export function SignupScreen({
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect={false}
+                editable={
+                  !isFormInteractionDisabled
+                }
                 keyboardType="email-address"
                 onBlur={() =>
                   setFocusedField(null)
@@ -695,6 +1067,7 @@ export function SignupScreen({
                 onChangeText={(value) => {
                   setEmail(value);
                   clearFieldError("email");
+                  clearFormError();
                 }}
                 onFocus={() =>
                   setFocusedField("email")
@@ -725,8 +1098,28 @@ export function SignupScreen({
               )}
             </View>
 
+            {formErrorMessage !== null && (
+              <Text
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+                style={styles.formErrorText}
+              >
+                {formErrorMessage}
+              </Text>
+            )}
+
             <PrimaryButton
-              label="회원가입"
+              disabled={
+                hasSignupSucceeded
+              }
+              label={
+                signupMutation.isPending
+                  ? "회원가입 중..."
+                  : "회원가입"
+              }
+              loading={
+                signupMutation.isPending
+              }
               onPress={handleSignup}
               style={styles.signupButton}
             />
@@ -740,6 +1133,13 @@ export function SignupScreen({
 
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{
+                  disabled:
+                    isFormInteractionDisabled,
+                }}
+                disabled={
+                  isFormInteractionDisabled
+                }
                 hitSlop={8}
                 onPress={() =>
                   navigation.goBack()
@@ -811,6 +1211,23 @@ const styles = StyleSheet.create({
   loginIdInput: {
     flex: 1,
   },
+  passwordInputWrapper: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: spacing.space12,
+  },
+  passwordVisibilityButton: {
+    position: "absolute",
+    top: 0,
+    right: spacing.space3,
+    bottom: 0,
+    justifyContent: "center",
+  },
+  passwordVisibilityText: {
+    ...typography.label,
+    color: colors.textLink,
+  },
   inputFocused: {
     borderWidth:
       borders.borderWidthStrong,
@@ -830,6 +1247,10 @@ const styles = StyleSheet.create({
     color: colors.statusPositive,
   },
   errorText: {
+    ...typography.caption,
+    color: colors.statusNegative,
+  },
+  formErrorText: {
     ...typography.caption,
     color: colors.statusNegative,
   },
