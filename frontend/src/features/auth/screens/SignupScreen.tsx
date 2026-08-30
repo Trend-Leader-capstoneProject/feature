@@ -31,6 +31,9 @@ import {
     spacing,
     typography,
 } from "../../../shared/constants";
+import {
+    useCheckLoginId,
+} from "../hooks/useCheckLoginId";
 
 type SignupScreenProps =
   NativeStackScreenProps<
@@ -48,11 +51,48 @@ type SignupField =
 type SignupFieldErrors =
   Partial<Record<SignupField, string>>;
 
+type LoginIdCheckFeedback =
+  | {
+      loginId: string;
+      status: "AVAILABLE";
+    }
+  | {
+      loginId: string;
+      status: "DUPLICATED";
+    }
+  | {
+      loginId: string;
+      status: "ERROR";
+      message: string;
+    }
+  | null;
+
 const LOGIN_ID_PATTERN =
   /^[a-z][a-z0-9_]*$/;
 
 const EMAIL_PATTERN =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getLoginIdValidationError(
+  loginId: string,
+): string | null {
+  if (loginId.length < 4) {
+    return "아이디는 4자 이상이어야 합니다.";
+  }
+
+  if (loginId.length > 50) {
+    return "아이디는 50자 이하여야 합니다.";
+  }
+
+  if (!LOGIN_ID_PATTERN.test(loginId)) {
+    return (
+      "아이디는 영문 소문자로 시작하고, " +
+      "영문 소문자·숫자·밑줄(_)만 사용할 수 있습니다."
+    );
+  }
+
+  return null;
+}
 
 function validateSignupForm({
   loginId,
@@ -69,17 +109,11 @@ function validateSignupForm({
 }): SignupFieldErrors {
   const errors: SignupFieldErrors = {};
 
-  if (loginId.length < 4) {
-    errors.loginId =
-      "아이디는 4자 이상이어야 합니다.";
-  } else if (loginId.length > 50) {
-    errors.loginId =
-      "아이디는 50자 이하여야 합니다.";
-  } else if (
-    !LOGIN_ID_PATTERN.test(loginId)
-  ) {
-    errors.loginId =
-      "아이디는 영문 소문자로 시작하고, 영문 소문자·숫자·밑줄(_)만 사용할 수 있습니다.";
+  const loginIdError =
+    getLoginIdValidationError(loginId);
+
+  if (loginIdError !== null) {
+    errors.loginId = loginIdError;
   }
 
   if (password.length < 15) {
@@ -125,6 +159,9 @@ function validateSignupForm({
 export function SignupScreen({
   navigation,
 }: SignupScreenProps) {
+  const checkLoginIdMutation =
+    useCheckLoginId();
+
   const passwordInputRef =
     useRef<TextInput>(null);
   const passwordConfirmInputRef =
@@ -133,6 +170,9 @@ export function SignupScreen({
     useRef<TextInput>(null);
   const emailInputRef =
     useRef<TextInput>(null);
+
+  const loginIdValueRef =
+    useRef("");
 
   const [loginId, setLoginId] =
     useState("");
@@ -157,6 +197,28 @@ export function SignupScreen({
     setFieldErrors,
   ] = useState<SignupFieldErrors>({});
 
+  const [
+    loginIdCheckFeedback,
+    setLoginIdCheckFeedback,
+  ] = useState<LoginIdCheckFeedback>(null);
+
+  const currentLoginIdCheckFeedback =
+    loginIdCheckFeedback?.loginId === loginId
+      ? loginIdCheckFeedback
+      : null;
+
+  const isCurrentLoginIdAvailable =
+    currentLoginIdCheckFeedback?.status ===
+    "AVAILABLE";
+
+  const loginIdValidationError =
+    getLoginIdValidationError(loginId);
+
+  const canCheckLoginId =
+    loginId.length > 0 &&
+    loginIdValidationError === null &&
+    !checkLoginIdMutation.isPending;
+
   function clearFieldError(
     field: SignupField,
   ): void {
@@ -175,6 +237,91 @@ export function SignupScreen({
     });
   }
 
+  function handleLoginIdChange(
+    value: string,
+  ): void {
+    loginIdValueRef.current = value;
+
+    setLoginId(value);
+    clearFieldError("loginId");
+
+    setLoginIdCheckFeedback(null);
+  }
+
+  function handleCheckLoginId(): void {
+    const validationError =
+      getLoginIdValidationError(loginId);
+
+    if (validationError !== null) {
+      setFieldErrors((current) => ({
+        ...current,
+        loginId: validationError,
+      }));
+
+      setLoginIdCheckFeedback(null);
+      return;
+    }
+
+    const requestedLoginId = loginId;
+
+    setLoginIdCheckFeedback(null);
+
+    checkLoginIdMutation.mutate(
+      {
+        login_id: requestedLoginId,
+      },
+      {
+        onSuccess: (result) => {
+          if (
+            loginIdValueRef.current !==
+            requestedLoginId
+          ) {
+            return;
+          }
+
+          setLoginIdCheckFeedback({
+            loginId: requestedLoginId,
+            status: result.is_available
+              ? "AVAILABLE"
+              : "DUPLICATED",
+          });
+        },
+        onError: (error) => {
+          if (
+            loginIdValueRef.current !==
+            requestedLoginId
+          ) {
+            return;
+          }
+
+          let message =
+            "아이디 중복 확인 중 문제가 발생했습니다.";
+
+          if (!error.response) {
+            message =
+              "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.";
+          } else if (
+            error.response.status === 422
+          ) {
+            message =
+              "아이디 형식을 확인해 주세요.";
+          } else if (
+            error.response.status >= 500
+          ) {
+            message =
+              "서버 오류로 아이디를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+          }
+
+          setLoginIdCheckFeedback({
+            loginId: requestedLoginId,
+            status: "ERROR",
+            message,
+          });
+        },
+      },
+    );
+  }
+
   function handleSignup(): void {
     const errors = validateSignupForm({
       loginId,
@@ -183,6 +330,17 @@ export function SignupScreen({
       name,
       email,
     });
+
+    if (
+      !errors.loginId &&
+      !isCurrentLoginIdAvailable
+    ) {
+      errors.loginId =
+        currentLoginIdCheckFeedback
+          ?.status === "DUPLICATED"
+          ? "이미 사용 중인 아이디입니다."
+          : "아이디 중복 확인을 완료해 주세요.";
+    }
 
     setFieldErrors(errors);
 
@@ -232,47 +390,113 @@ export function SignupScreen({
                 아이디
               </Text>
 
-              <TextInput
-                accessibilityLabel="아이디"
-                autoCapitalize="none"
-                autoComplete="username-new"
-                autoCorrect={false}
-                maxLength={50}
-                onBlur={() =>
-                  setFocusedField(null)
-                }
-                onChangeText={(value) => {
-                  setLoginId(value);
-                  clearFieldError(
-                    "loginId",
-                  );
-                }}
-                onFocus={() =>
-                  setFocusedField("loginId")
-                }
-                onSubmitEditing={() =>
-                  passwordInputRef.current?.focus()
-                }
-                placeholder="아이디를 입력하세요"
-                placeholderTextColor={
-                  colors.textDisabled
-                }
-                returnKeyType="next"
-                style={[
-                  styles.input,
-                  focusedField ===
-                    "loginId" &&
-                    styles.inputFocused,
-                  fieldErrors.loginId &&
-                    styles.inputError,
-                ]}
-                textContentType="username"
-                value={loginId}
-              />
+              <View
+                style={styles.loginIdInputRow}
+              >
+                <TextInput
+                  accessibilityLabel="아이디"
+                  autoCapitalize="none"
+                  autoComplete="username-new"
+                  autoCorrect={false}
+                  maxLength={50}
+                  onBlur={() =>
+                    setFocusedField(null)
+                  }
+                  onChangeText={
+                    handleLoginIdChange
+                  }
+                  onFocus={() =>
+                    setFocusedField(
+                      "loginId",
+                    )
+                  }
+                  onSubmitEditing={() =>
+                    passwordInputRef.current?.focus()
+                  }
+                  placeholder="아이디를 입력하세요"
+                  placeholderTextColor={
+                    colors.textDisabled
+                  }
+                  returnKeyType="next"
+                  style={[
+                    styles.input,
+                    styles.loginIdInput,
+                    focusedField ===
+                      "loginId" &&
+                      styles.inputFocused,
+                    (
+                      fieldErrors.loginId ||
+                      currentLoginIdCheckFeedback
+                        ?.status ===
+                        "DUPLICATED"
+                    ) &&
+                      styles.inputError,
+                  ]}
+                  textContentType="username"
+                  value={loginId}
+                />
 
-              {fieldErrors.loginId && (
-                <Text style={styles.errorText}>
+                <PrimaryButton
+                  disabled={
+                    !canCheckLoginId
+                  }
+                  label="중복 확인"
+                  loading={
+                    checkLoginIdMutation
+                      .isPending
+                  }
+                  onPress={
+                    handleCheckLoginId
+                  }
+                  style={
+                    styles.checkLoginIdButton
+                  }
+                  textStyle={
+                    styles.checkLoginIdButtonText
+                  }
+                />
+              </View>
+
+              {fieldErrors.loginId ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.errorText}
+                >
                   {fieldErrors.loginId}
+                </Text>
+              ) : currentLoginIdCheckFeedback
+                  ?.status ===
+                "AVAILABLE" ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.availableText}
+                >
+                  사용 가능한 아이디입니다.
+                </Text>
+              ) : currentLoginIdCheckFeedback
+                  ?.status ===
+                "DUPLICATED" ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.errorText}
+                >
+                  이미 사용 중인 아이디입니다.
+                </Text>
+              ) : currentLoginIdCheckFeedback
+                  ?.status === "ERROR" ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.errorText}
+                >
+                  {
+                    currentLoginIdCheckFeedback.message
+                  }
+                </Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  영문 소문자로 시작하는
+                  4~50자의 영문 소문자·숫자·밑줄(_)을
+                  사용할 수 있습니다.
                 </Text>
               )}
             </View>
@@ -350,7 +574,9 @@ export function SignupScreen({
               </Text>
 
               <TextInput
-                ref={passwordConfirmInputRef}
+                ref={
+                  passwordConfirmInputRef
+                }
                 accessibilityLabel="비밀번호 확인"
                 autoCapitalize="none"
                 autoComplete="new-password"
@@ -447,7 +673,9 @@ export function SignupScreen({
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>
                 이메일
-                <Text style={styles.optionalText}>
+                <Text
+                  style={styles.optionalText}
+                >
                   {"  "}(선택)
                 </Text>
               </Text>
@@ -561,6 +789,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
   },
+  loginIdInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.space2,
+  },
   input: {
     minHeight: sizes.inputHeight,
     paddingHorizontal: spacing.space4,
@@ -572,6 +805,9 @@ const styles = StyleSheet.create({
       colors.backgroundSurface,
     ...typography.input,
     color: colors.textPrimary,
+  },
+  loginIdInput: {
+    flex: 1,
   },
   inputFocused: {
     borderWidth:
@@ -587,9 +823,20 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
   },
+  availableText: {
+    ...typography.caption,
+    color: colors.statusPositive,
+  },
   errorText: {
     ...typography.caption,
     color: colors.statusNegative,
+  },
+  checkLoginIdButton: {
+    minWidth: 112,
+    paddingHorizontal: spacing.space3,
+  },
+  checkLoginIdButtonText: {
+    ...typography.label,
   },
   signupButton: {
     marginTop: spacing.space2,
