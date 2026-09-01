@@ -1,8 +1,9 @@
 from typing import cast
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
-from sqlalchemy.exc import SQLAlchemyError
+from pymysql.err import OperationalError as PyMySQLOperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -47,6 +48,22 @@ def make_interest(
     return UserInterestCategory(
         user_id=user_id,
         category_id=category_id,
+    )
+
+
+def make_operational_error(
+    code: int,
+    message: str = "테스트 DB 오류",
+) -> OperationalError:
+    """MariaDB/PyMySQL 오류 코드를 가진 SQLAlchemy OperationalError를 생성한다."""
+
+    return OperationalError(
+        statement="SELECT test",
+        params={},
+        orig=PyMySQLOperationalError(
+            code,
+            message,
+        ),
     )
 
 
@@ -354,8 +371,8 @@ def test_create_interests_rolls_back_when_repository_save_fails() -> None:
     db_mock.rollback.assert_called_once_with()
 
 
-def test_create_interests_rolls_back_when_commit_fails() -> None:
-    """commit 중 DB 오류가 발생하면 rollback한다."""
+def test_update_interests_rolls_back_when_commit_fails() -> None:
+    """관심사 수정 commit 중 DB 오류가 발생하면 rollback한다."""
 
     (
         service,
@@ -364,27 +381,49 @@ def test_create_interests_rolls_back_when_commit_fails() -> None:
         interest_repository_mock,
     ) = make_service()
 
+    current_interest_one = make_interest(
+        user_id=100,
+        category_id=1,
+    )
+    current_interest_two = make_interest(
+        user_id=100,
+        category_id=2,
+    )
+
     category_repository_mock.find_list_by_ids.return_value = [
         make_category(
             1,
+            category_code=CategoryCode.GAME,
+        ),
+        make_category(
+            3,
+            category_code=CategoryCode.FOOD,
         ),
     ]
 
+    interest_repository_mock.find_by_user_id_for_update.return_value = [
+        current_interest_one,
+        current_interest_two,
+    ]
+
     db_mock.commit.side_effect = SQLAlchemyError(
-        "commit 실패",
+        "관심사 수정 commit 실패",
     )
 
     with pytest.raises(
         SQLAlchemyError,
     ):
-        service.create_interests(
+        service.update_interests(
             user_id=100,
             category_ids=[
                 1,
+                3,
             ],
         )
 
+    interest_repository_mock.delete.assert_called_once()
     interest_repository_mock.save.assert_called_once()
+
     db_mock.commit.assert_called_once_with()
     db_mock.rollback.assert_called_once_with()
 
@@ -772,3 +811,339 @@ def test_update_interests_raises_bad_request_for_child_category() -> None:
     interest_repository_mock.delete.assert_not_called()
     interest_repository_mock.save.assert_not_called()
     db_mock.commit.assert_not_called()
+
+
+def test_update_interests_rolls_back_when_delete_fails() -> None:
+    """기존 관심사 삭제 중 DB 오류가 발생하면 rollback한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    current_interest_one = make_interest(
+        user_id=100,
+        category_id=1,
+    )
+    current_interest_two = make_interest(
+        user_id=100,
+        category_id=2,
+    )
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+            category_code=CategoryCode.GAME,
+        ),
+        make_category(
+            3,
+            category_code=CategoryCode.FOOD,
+        ),
+    ]
+
+    interest_repository_mock.find_by_user_id_for_update.return_value = [
+        current_interest_one,
+        current_interest_two,
+    ]
+
+    interest_repository_mock.delete.side_effect = SQLAlchemyError(
+        "관심사 삭제 실패",
+    )
+
+    with pytest.raises(
+        SQLAlchemyError,
+    ):
+        service.update_interests(
+            user_id=100,
+            category_ids=[
+                1,
+                3,
+            ],
+        )
+
+    interest_repository_mock.delete.assert_called_once_with(
+        [
+            current_interest_two,
+        ],
+    )
+    interest_repository_mock.save.assert_not_called()
+
+    db_mock.commit.assert_not_called()
+    db_mock.rollback.assert_called_once_with()
+
+
+def test_update_interests_rolls_back_when_save_fails() -> None:
+    """신규 관심사 저장 중 DB 오류가 발생하면 rollback한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    current_interest_one = make_interest(
+        user_id=100,
+        category_id=1,
+    )
+    current_interest_two = make_interest(
+        user_id=100,
+        category_id=2,
+    )
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+            category_code=CategoryCode.GAME,
+        ),
+        make_category(
+            3,
+            category_code=CategoryCode.FOOD,
+        ),
+    ]
+
+    interest_repository_mock.find_by_user_id_for_update.return_value = [
+        current_interest_one,
+        current_interest_two,
+    ]
+
+    interest_repository_mock.save.side_effect = SQLAlchemyError(
+        "관심사 저장 실패",
+    )
+
+    with pytest.raises(
+        SQLAlchemyError,
+    ):
+        service.update_interests(
+            user_id=100,
+            category_ids=[
+                1,
+                3,
+            ],
+        )
+
+    interest_repository_mock.delete.assert_called_once_with(
+        [
+            current_interest_two,
+        ],
+    )
+    interest_repository_mock.save.assert_called_once()
+
+    db_mock.commit.assert_not_called()
+    db_mock.rollback.assert_called_once_with()
+
+
+def test_update_interests_retries_whole_transaction_after_er_checkread() -> None:
+    """ER_CHECKREAD 발생 후 새 Transaction에서 PUT 전체를 다시 수행한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    current_interest_one = make_interest(
+        user_id=100,
+        category_id=1,
+    )
+    current_interest_two = make_interest(
+        user_id=100,
+        category_id=2,
+    )
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+            category_code=CategoryCode.GAME,
+        ),
+        make_category(
+            3,
+            category_code=CategoryCode.FOOD,
+        ),
+    ]
+
+    interest_repository_mock.find_by_user_id_for_update.side_effect = [
+        make_operational_error(
+            1020,
+            (
+                "Record has changed since last read "
+                "in table 'user_interest_categories'; "
+                "try restarting transaction"
+            ),
+        ),
+        [
+            current_interest_one,
+            current_interest_two,
+        ],
+    ]
+
+    result = service.update_interests(
+        user_id=100,
+        category_ids=[
+            1,
+            3,
+        ],
+    )
+
+    assert result.model_dump() == {
+        "selected_category_ids": [
+            1,
+            3,
+        ],
+        "selected_count": 2,
+    }
+
+    assert (
+        category_repository_mock.find_list_by_ids.call_count
+        == 2
+    )
+    assert (
+        interest_repository_mock.find_by_user_id_for_update.call_count
+        == 2
+    )
+
+    category_repository_mock.find_list_by_ids.assert_has_calls(
+        [
+            call(
+                [
+                    1,
+                    3,
+                ]
+            ),
+            call(
+                [
+                    1,
+                    3,
+                ]
+            ),
+        ]
+    )
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_called_once_with()
+
+    interest_repository_mock.delete.assert_called_once_with(
+        [
+            current_interest_two,
+        ],
+    )
+    interest_repository_mock.save.assert_called_once()
+
+
+def test_update_interests_does_not_retry_other_operational_error() -> None:
+    """ER_CHECKREAD가 아닌 DBAPI 오류는 Retry하지 않고 상위로 전달한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+        ),
+    ]
+
+    database_error = make_operational_error(
+        1205,
+        "Lock wait timeout exceeded",
+    )
+
+    interest_repository_mock.find_by_user_id_for_update.side_effect = (
+        database_error
+    )
+
+    with pytest.raises(
+        OperationalError,
+    ) as exc_info:
+        service.update_interests(
+            user_id=100,
+            category_ids=[
+                1,
+            ],
+        )
+
+    assert exc_info.value is database_error
+
+    assert (
+        category_repository_mock.find_list_by_ids.call_count
+        == 1
+    )
+    assert (
+        interest_repository_mock.find_by_user_id_for_update.call_count
+        == 1
+    )
+
+    db_mock.rollback.assert_called_once_with()
+    db_mock.commit.assert_not_called()
+
+
+def test_update_interests_raises_after_er_checkread_retry_exhaustion() -> None:
+    """ER_CHECKREAD가 계속되면 최대 Attempt 이후 예외를 상위로 전달한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+        ),
+    ]
+
+    first_error = make_operational_error(
+        1020,
+        "첫 번째 ER_CHECKREAD",
+    )
+    second_error = make_operational_error(
+        1020,
+        "두 번째 ER_CHECKREAD",
+    )
+    third_error = make_operational_error(
+        1020,
+        "세 번째 ER_CHECKREAD",
+    )
+
+    interest_repository_mock.find_by_user_id_for_update.side_effect = [
+        first_error,
+        second_error,
+        third_error,
+    ]
+
+    with pytest.raises(
+        OperationalError,
+    ) as exc_info:
+        service.update_interests(
+            user_id=100,
+            category_ids=[
+                1,
+            ],
+        )
+
+    assert exc_info.value is third_error
+
+    assert (
+        category_repository_mock.find_list_by_ids.call_count
+        == service.MAX_UPDATE_ATTEMPTS
+    )
+    assert (
+        interest_repository_mock.find_by_user_id_for_update.call_count
+        == service.MAX_UPDATE_ATTEMPTS
+    )
+
+    assert (
+        db_mock.rollback.call_count
+        == service.MAX_UPDATE_ATTEMPTS
+    )
+
+    db_mock.commit.assert_not_called()
+    interest_repository_mock.delete.assert_not_called()
+    interest_repository_mock.save.assert_not_called()
