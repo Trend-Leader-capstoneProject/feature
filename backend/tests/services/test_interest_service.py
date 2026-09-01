@@ -1147,3 +1147,38 @@ def test_update_interests_raises_after_er_checkread_retry_exhaustion() -> None:
     db_mock.commit.assert_not_called()
     interest_repository_mock.delete.assert_not_called()
     interest_repository_mock.save.assert_not_called()
+
+
+def test_create_interests_rolls_back_when_commit_fails() -> None:
+    """commit 중 DB 오류가 발생하면 rollback한다."""
+
+    (
+        service,
+        db_mock,
+        category_repository_mock,
+        interest_repository_mock,
+    ) = make_service()
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        make_category(
+            1,
+        ),
+    ]
+
+    db_mock.commit.side_effect = SQLAlchemyError(
+        "commit 실패",
+    )
+
+    with pytest.raises(
+        SQLAlchemyError,
+    ):
+        service.create_interests(
+            user_id=100,
+            category_ids=[
+                1,
+            ],
+        )
+
+    interest_repository_mock.save.assert_called_once()
+    db_mock.commit.assert_called_once_with()
+    db_mock.rollback.assert_called_once_with()
