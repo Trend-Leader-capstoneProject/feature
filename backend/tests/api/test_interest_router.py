@@ -591,3 +591,99 @@ def test_read_and_update_interests_return_401_when_authentication_fails(
 
     interest_service_mock.get_interests.assert_not_called()
     interest_service_mock.update_interests.assert_not_called()
+
+
+def test_interest_openapi_contract() -> None:
+    """관심사 GET/POST/PUT의 OpenAPI 계약을 검증한다."""
+
+    application = create_app()
+
+    operations = application.openapi()["paths"][
+        "/api/users/me/interests"
+    ]
+
+    assert {
+        "get",
+        "post",
+        "put",
+    }.issubset(
+        operations,
+    )
+
+    assert {
+        "200",
+        "401",
+        "500",
+    }.issubset(
+        operations["get"]["responses"],
+    )
+
+    assert {
+        "200",
+        "400",
+        "401",
+        "404",
+        "409",
+        "422",
+        "500",
+    }.issubset(
+        operations["put"]["responses"],
+    )
+
+    for method in (
+        "get",
+        "post",
+        "put",
+    ):
+        assert {
+            "BearerAuth": [],
+        } in operations[method].get(
+            "security",
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    (
+        "method",
+        "json_body",
+    ),
+    [
+        (
+            "GET",
+            None,
+        ),
+        (
+            "PUT",
+            {
+                "category_ids": [
+                    1,
+                ],
+            },
+        ),
+    ],
+)
+def test_read_and_update_interests_require_real_bearer_credentials(
+    method: str,
+    json_body: dict[str, object] | None,
+) -> None:
+    """실제 Bearer Dependency가 인증 없는 GET/PUT을 거부한다."""
+
+    application = create_app()
+
+    with TestClient(application) as client:
+        response = client.request(
+            method,
+            "/api/users/me/interests",
+            json=json_body,
+        )
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 401,
+        "message": "로그인이 필요합니다.",
+        "data": None,
+    }
