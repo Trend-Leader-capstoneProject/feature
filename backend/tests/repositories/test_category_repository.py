@@ -46,10 +46,7 @@ def test_find_all_active_returns_only_active_categories_in_order(
 
     result = repository.find_all_active()
 
-    assert [
-        category.category_name
-        for category in result
-    ] == [
+    assert [category.category_name for category in result] == [
         "활성 카테고리 A",
         "활성 카테고리 B",
     ]
@@ -88,10 +85,7 @@ def test_find_all_active_returns_parent_and_children(
 
     result = repository.find_all_active()
 
-    result_by_name = {
-        category.category_name: category
-        for category in result
-    }
+    result_by_name = {category.category_name: category for category in result}
 
     assert "통합 테스트 대분류" in result_by_name
     assert "통합 테스트 세부분류" in result_by_name
@@ -100,15 +94,59 @@ def test_find_all_active_returns_parent_and_children(
         result_by_name["통합 테스트 대분류"].category_code
         == CategoryCode.GAME
     )
-    assert (
-        result_by_name["통합 테스트 세부분류"].category_code
-        is None
-    )
+    assert result_by_name["통합 테스트 세부분류"].category_code is None
     assert (
         result_by_name["통합 테스트 세부분류"].parent_id
         == root_category.category_id
     )
-    
+
+
+def test_same_category_name_is_allowed_under_different_parents(
+    db_session: Session,
+) -> None:
+    """부모가 다르면 같은 세부분류 표시명을 저장할 수 있는지 확인한다."""
+
+    game = Category(
+        category_code=CategoryCode.GAME,
+        category_name="게임",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+    food = Category(
+        category_code=CategoryCode.FOOD,
+        category_name="음식",
+        sort_order=2,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([game, food])
+    db_session.flush()
+
+    game_other = Category(
+        category_code=None,
+        category_name="기타",
+        sort_order=99,
+        is_active=True,
+        parent_id=game.category_id,
+    )
+    food_other = Category(
+        category_code=None,
+        category_name="기타",
+        sort_order=99,
+        is_active=True,
+        parent_id=food.category_id,
+    )
+
+    db_session.add_all([game_other, food_other])
+    db_session.flush()
+
+    assert game_other.category_id != food_other.category_id
+    assert game_other.category_name == food_other.category_name == "기타"
+    assert game_other.parent_id != food_other.parent_id
+
+
 def test_find_list_by_ids_returns_matching_categories(
     db_session: Session,
 ) -> None:
@@ -148,10 +186,7 @@ def test_find_list_by_ids_returns_matching_categories(
         ]
     )
 
-    assert {
-        category.category_id
-        for category in result
-    } == {
+    assert {category.category_id for category in result} == {
         active_category.category_id,
         inactive_category.category_id,
     }
