@@ -378,20 +378,38 @@ FastAPI Backend
 
 ## 환경변수 관리
 
-환경변수는 프로젝트 루트의 `.env` 파일에서 관리합니다.
-
-```env
-EXPO_PUBLIC_API_BASE_URL=http://localhost:8000/api
-```
-
-실제 환경변수 파일은 Git에 포함하지 않습니다.
+환경변수는 실행 주체에 따라 파일을 분리하여 관리합니다.
 
 ```text
-.env          → 실제 개발 환경값, Git 제외
-.env.example  → 팀 공유용 예시값, Git 포함
+frontend/.env
+→ Expo / React Native Client 환경변수
+
+backend/.env
+→ FastAPI 애플리케이션 환경변수와 서버 Secret
+
+.env.compose
+→ Docker Compose 실행 시 사용할 DB 및 외부 포트 치환값
 ```
 
-클라이언트에 포함되는 환경변수에는 JWT Secret, DB Password, 외부 API Secret 등 서버 비밀값을 작성하지 않습니다.
+Frontend의 현재 기본 개발환경 설정은 다음 값을 사용합니다.
+
+```env
+EXPO_PUBLIC_API_PORT=8000
+EXPO_PUBLIC_API_PREFIX=/api
+```
+
+개발환경에서는 Expo 개발 서버의 Host를 기준으로 API 주소를 구성합니다.
+`EXPO_PUBLIC_API_BASE_URL`은 명시적인 API 주소가 필요한 경우 또는
+개발환경에서 Host를 자동으로 확인할 수 없을 때의 fallback으로 사용할 수 있습니다.
+
+비개발 빌드에서는 `EXPO_PUBLIC_API_BASE_URL`을 명시해야 합니다.
+
+실제 환경변수 파일과 Secret 값은 Git에 커밋하지 않고,
+팀 공유용 설정 형식은 각각의 `.env.example` 파일을 기준으로 합니다.
+
+특히 `EXPO_PUBLIC_*` 환경변수는 Client에 포함될 수 있으므로
+JWT Secret, DB Password, OAuth Secret, 외부 API Secret과 같은
+서버 비밀값을 작성하지 않습니다.
 
 ---
 
@@ -487,7 +505,9 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-`.env` 예시:
+위 명령은 `backend/` 디렉터리에서 실행합니다.
+
+`backend/.env`의 대표 설정 예시는 다음과 같습니다.
 
 ```env
 APP_NAME=Trend Leader API
@@ -517,6 +537,9 @@ CORS_ORIGINS=http://localhost:8081
 ```
 
 > 실제 API Key, OAuth Secret, 운영 DB 비밀번호는 절대 Git에 커밋하지 않습니다.
+
+`JWT_SECRET_KEY`는 Backend 설정 검증 기준에 따라 최소 32자 이상이어야 합니다.
+실제 공유 가능한 환경변수 이름과 형식은 `backend/.env.example`을 기준으로 합니다.
 
 ### 9.4 서버 실행
 
@@ -645,7 +668,7 @@ DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=trend_leader
 DB_USER=trend_user
-DB_PASSWORD=trend_pass
+DB_PASSWORD=input_here
 
 DATABASE_URL=
 
@@ -662,7 +685,10 @@ DATABASE_URL=
 
 `DATABASE_URL`에 `127.0.0.1` 기반 주소가 설정되어 있으면 백엔드 컨테이너가 MariaDB 컨테이너 대신 자기 자신에게 접속할 수 있습니다.
 
-`JWT_SECRET_KEY`에는 최소 16자 이상의 값을 설정합니다.
+`JWT_SECRET_KEY`에는 최소 32자 이상의 값을 설정합니다.
+
+이 길이 제한은 `backend/app/core/config.py`의
+`Settings.jwt_secret_key` 검증 기준과 동일합니다.
 
 ---
 
@@ -1225,11 +1251,21 @@ npm install
 
 `backend/.env` 파일이 있는지 확인합니다.
 
-```bash
-cp .env.example .env
+Windows PowerShell:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
 ```
 
-`JWT_SECRET_KEY`는 최소 16자 이상이어야 합니다.
+macOS / Linux:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+`JWT_SECRET_KEY`는 최소 32자 이상이어야 합니다.
+
+환경변수 이름과 기본 형식은 현재 `backend/.env.example`을 기준으로 확인합니다.
 
 ### 17.4 DB 연결 오류가 나는 경우
 
