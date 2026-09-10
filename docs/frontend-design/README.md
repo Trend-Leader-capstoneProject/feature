@@ -24,16 +24,17 @@ docs/frontend-design/
 │   └── design-system-snapshot.md
 │
 ├── screens/
-│   ├── interest-select-screen-spec.md
-│   └── recommended-trends-screen-spec.md
+│   └── interest-select-screen-spec.md
 │
 └── archive/
     ├── front-feature-prompt-v1.md
+    ├── interest-select-v0.1-candidate-screen-spec.md
     ├── selected-art-direction-input.md
     └── recommended-trends-design-freeze-input.md
 ```
 
-아직 생성되지 않은 문서는 해당 작업 단계에서 순차적으로 추가합니다.
+위 구조는 현재 `dev`에 실제 존재하는 주요 Frontend Design 문서를 기준으로 합니다.
+향후 화면 명세나 작업 문서는 실제 생성 시점에 구조에 추가합니다.
 
 ---
 
@@ -110,19 +111,37 @@ Archive 문서는 변경 과정 확인을 위한 참고 자료이며, 새로운 
 
 ## 3. Source of Truth 우선순위
 
-문서와 코드 내용이 서로 충돌할 경우 다음 우선순위를 적용합니다.
+Frontend Design 문서도 프로젝트 전체의
+`Trend_Leader_AI_Development_Guidelines.md`를 따릅니다.
+
+서로 다른 종류의 프로젝트 자료가 충돌하면
+전역 가이드라인과 해당 기능의 최신 설계 확정안의 우선순위를 먼저 적용합니다.
+
+Frontend 화면 설계와 구현 범위에서는 다음 자료를 함께 확인합니다.
 
 ```text
-1. 실제 Backend API Schema
-2. 실제 Frontend Type
-3. Design System Snapshot
-4. 개별 Screen Specification
-5. 현재 프로젝트 코드와 폴더 구조
-6. Prompt Template
-7. Archive 문서
+1. 현재 채팅에서 사용자가 명시적으로 확정한 범위와 결정
+2. 해당 기능의 최신 설계 확정안과 확정된 제품 정책
+3. 실제 Backend API 계약과 Frontend Type / API Function / Hook 계약
+4. Design System Snapshot — 프로젝트 공통 시각·인터랙션 기준
+5. 개별 Screen Specification — 해당 화면의 책임·상태·인터랙션 기준
+6. 현재 대상 브랜치의 실제 구현 — 현재 구현 상태 확인 자료
+7. Prompt Template
+8. Archive 문서
 ```
 
-Prompt Template은 결과를 생성하기 위한 도구이므로, 실제 API 계약이나 확정된 화면 명세보다 우선하지 않습니다.
+실제 구현은 현재 상태의 사실이고,
+설계 확정안과 Screen Specification은 의도한 목표 상태의 기준입니다.
+
+둘이 다르면 구현을 자동으로 정답으로 취급하거나
+문서를 코드에 기계적으로 덮어쓰지 않고 충돌 원인을 먼저 확인합니다.
+
+Design System Snapshot은 공통 디자인 판단을,
+Screen Specification은 특정 화면의 책임과 상태를 소유합니다.
+화면별 예외가 필요한 경우 Screen Specification에 이유와 범위를 명시합니다.
+
+Prompt Template은 결과를 생성하거나 검토하기 위한 도구이므로,
+확정된 기능 계약이나 화면 명세보다 우선하지 않습니다.
 
 AI가 제공된 자료와 다른 필드, 라이브러리, 경로 또는 제품 정책을 임의로 추가하지 않도록 합니다.
 
@@ -194,7 +213,16 @@ AI가 제공된 자료와 다른 필드, 라이브러리, 경로 또는 제품 �
 
 화면 명세가 확정되면 같은 채팅에서 `04-screen-implementation-prompt.md`를 사용합니다.
 
-구현 완료 후에는 TypeScript 검사 결과와 변경 파일을 기준으로 `05-screen-review-prompt.md`를 실행합니다.
+구현 완료 후에는 `05-screen-review-prompt.md`를 사용하여
+Screen Specification, 실제 변경 파일, API 연결, TypeScript 검사,
+관련 테스트와 실제 검증 결과의 정합성을 확인합니다.
+
+`04-screen-implementation-prompt.md`의 자체 검증은 구현 과정의 1차 확인이고,
+`05-screen-review-prompt.md`는 실제 결과를 다시 확인하는 별도 Verifier 단계입니다.
+
+검토 단계에서는 문제를 발견했다고 즉시 설계나 코드를 임의로 변경하지 않습니다.
+먼저 발견 사항, 영향 범위와 수정 방향을 보고하고,
+범위 또는 계약 변경이 필요한 경우 사용자 확인 후 후속 변경을 진행합니다.
 
 ---
 
