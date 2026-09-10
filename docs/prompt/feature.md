@@ -4,9 +4,14 @@
 
 이 채팅은 Trend Leader의 `[기능명]`을 백엔드부터 프론트엔드까지 구현하는 채팅입니다.
 
-첨부한 `[기능명] 통합 설계 결과`를 구현 기준으로 사용해주세요.
+해당 기능의 최신 설계 확정안 또는 확정된 `[기능명] 통합 설계 결과`를
+이번 구현의 기능 기준으로 사용해주세요.
 
 설계 내용에 중대한 모순이 없는 한 기능 범위와 API 계약을 임의로 다시 설계하지 말고, 현재 실제 소스코드에 맞게 구현해주세요.
+
+이미 확정된 설계의 구현에서는 Design First Pass를 다시 요구하지 않습니다.
+다만 구현 중 기존 확정안에 없던 중요한 신규 설계 판단이 생기면
+그 항목만 별도 설계 판단으로 분리하고 사용자 확인 후 진행해주세요.
 
 ## 2. 구현 목표
 
@@ -45,16 +50,19 @@
 
 첨부 자료가 충돌하는 경우 다음 우선순위로 판단해주세요.
 
-1. 현재 브랜치의 실제 소스코드
-2. 적용된 Alembic Migration과 SQLAlchemy ORM
-3. 확정된 기능 통합 설계 결과
-4. 실제 Swagger API 응답
-5. `schema_decisions.md`
-6. 최신 ERD v2
-7. Backend / Frontend 코딩 컨벤션
-8. 최신 README
-9. API 구성표와 기획 문서
-10. 기존 SQL 및 과거 문서
+1. 현재 채팅에서 사용자가 명시적으로 확정한 범위와 결정
+2. 해당 기능의 최신 설계 확정안 또는 확정된 통합 설계 결과
+3. 동결된 스키마 결정 문서와 명시적인 API 계약
+4. 최신 `Trend_Leader_AI_Development_Guidelines.md`
+5. 현재 대상 브랜치의 실제 코드와 테스트가 보여 주는 구현 상태
+6. README, 기능 명세서, 코딩 컨벤션 등 일반 참고 문서
+7. 기존 SQL, 오래된 초안, 과거 대화와 이전 답변
+
+실제 코드는 현재 구현 상태를 확인하는 사실 자료이고,
+설계 확정안은 의도한 목표 상태의 기준입니다.
+
+둘이 다르면 실제 코드가 항상 옳거나 설계가 항상 옳다고 가정하지 말고
+오래된 문서인지 미완성 구현인지 판별한 뒤 진행해주세요.
 
 충돌을 발견하면 코드를 작성하기 전에 다음 형식으로 알려주세요.
 
@@ -62,6 +70,7 @@
 충돌 위치:
 현재 코드:
 설계 문서:
+충돌 원인 판단:
 권장 적용안:
 영향받는 파일:
 ```
@@ -144,25 +153,35 @@ Feature 전용 코드는 해당 `features/[기능명]`에 배치하고, 여러 �
 
 ## 8. 구현 진행 순서
 
+구현 전에 이번 변경의 테스트 전략과 TDD 적용 여부를 먼저 결정해주세요.
+
+특히 신규 Backend 비즈니스 규칙, 기존 Service 동작 변경,
+재현 가능한 버그 수정, Transaction·중복·상태 전이처럼
+실패 비용이 큰 로직은 TDD 우선 적용 대상으로 검토합니다.
+
+TDD를 적용하는 범위에서는 아래 계층 순서를 기계적으로 따르지 말고
+작은 행동 단위로 `Red → Green → Refactor`를 반복합니다.
+TDD를 적용하지 않는 경우에는 이유와 대신 사용할 검증 방법을 짧게 명시해주세요.
+
 다음 순서로 진행해주세요.
 
 1. 현재 소스 구조 분석
 2. 설계 결과와 현재 코드의 차이 분석
-3. 생성·수정 파일 목록 확정
-4. Backend Repository 구현
-5. Backend Service 구현
-6. Dependency Provider 구현
-7. Backend Router와 Schema 구현
-8. Backend 테스트 구현
-9. Frontend Type 구현
-10. Frontend API Function 구현
-11. Frontend Hook 구현
-12. Frontend Component 구현
-13. Frontend Screen 구현
-14. Navigation 연결
-15. Backend·Frontend API 계약 검증
-16. 실행 및 테스트 방법 정리
-17. README 또는 문서 반영 사항 정리
+3. 테스트 전략 및 TDD 적용 여부 결정
+4. 생성·수정 파일 목록 확정
+5. Backend Repository / Service / Dependency / Router / Schema 구현
+6. Backend 테스트 작성·보강 및 관련 자동 검증
+7. Frontend Type 구현
+8. Frontend API Function 구현
+9. Frontend Hook 구현
+10. Frontend Component 구현
+11. Frontend Screen 구현
+12. Navigation 연결
+13. Backend·Frontend API 계약 검증
+14. 관련 회귀 테스트 및 정적 검사
+15. 실제 실행 또는 Acceptance Test
+16. Git diff 및 의도하지 않은 변경 확인
+17. README 또는 관련 문서 반영 사항 정리
 
 ## 9. 검증 기준
 
@@ -194,7 +213,8 @@ Feature 전용 코드는 해당 `features/[기능명]`에 배치하고, 여러 �
 * Response 필드가 일치함
 * 인증 Header가 필요한 요청에 적용됨
 * 성공 후 화면 상태가 갱신됨
-* Mutation 후 필요한 Query가 무효화됨
+* Mutation 후 계약에 맞는 방식으로 Query Cache가 갱신됨
+  (`setQueryData`, `invalidateQueries`, 재조회 등)
 * 서버 오류 메시지를 프론트에서 처리함
 
 ## 10. 최종 결과 형식
