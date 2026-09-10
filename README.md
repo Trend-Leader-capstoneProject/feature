@@ -153,18 +153,25 @@ Trend Leader는 2인 개발팀의 숙련도, 개발 기간, 모바일 앱과 API
 
 ---
 
-## 5. 현재 프로젝트 구조
+## 5. 현재 주요 프로젝트 구조
+
+현재 `dev` 브랜치의 주요 구조를 책임 단위로 정리하면 다음과 같습니다.  
+세부 구현 파일 전체를 나열하기보다 기능을 찾는 데 필요한 주요 디렉터리와 진입점을 중심으로 표시합니다.
 
 ```text
 feature/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── router.py
-│   │   │   └── routes/
-│   │   │       └── health.py
+│   │   │   ├── dependencies/
+│   │   │   ├── routes/
+│   │   │   │   ├── auth_router.py
+│   │   │   │   ├── category_router.py
+│   │   │   │   ├── health.py
+│   │   │   │   └── interest_router.py
+│   │   │   ├── exception_handler.py
+│   │   │   └── router.py
 │   │   ├── core/
-│   │   │   └── config.py
 │   │   ├── db/
 │   │   ├── models/
 │   │   ├── repositories/
@@ -172,25 +179,52 @@ feature/
 │   │   ├── schemas/
 │   │   ├── services/
 │   │   ├── utils/
-│   │   │   └── response.py
 │   │   └── main.py
+│   ├── alembic/
+│   ├── docs/
+│   ├── sql_script/
+│   ├── tests/
 │   ├── Dockerfile
+│   ├── pyproject.toml
 │   ├── requirements.txt
-│   └── .env.example
+│   ├── requirements-dev.txt
+│   ├── .env.example
+│   └── .env.test.example
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
-│   │   │   └── navigation/
-│   │   │       └── RootNavigator.tsx
-│   │   └── assets/
+│   │   │   ├── config/
+│   │   │   ├── navigation/
+│   │   │   ├── providers/
+│   │   │   └── screens/
+│   │   ├── assets/
+│   │   ├── features/
+│   │   │   ├── auth/
+│   │   │   └── interest/
+│   │   └── shared/
+│   │       ├── api/
+│   │       ├── components/
+│   │       ├── constants/
+│   │       ├── handler/
+│   │       ├── storage/
+│   │       └── types/
+│   ├── __test__/
+│   ├── assets/
 │   ├── App.tsx
 │   ├── index.ts
 │   ├── app.json
 │   ├── package.json
 │   ├── package-lock.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── .env.example
 │
+├── docs/
+├── database/
+├── docker-compose.yml
+├── docker-compose.test.yml
+├── .env.compose.example
+├── .env.test.compose.example
 ├── .gitignore
 └── README.md
 ```
