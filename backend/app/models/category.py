@@ -30,11 +30,6 @@ class Category(Base):
     __tablename__ = "categories"
     __table_args__ = (
         UniqueConstraint(
-            # 카테고리 중복 생성 방지
-            "category_name",
-            name="uq_categories_category_name",
-        ),
-        UniqueConstraint(
             "category_code",
             name="uq_categories_category_code",
         ),
@@ -44,6 +39,12 @@ class Category(Base):
             "parent_id",
             "is_active",
             "sort_order",
+        ),
+        Index(
+            # 부모 맥락 안에서 표시명으로 카테고리를 조회하거나 검증한다.
+            "ix_categories_parent_id_category_name",
+            "parent_id",
+            "category_name",
         ),
         {
             "comment": "카테고리",
@@ -72,7 +73,7 @@ class Category(Base):
     category_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        comment="카테고리명",
+        comment="카테고리 표시명",
     )
 
     sort_order: Mapped[int] = mapped_column(

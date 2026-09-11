@@ -144,27 +144,38 @@ Trend Leader는 2인 개발팀의 숙련도, 개발 기간, 모바일 앱과 API
 
 ## 4. Repository 구성
 
-본 프로젝트는 기능 구현 레포지토리와 디자인 산출물 레포지토리를 분리해 관리합니다.
+본 프로젝트는 실행 가능한 제품 개발 자산과
+발표·시각 디자인 산출물을 중심으로 Repository를 분리해 관리합니다.
+
+기능 설계 확정안, 개발 가이드라인, API·Frontend Design 문서처럼
+실제 구현 및 검증과 직접 연결되는 기술 문서는 `feature`에서 함께 관리합니다.
 
 | Repository | 역할 |
 |---|---|
-| [`feature`](https://github.com/Trend-Leader-capstoneProject/feature) | Frontend / Backend 실제 기능 구현 |
-| [`design`](https://github.com/Trend-Leader-capstoneProject/design) | 문서, 발표자료, Figma, 로고, 스토리보드 등 디자인 산출물 관리 |
+| [`feature`](https://github.com/Trend-Leader-capstoneProject/feature) | Backend / Frontend 소스코드, 테스트, Migration 및 구현과 직접 연결되는 기술·설계 문서 관리 |
+| [`design`](https://github.com/Trend-Leader-capstoneProject/design) | 발표자료, Figma, 로고, 스토리보드 등 발표·시각 디자인 산출물 관리 |
 
 ---
 
-## 5. 현재 프로젝트 구조
+## 5. 현재 주요 프로젝트 구조
+
+현재 `dev` 브랜치의 주요 구조를 책임 단위로 정리하면 다음과 같습니다.  
+세부 구현 파일 전체를 나열하기보다 기능을 찾는 데 필요한 주요 디렉터리와 진입점을 중심으로 표시합니다.
 
 ```text
 feature/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── router.py
-│   │   │   └── routes/
-│   │   │       └── health.py
+│   │   │   ├── dependencies/
+│   │   │   ├── routes/
+│   │   │   │   ├── auth_router.py
+│   │   │   │   ├── category_router.py
+│   │   │   │   ├── health.py
+│   │   │   │   └── interest_router.py
+│   │   │   ├── exception_handler.py
+│   │   │   └── router.py
 │   │   ├── core/
-│   │   │   └── config.py
 │   │   ├── db/
 │   │   ├── models/
 │   │   ├── repositories/
@@ -172,25 +183,52 @@ feature/
 │   │   ├── schemas/
 │   │   ├── services/
 │   │   ├── utils/
-│   │   │   └── response.py
 │   │   └── main.py
+│   ├── alembic/
+│   ├── docs/
+│   ├── sql_script/
+│   ├── tests/
 │   ├── Dockerfile
+│   ├── pyproject.toml
 │   ├── requirements.txt
-│   └── .env.example
+│   ├── requirements-dev.txt
+│   ├── .env.example
+│   └── .env.test.example
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
-│   │   │   └── navigation/
-│   │   │       └── RootNavigator.tsx
-│   │   └── assets/
+│   │   │   ├── config/
+│   │   │   ├── navigation/
+│   │   │   ├── providers/
+│   │   │   └── screens/
+│   │   ├── assets/
+│   │   ├── features/
+│   │   │   ├── auth/
+│   │   │   └── interest/
+│   │   └── shared/
+│   │       ├── api/
+│   │       ├── components/
+│   │       ├── constants/
+│   │       ├── handler/
+│   │       ├── storage/
+│   │       └── types/
+│   ├── __test__/
+│   ├── assets/
 │   ├── App.tsx
 │   ├── index.ts
 │   ├── app.json
 │   ├── package.json
 │   ├── package-lock.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── .env.example
 │
+├── docs/
+├── database/
+├── docker-compose.yml
+├── docker-compose.test.yml
+├── .env.compose.example
+├── .env.test.compose.example
 ├── .gitignore
 └── README.md
 ```
@@ -340,20 +378,38 @@ FastAPI Backend
 
 ## 환경변수 관리
 
-환경변수는 프로젝트 루트의 `.env` 파일에서 관리합니다.
-
-```env
-EXPO_PUBLIC_API_BASE_URL=http://localhost:8000/api
-```
-
-실제 환경변수 파일은 Git에 포함하지 않습니다.
+환경변수는 실행 주체에 따라 파일을 분리하여 관리합니다.
 
 ```text
-.env          → 실제 개발 환경값, Git 제외
-.env.example  → 팀 공유용 예시값, Git 포함
+frontend/.env
+→ Expo / React Native Client 환경변수
+
+backend/.env
+→ FastAPI 애플리케이션 환경변수와 서버 Secret
+
+.env.compose
+→ Docker Compose 실행 시 사용할 DB 및 외부 포트 치환값
 ```
 
-클라이언트에 포함되는 환경변수에는 JWT Secret, DB Password, 외부 API Secret 등 서버 비밀값을 작성하지 않습니다.
+Frontend의 현재 기본 개발환경 설정은 다음 값을 사용합니다.
+
+```env
+EXPO_PUBLIC_API_PORT=8000
+EXPO_PUBLIC_API_PREFIX=/api
+```
+
+개발환경에서는 Expo 개발 서버의 Host를 기준으로 API 주소를 구성합니다.
+`EXPO_PUBLIC_API_BASE_URL`은 명시적인 API 주소가 필요한 경우 또는
+개발환경에서 Host를 자동으로 확인할 수 없을 때의 fallback으로 사용할 수 있습니다.
+
+비개발 빌드에서는 `EXPO_PUBLIC_API_BASE_URL`을 명시해야 합니다.
+
+실제 환경변수 파일과 Secret 값은 Git에 커밋하지 않고,
+팀 공유용 설정 형식은 각각의 `.env.example` 파일을 기준으로 합니다.
+
+특히 `EXPO_PUBLIC_*` 환경변수는 Client에 포함될 수 있으므로
+JWT Secret, DB Password, OAuth Secret, 외부 API Secret과 같은
+서버 비밀값을 작성하지 않습니다.
 
 ---
 
@@ -449,7 +505,9 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-`.env` 예시:
+위 명령은 `backend/` 디렉터리에서 실행합니다.
+
+`backend/.env`의 대표 설정 예시는 다음과 같습니다.
 
 ```env
 APP_NAME=Trend Leader API
@@ -479,6 +537,9 @@ CORS_ORIGINS=http://localhost:8081
 ```
 
 > 실제 API Key, OAuth Secret, 운영 DB 비밀번호는 절대 Git에 커밋하지 않습니다.
+
+`JWT_SECRET_KEY`는 Backend 설정 검증 기준에 따라 최소 32자 이상이어야 합니다.
+실제 공유 가능한 환경변수 이름과 형식은 `backend/.env.example`을 기준으로 합니다.
 
 ### 9.4 서버 실행
 
@@ -607,7 +668,7 @@ DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=trend_leader
 DB_USER=trend_user
-DB_PASSWORD=trend_pass
+DB_PASSWORD=input_here
 
 DATABASE_URL=
 
@@ -624,7 +685,10 @@ DATABASE_URL=
 
 `DATABASE_URL`에 `127.0.0.1` 기반 주소가 설정되어 있으면 백엔드 컨테이너가 MariaDB 컨테이너 대신 자기 자신에게 접속할 수 있습니다.
 
-`JWT_SECRET_KEY`에는 최소 16자 이상의 값을 설정합니다.
+`JWT_SECRET_KEY`에는 최소 32자 이상의 값을 설정합니다.
+
+이 길이 제한은 `backend/app/core/config.py`의
+`Settings.jwt_secret_key` 검증 기준과 동일합니다.
 
 ---
 
@@ -1028,44 +1092,56 @@ design/
 
 ---
 
-## 14. 개발 우선순위
+## 14. 현재 개발 진행 상태
 
-현재 프로젝트는 초기 구조 정리 단계이므로 다음 순서로 구현합니다.
+이 Section은 전체 기획 기능 목록이 아니라
+현재 `dev` 브랜치에서 확인되는 주요 구현 상태를 요약합니다.
 
-### 1단계: 기반 안정화
+### Backend
 
-- Frontend Expo 실행 안정화
-- Backend `/api` prefix 적용
-- CORS 설정
-- 공통 응답/예외 처리 구조 정리
-- README와 `.env.example` 최신화
+현재 주요 구현 범위:
 
-### 2단계: 관심사 기능
+```text
+Auth
+→ 일반 회원가입
+→ 로그인 ID 중복 확인
+→ 일반 로그인
+→ 인증 세션 조회
 
-- `GET /api/categories`
-- `POST /api/users/me/interests`
-- `GET /api/users/me/interests`
-- `PUT /api/users/me/interests`
+Category
+→ 카테고리 목록 조회
 
-### 3단계: 트렌드 조회
+Interest
+→ 최초 관심사 저장
+→ 현재 관심사 조회
+→ 관심사 수정
+```
 
-- `GET /api/trends/recommended`
-- `GET /api/trends`
-- `GET /api/trends/{trend_id}`
+현재 Backend Router에는 `auth`, `category`, `interest` 기능이 연결되어 있습니다.
 
-### 4단계: 북마크 / 검색
+### Frontend
 
-- 트렌드 저장/해제
-- 저장 트렌드 목록 조회
-- 트렌드 검색
-- 최근 검색어 관리
+현재 `src/features`의 주요 구현 Feature는 다음과 같습니다.
 
-### 5단계: AI 분석
+```text
+auth
+interest
+```
 
-- 초기 mock 응답
-- AI 요약 프롬프트 정리
-- 외부 AI API 연동
-- 분석 결과 저장/조회
+`interest`에는 최초 관심사 선택 Onboarding 흐름이 구현되어 있습니다.
+
+기존 관심사를 조회하고 수정하는 전용 Frontend 흐름은
+별도 구현 범위로 남아 있습니다.
+
+### 후속 기능
+
+트렌드 조회, 북마크, 검색 및 AI 분석 기능은
+전체 기획 범위에는 포함되어 있으나,
+현재 `dev`의 Backend Router와 Frontend Feature 기준으로는
+아직 주요 구현 구조가 생성되지 않은 상태입니다.
+
+후속 기능의 실제 구현 순서와 범위는
+최신 기능별 설계 확정안과 현재 프로젝트 우선순위에 따라 결정합니다.
 
 ---
 
@@ -1130,11 +1206,13 @@ PR 작성 시 다음 내용을 포함합니다. (예시이기에 참고만!!)
 
 ### Frontend
 
-- 화면 단위 코드는 `screens`에 둡니다.
-- 재사용 UI는 `components`에 둡니다.
-- API 호출 코드는 `services`에 둡니다.
-- 타입은 `types`에 분리합니다.
-- 화면 이동 구조는 `navigation`에 둡니다.
+- 특정 기능의 화면 코드는 해당 `features/[기능명]/screens`에 둡니다.
+- 기능 전용 UI는 해당 Feature의 `components`에 둡니다.
+- API 호출 함수는 해당 Feature의 `api`에 둡니다.
+- React Query 조회·Mutation 및 화면 데이터 흐름은 `hooks`에서 관리합니다.
+- 기능 전용 타입은 해당 Feature의 `types`에 둡니다.
+- 여러 기능에서 실제로 재사용되는 코드만 `shared`에 둡니다.
+- 앱 수준 화면 이동 구조와 Navigation 타입은 `app/navigation`에서 관리합니다.
 - API 응답 로딩, 실패, 빈 상태를 반드시 고려합니다.
 
 ---
@@ -1173,11 +1251,21 @@ npm install
 
 `backend/.env` 파일이 있는지 확인합니다.
 
-```bash
-cp .env.example .env
+Windows PowerShell:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
 ```
 
-`JWT_SECRET_KEY`는 최소 16자 이상이어야 합니다.
+macOS / Linux:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+`JWT_SECRET_KEY`는 최소 32자 이상이어야 합니다.
+
+환경변수 이름과 기본 형식은 현재 `backend/.env.example`을 기준으로 확인합니다.
 
 ### 17.4 DB 연결 오류가 나는 경우
 
@@ -1203,11 +1291,9 @@ cp .env.example .env
 
 ---
 
-## 19. 프로젝트 상태 메모
+## 19. 핵심 서비스 완성 흐름
 
-현재 프로젝트는 초기화 및 구조 설계 단계입니다.
-
-우선 목표는 다음 세로 흐름을 완성하는 것입니다.
+Trend Leader MVP의 핵심 End-to-End 사용자 흐름은 다음과 같습니다.
 
 ```text
 회원가입/로그인
@@ -1217,7 +1303,11 @@ cp .env.example .env
 → 북마크 저장
 ```
 
-이 흐름이 완성되면 Trend Leader의 핵심 서비스 구조가 작동하기 시작합니다.
+각 단계의 현재 구현 여부는 Section 14의
+`현재 개발 진행 상태`를 기준으로 확인합니다.
+
+이 전체 흐름이 Backend와 Frontend에서 연결되고 검증되면
+Trend Leader의 핵심 서비스 시나리오가 완성됩니다.
 
 ---
 
