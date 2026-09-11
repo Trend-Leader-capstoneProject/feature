@@ -1,6 +1,13 @@
 같은 Trend Leader 프로젝트의 `채팅 기능별 구분 방법` 채팅에서 정리한
 채팅 분리 기준을 적용해주세요.
 
+Trend Leader 작업의 상세 개발·설계·검증 규칙은
+`docs/prompt/Trend_Leader_AI_Development_Guidelines.md` 최신 버전을 기준으로 해주세요.
+
+GitHub 연결을 통해 기존 파일을 생성·수정·삭제하는 작업에서는
+`docs/prompt/Trend_Leader_GitHub_Write_Safety_Policy.md` 최신 버전의
+Patch-first 및 쓰기 직전 SHA/context 재검증 규칙을 함께 적용해주세요.
+
 또한 `[이전 기능 설계 채팅 제목]`에서 확정한 내용을 이번 작업의 기준으로 삼아주세요.
 
 이번 채팅은 `[통합 설계 / 통합 구현 / 오류 해결]` 채팅이며,
