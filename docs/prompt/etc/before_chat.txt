@@ -4,9 +4,9 @@
 Trend Leader 작업의 상세 개발·설계·검증 규칙은
 `docs/prompt/Trend_Leader_AI_Development_Guidelines.md` 최신 버전을 기준으로 해주세요.
 
-GitHub 연결을 통해 기존 파일을 생성·수정·삭제하는 작업에서는
-`docs/prompt/Trend_Leader_GitHub_Write_Safety_Policy.md` 최신 버전의
-Patch-first 및 쓰기 직전 SHA/context 재검증 규칙을 함께 적용해주세요.
+GitHub 연결을 통해 파일을 생성하거나 기존 파일을 수정·삭제하는 작업에서는
+`docs/prompt/Trend_Leader_GitHub_Write_Safety_Policy.md` 최신 버전을 함께 적용해주세요.
+특히 기존 파일 수정은 Patch-first 및 쓰기 직전 SHA/context 재검증 규칙을 따라주세요.
 
 또한 `[이전 기능 설계 채팅 제목]`에서 확정한 내용을 이번 작업의 기준으로 삼아주세요.
 
