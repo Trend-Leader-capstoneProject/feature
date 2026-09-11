@@ -352,6 +352,10 @@ Screen Specification에서 정의한 상태를 모두 구현합니다.
 * 의미 없는 주석을 반복하지 않습니다.
 * 파일 책임을 벗어나는 코드를 작성하지 않습니다.
 
+위의 전체 코드 제공 규칙은 **채팅 응답 형식**에 관한 규칙입니다.
+GitHub 연결을 통해 기존 파일을 직접 수정하는 경우에는 전체 파일을 다시 작성하는 방식으로 변경안을 설계하지 말고,
+`docs/prompt/Trend_Leader_GitHub_Write_Safety_Policy.md`의 Patch-first, 최신 SHA/context 재검증 및 최소 diff 원칙을 우선 적용해주세요.
+
 ---
 
 ## 12. 자체 검증
