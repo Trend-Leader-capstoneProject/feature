@@ -522,3 +522,65 @@ def test_seed_rejects_ambiguous_children_and_rolls_back(
         category.category_id
         for category in find_all_categories(db_session)
     ] == existing_category_ids
+
+
+def test_seed_rolls_back_after_child_insert(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Seed 실행 전부터 있던 데이터는 실패 이후에도 보존되어야 한다.
+    add_category(
+        db_session,
+        category_code=None,
+        category_name="Rollback 보존 대상",
+        sort_order=777,
+        is_active=False,
+    )
+    db_session.commit()
+
+    snapshot_statement = select(
+        Category.category_id,
+        Category.category_code,
+        Category.category_name,
+        Category.parent_id,
+        Category.sort_order,
+        Category.is_active,
+    ).order_by(Category.category_id)
+
+    before = db_session.execute(snapshot_statement).all()
+
+    original_flush = db_session.flush
+    inserted_child_ids: list[int] = []
+
+    def flush_then_fail(*args, **kwargs) -> None:
+        # 실제 flush를 먼저 수행하여 INSERT가 DB에 실행되도록 한다.
+        original_flush(*args, **kwargs)
+
+        child_ids = db_session.scalars(
+            select(Category.category_id).where(
+                Category.parent_id.is_not(None)
+            )
+        ).all()
+
+        # Child INSERT까지 진행된 시점에 의도적으로 오류를 발생시킨다.
+        if child_ids:
+            inserted_child_ids.extend(child_ids)
+            raise RuntimeError("Child INSERT 이후 강제 실패")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db_session, "flush", flush_then_fail)
+
+        with pytest.raises(
+            RuntimeError,
+            match="Child INSERT 이후 강제 실패",
+        ):
+            seed_category_master(db_session)
+
+    # 오류가 발생하기 전에 실제 Child가 생성되었는지 확인한다.
+    assert inserted_child_ids
+
+    # 테스트에서 rollback을 대신 호출하지 않는다.
+    # Seeder가 스스로 실행 전 상태로 되돌렸는지 확인한다.
+    after = db_session.execute(snapshot_statement).all()
+
+    assert after == before
