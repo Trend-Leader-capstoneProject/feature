@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.db.seeds.category_master import (
     CategorySeedConflictError,
     seed_category_master,
 )
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from app.models.category import Category
 from app.models.db_enums import CategoryCode
 
