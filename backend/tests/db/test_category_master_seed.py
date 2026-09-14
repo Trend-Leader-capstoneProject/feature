@@ -218,24 +218,61 @@ def test_seed_is_idempotent(
 def test_seed_does_not_delete_category_outside_definition(
     db_session: Session,
 ) -> None:
-    """Seed 정의에 없는 기존 Category를 자동 삭제하지 않는다."""
+    """재실행 시 정의 외 Child와 기존 Master 데이터를 그대로 보존한다."""
 
-    extra_category = add_category(
+    seed_category_master(db_session)
+
+    initial_categories = find_all_categories(db_session)
+    assert_master_contract(initial_categories)
+
+    game = next(
+        category
+        for category in initial_categories
+        if category.category_code == CategoryCode.GAME
+    )
+
+    add_category(
         db_session,
         category_code=None,
-        category_name="Seed 정의 외 운영 Category",
-        sort_order=999,
+        category_name="Seed 정의 외 테스트 분류",
+        sort_order=50,
         is_active=False,
+        parent_id=game.category_id,
     )
-    extra_category_id = extra_category.category_id
+
+    before = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
+
+    assert len(before) == 45
     db_session.commit()
 
     seed_category_master(db_session)
 
-    categories = find_all_categories(db_session)
+    db_session.expire_all()
 
-    assert len(categories) == 45
-    assert db_session.get(Category, extra_category_id) is not None
+    after = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
+
+    assert len(after) == 45
+    assert after == before
 
 
 @pytest.mark.parametrize(
