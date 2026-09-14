@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.category import Category
@@ -104,21 +105,64 @@ CATEGORY_MASTER: tuple[RootCategorySeed, ...] = (
 )
 
 
+def _get_or_create_root(
+    db_session: Session,
+    root_seed: RootCategorySeed,
+) -> Category:
+    """코드로 기존 Row를 식별하고 검증하거나 대분류를 생성한다."""
+
+    statement = select(Category).where(
+        Category.category_code == root_seed.category_code,
+    )
+    root = db_session.scalars(statement).one_or_none()
+
+    if root is None:
+        root = Category(
+            category_code=root_seed.category_code,
+            category_name=root_seed.category_name,
+            sort_order=root_seed.sort_order,
+            is_active=True,
+            parent_id=None,
+        )
+
+        db_session.add(root)
+        db_session.flush()
+
+        return root
+
+    expected_values = {
+        "category_name": root_seed.category_name,
+        "parent_id": None,
+        "sort_order": root_seed.sort_order,
+        "is_active": True,
+    }
+
+    mismatched_fields = [
+        field_name
+        for field_name, expected_value in expected_values.items()
+        if getattr(root, field_name) != expected_value
+    ]
+
+    if mismatched_fields:
+        fields = ", ".join(mismatched_fields)
+
+        raise CategorySeedConflictError(
+            f"{root_seed.category_code.value}: "
+            f"Seed 정의 불일치 ({fields})"
+        )
+
+    return root
+
+
 def seed_category_master(db_session: Session) -> None:
-    """초기 Master 데이터를 생성한다. 재실행·충돌 검증은 후속 구현한다."""
+    """Root를 검증·재사용하고 생성한다. Child 재실행 처리는 후속 구현한다."""
 
     try:
         for root_seed in CATEGORY_MASTER:
-            root = Category(
-                category_code=root_seed.category_code,
-                category_name=root_seed.category_name,
-                sort_order=root_seed.sort_order,
-                is_active=True,
-                parent_id=None,
+            root = _get_or_create_root(
+                db_session,
+                root_seed,
             )
-
-            db_session.add(root)
-            db_session.flush()
 
             for child_name, child_sort_order in root_seed.children:
                 child = Category(
