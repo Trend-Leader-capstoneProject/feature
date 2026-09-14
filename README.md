@@ -10,7 +10,7 @@
 
 ## 관심사 기반 개인화 트렌드 큐레이션 앱
 
-**Trend Leader**는 사용자가 선택한 관심 분야를 기준으로 최신 트렌드를 선별해 제공하고,  
+**Trend Leader**는 사용자가 선택한 관심 분야를 기준으로 최신 트렌드를 선별해 제공하고,
 AI 기반 요약과 유행 이유 분석을 통해 트렌드의 맥락을 빠르게 이해할 수 있도록 돕는 모바일 앱입니다.
 
 </div>
@@ -34,7 +34,7 @@ AI 기반 요약과 유행 이유 분석을 통해 트렌드의 맥락을 빠르
 
 ## 1. 프로젝트 개요
 
-Trend Leader는 여러 플랫폼에 흩어진 트렌드 정보를 한곳에서 확인하고,  
+Trend Leader는 여러 플랫폼에 흩어진 트렌드 정보를 한곳에서 확인하고,
 사용자의 관심 카테고리에 맞는 트렌드를 우선적으로 탐색할 수 있도록 설계된 졸업작품 프로젝트입니다.
 
 초기 목표는 단순한 최신 이슈 제공 앱이었으나, 기획을 구체화하면서 **사용자 관심사 기반 맞춤형 트렌드 제공 서비스**로 방향을 확장했습니다.
@@ -159,7 +159,7 @@ Trend Leader는 2인 개발팀의 숙련도, 개발 기간, 모바일 앱과 API
 
 ## 5. 현재 주요 프로젝트 구조
 
-현재 `dev` 브랜치의 주요 구조를 책임 단위로 정리하면 다음과 같습니다.  
+현재 `dev` 브랜치의 주요 구조를 책임 단위로 정리하면 다음과 같습니다.
 세부 구현 파일 전체를 나열하기보다 기능을 찾는 데 필요한 주요 디렉터리와 진입점을 중심으로 표시합니다.
 
 ```text
@@ -237,7 +237,7 @@ feature/
 
 ## 6. 권장 구조
 
-Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,  
+Trend Leader는 백엔드와 프론트엔드의 책임을 분리하고,
 각 기능의 위치를 쉽게 찾을 수 있도록 계층형·기능 중심 구조를 사용합니다.
 
 ---
@@ -254,12 +254,12 @@ backend/
 │   │   ├── routes/           # 기능별 FastAPI Router
 │   │   └── router.py         # 전체 Router 등록
 │   ├── core/            # 환경변수 및 애플리케이션 설정
-│   ├── db/              # DB 연결 및 세션 관리
+│   ├── db/              # DB 연결, 세션 관리 및 Seed
 │   ├── models/          # SQLAlchemy ORM Model
 │   ├── schemas/         # API 요청·응답 Schema
 │   ├── services/        # 비즈니스 로직
 │   ├── repositories/    # DB 접근 로직
-│   ├── resources/       # 프롬프트, Seed, 샘플 데이터
+│   ├── resources/       # 프롬프트, 샘플 데이터
 │   ├── utils/           # 공통 유틸리티
 │   └── main.py          # FastAPI 애플리케이션 진입점
 ├── alembic/             # DB Migration
@@ -565,6 +565,45 @@ Swagger 문서:
 http://127.0.0.1:8000/docs
 ```
 
+### 9.6 Category Master Seed 실행
+
+Category Master Seed는 대분류 6개와 세부분류 38개를 생성하거나 검증합니다.
+API 서버 시작이나 Alembic Migration 실행만으로 자동 실행되지 않습니다.
+
+가상환경을 활성화하고 `backend/` 디렉터리에서 실행합니다.
+먼저 `backend/.env`와 현재 환경변수가 가리키는 DB 연결 대상을 확인합니다.
+`DATABASE_URL`이 설정되어 있으면 개별 `DB_*` 설정보다 우선합니다.
+
+대상 DB에 최신 Migration을 적용한 뒤 Seed를 실행합니다.
+
+```powershell
+python -m alembic upgrade head
+python -m scripts.seed_categories
+```
+
+정상 완료 메시지:
+
+```text
+Category Master Seed 생성 및 검증이 완료되었습니다.
+```
+
+Seed 처리 정책:
+
+- 대분류는 `category_code`, 세부분류는 부모 ID와 이름으로 식별합니다.
+- 없는 항목은 생성하고, 기존 항목이 정의와 일치하면 ID와 데이터를 유지합니다.
+- 기존 관리 속성이 다르거나 식별이 모호한 중복이 있으면 실패하고 전체 Seed 작업을 rollback합니다.
+- 기존 Row를 자동 UPDATE하거나 Seed 정의 외 Row를 자동 DELETE하지 않습니다.
+- 기존 데이터 보정은 별도의 명시적 데이터 변경 절차로 수행합니다.
+
+Seed 정의 외 데이터가 없는 DB에서는 실행 후 총 44개 Row가 존재합니다.
+정의 외 기존 데이터가 있으면 해당 Row를 보존하므로 총합이 44개를 넘을 수 있습니다.
+
+Seed 정의와 DB 처리 로직은 `app/db/seeds/category_master.py`,
+실행 진입점은 `scripts/seed_categories.py`에서 관리합니다.
+
+서버 실행 후 `GET /api/categories`로 계층 응답을 확인할 수 있습니다.
+관심사 POST / PUT은 활성 대분류만 허용합니다.
+
 ---
 
 ## 10. Docker 실행
@@ -654,7 +693,7 @@ BACKEND_EXTERNAL_PORT=8000
 
 `change-me` 값은 팀 로컬 개발 환경에 맞는 비밀번호로 변경합니다.
 
-> `.env.compose`는 Docker Compose가 자동으로 읽는 기본 파일명이 아닙니다.  
+> `.env.compose`는 Docker Compose가 자동으로 읽는 기본 파일명이 아닙니다.
 > 따라서 실행할 때 반드시 `--env-file .env.compose` 옵션을 사용합니다.
 
 ---
@@ -864,7 +903,7 @@ docker compose --env-file .env.compose down -v
 docker compose --env-file .env.compose up --build -d
 ```
 
-> `down -v`는 MariaDB 데이터가 저장된 Docker Volume까지 삭제합니다.  
+> `down -v`는 MariaDB 데이터가 저장된 Docker Volume까지 삭제합니다.
 > 보존해야 할 데이터가 있다면 실행하지 않습니다.
 
 MariaDB 계정이나 비밀번호를 변경했는데 기존 설정이 계속 적용되는 경우, 기존 Volume에 초기 계정 정보가 남아 있을 수 있습니다. 개발 데이터 삭제가 가능한 상황에서만 Volume 초기화를 수행합니다.
@@ -1313,5 +1352,5 @@ Trend Leader의 핵심 서비스 시나리오가 완성됩니다.
 
 ## 20. License
 
-본 프로젝트는 강남대학교 컴퓨터공학부 졸업작품 팀 프로젝트로 진행 중입니다.  
+본 프로젝트는 강남대학교 컴퓨터공학부 졸업작품 팀 프로젝트로 진행 중입니다.
 라이선스 정책은 추후 팀 내부 협의 후 결정합니다.
