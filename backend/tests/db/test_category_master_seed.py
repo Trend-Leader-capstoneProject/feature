@@ -309,6 +309,64 @@ def test_seed_rejects_mismatched_existing_root_and_rolls_back(
     ) == before
 
 
+def test_seed_rejects_root_code_with_parent_and_preserves_data(
+    db_session: Session,
+) -> None:
+    """대분류 코드가 하위 Row에 있으면 실패하고 기존 상태를 보존한다."""
+
+    fashion = add_category(
+        db_session,
+        category_code=CategoryCode.FASHION,
+        category_name="패션",
+        sort_order=1,
+        is_active=True,
+    )
+
+    add_category(
+        db_session,
+        category_code=CategoryCode.FOOD,
+        category_name="음식",
+        sort_order=4,
+        is_active=True,
+        parent_id=fashion.category_id,
+    )
+
+    before = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
+    db_session.commit()
+
+    with pytest.raises(CategorySeedConflictError) as exc_info:
+        seed_category_master(db_session)
+
+    assert "FOOD" in str(exc_info.value)
+    assert "parent_id" in str(exc_info.value)
+
+    db_session.expire_all()
+
+    after = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
+
+    assert len(after) == 2
+    assert after == before
+
 def test_seed_rejects_mismatched_existing_child_and_rolls_back(
     db_session: Session,
 ) -> None:
