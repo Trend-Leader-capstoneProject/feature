@@ -154,8 +154,71 @@ def _get_or_create_root(
     return root
 
 
+def _get_or_create_child(
+    db_session: Session,
+    *,
+    parent_id: int,
+    parent_code: CategoryCode,
+    category_name: str,
+    sort_order: int,
+) -> Category:
+    """부모와 이름으로 세부분류를 식별하고 검증하거나 생성한다."""
+
+    statement = select(Category).where(
+        Category.parent_id == parent_id,
+        Category.category_name == category_name,
+    )
+    matches = db_session.scalars(statement).all()
+
+    identifier = f"{parent_code.value} / {category_name}"
+
+    if len(matches) > 1:
+        raise CategorySeedConflictError(
+            f"{identifier}: 동일 부모 아래 세부분류 중복"
+        )
+
+    if not matches:
+        child = Category(
+            category_code=None,
+            category_name=category_name,
+            sort_order=sort_order,
+            is_active=True,
+            parent_id=parent_id,
+        )
+
+        db_session.add(child)
+        db_session.flush()
+
+        return child
+
+    child = matches[0]
+
+    expected_values = {
+        "category_name": category_name,
+        "category_code": None,
+        "parent_id": parent_id,
+        "sort_order": sort_order,
+        "is_active": True,
+    }
+
+    mismatched_fields = [
+        field_name
+        for field_name, expected_value in expected_values.items()
+        if getattr(child, field_name) != expected_value
+    ]
+
+    if mismatched_fields:
+        fields = ", ".join(mismatched_fields)
+
+        raise CategorySeedConflictError(
+            f"{identifier}: Seed 정의 불일치 ({fields})"
+        )
+
+    return child
+
+
 def seed_category_master(db_session: Session) -> None:
-    """Root를 검증·재사용하고 생성한다. Child 재실행 처리는 후속 구현한다."""
+    """Master 항목을 생성하거나 검증하고 전체 실행을 한 번에 확정한다."""
 
     try:
         for root_seed in CATEGORY_MASTER:
@@ -165,15 +228,13 @@ def seed_category_master(db_session: Session) -> None:
             )
 
             for child_name, child_sort_order in root_seed.children:
-                child = Category(
-                    category_code=None,
+                _get_or_create_child(
+                    db_session,
+                    parent_id=root.category_id,
+                    parent_code=root_seed.category_code,
                     category_name=child_name,
                     sort_order=child_sort_order,
-                    is_active=True,
-                    parent_id=root.category_id,
                 )
-
-                db_session.add(child)
 
         db_session.commit()
 
