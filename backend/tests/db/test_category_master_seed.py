@@ -367,10 +367,28 @@ def test_seed_rejects_root_code_with_parent_and_preserves_data(
     assert len(after) == 2
     assert after == before
 
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        pytest.param(
+            "sort_order",
+            100,
+            id="child-sort-order-mismatch",
+        ),
+        pytest.param(
+            "is_active",
+            False,
+            id="child-inactive",
+        ),
+    ],
+)
 def test_seed_rejects_mismatched_existing_child_and_rolls_back(
     db_session: Session,
+    field_name: str,
+    invalid_value: int | bool,
 ) -> None:
-    """기존 세부분류 속성이 다르면 자동 수정 없이 전체 실행을 rollback한다."""
+    """세부분류 속성이 다르면 실패하고 부모와 자식의 상태를 보존한다."""
 
     game = add_category(
         db_session,
@@ -384,10 +402,24 @@ def test_seed_rejects_mismatched_existing_child_and_rolls_back(
         category_code=None,
         category_name="모바일 게임",
         sort_order=1,
-        is_active=False,
+        is_active=True,
         parent_id=game.category_id,
     )
-    mobile_game_id = mobile_game.category_id
+
+    setattr(mobile_game, field_name, invalid_value)
+    db_session.flush()
+
+    before = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
     db_session.commit()
 
     with pytest.raises(CategorySeedConflictError) as exc_info:
@@ -395,13 +427,24 @@ def test_seed_rejects_mismatched_existing_child_and_rolls_back(
 
     assert "GAME" in str(exc_info.value)
     assert "모바일 게임" in str(exc_info.value)
-    assert "is_active" in str(exc_info.value)
+    assert field_name in str(exc_info.value)
 
-    categories = find_all_categories(db_session)
+    db_session.expire_all()
 
-    assert len(categories) == 2
-    assert db_session.get(Category, mobile_game_id).is_active is False
+    after = [
+        (
+            category.category_id,
+            category.category_code,
+            category.category_name,
+            category.parent_id,
+            category.sort_order,
+            category.is_active,
+        )
+        for category in find_all_categories(db_session)
+    ]
 
+    assert len(after) == 2
+    assert after == before
 
 def test_seed_rejects_ambiguous_children_and_rolls_back(
     db_session: Session,
