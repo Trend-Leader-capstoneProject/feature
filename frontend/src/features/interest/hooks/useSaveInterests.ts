@@ -3,9 +3,9 @@ import type { AxiosError } from "axios";
 
 import { saveUserInterests } from "../api/saveUserInterests";
 import type {
-    InterestSaveErrorResponse,
-    InterestSaveRequest,
-    InterestSaveResponse,
+  InterestSaveErrorResponse,
+  InterestSaveRequest,
+  InterestSaveResponse,
 } from "../types/interest";
 
 export function useSaveInterests() {
