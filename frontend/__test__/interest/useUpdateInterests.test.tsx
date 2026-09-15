@@ -1,33 +1,30 @@
 import {
-    QueryClient,
-    QueryClientProvider,
+  QueryClient,
+  QueryClientProvider,
 } from "@tanstack/react-query";
 import {
-    act,
-    renderHook,
-    waitFor,
+  act,
+  renderHook,
+  waitFor,
 } from "@testing-library/react-native";
 import type { AxiosError } from "axios";
 import type { PropsWithChildren } from "react";
 
 import { updateUserInterests } from "../../src/features/interest/api/updateUserInterests";
 import {
-    useUpdateInterests,
+  useUpdateInterests,
 } from "../../src/features/interest/hooks/useUpdateInterests";
 import {
-    userInterestQueryKeys,
-} from "../../src/features/interest/hooks/useUserInterests";
+  categoryQueryKeys,
+  userInterestQueryKeys,
+} from "../../src/features/interest/queryKeys";
 import type {
-    CategoryListData,
+  CategoryListData,
 } from "../../src/features/interest/types/category";
 import type {
-    InterestUpdateErrorResponse,
-    InterestUpdateResponse,
+  InterestUpdateErrorResponse,
+  InterestUpdateResponse,
 } from "../../src/features/interest/types/interest";
-
-const CATEGORY_QUERY_KEY = [
-  "categories",
-] as const;
 
 jest.mock(
   "../../src/features/interest/api/updateUserInterests",
@@ -144,7 +141,7 @@ describe("useUpdateInterests", () => {
       );
 
       queryClient.setQueryData(
-        CATEGORY_QUERY_KEY,
+        categoryQueryKeys.all,
         CATEGORY_DATA,
       );
 
@@ -216,7 +213,7 @@ describe("useUpdateInterests", () => {
 
       expect(
         queryClient.getQueryData(
-          CATEGORY_QUERY_KEY,
+          categoryQueryKeys.all,
         ),
       ).toEqual(CATEGORY_DATA);
 

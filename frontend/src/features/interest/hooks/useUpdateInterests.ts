@@ -1,18 +1,18 @@
 import {
-    useMutation,
-    useQueryClient,
+  useMutation,
+  useQueryClient,
 } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 
 import { updateUserInterests } from "../api/updateUserInterests";
-import type {
-    InterestUpdateErrorResponse,
-    InterestUpdateRequest,
-    InterestUpdateResponse,
-} from "../types/interest";
 import {
-    userInterestQueryKeys,
-} from "./useUserInterests";
+  userInterestQueryKeys,
+} from "../queryKeys";
+import type {
+  InterestUpdateErrorResponse,
+  InterestUpdateRequest,
+  InterestUpdateResponse,
+} from "../types/interest";
 
 export function useUpdateInterests() {
   const queryClient =

@@ -1,22 +1,24 @@
 import {
-    QueryClient,
-    QueryClientProvider,
+  QueryClient,
+  QueryClientProvider,
 } from "@tanstack/react-query";
 import {
-    renderHook,
-    waitFor,
+  renderHook,
+  waitFor,
 } from "@testing-library/react-native";
 import type { AxiosError } from "axios";
 import type { PropsWithChildren } from "react";
 
 import { getUserInterests } from "../../src/features/interest/api/getUserInterests";
 import {
-    useUserInterests,
-    userInterestQueryKeys,
+  useUserInterests,
 } from "../../src/features/interest/hooks/useUserInterests";
+import {
+  userInterestQueryKeys,
+} from "../../src/features/interest/queryKeys";
 import type {
-    InterestReadErrorResponse,
-    InterestReadResponse,
+  InterestReadErrorResponse,
+  InterestReadResponse,
 } from "../../src/features/interest/types/interest";
 
 jest.mock(
