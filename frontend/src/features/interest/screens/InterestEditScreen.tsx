@@ -1,39 +1,47 @@
 import {
-    useEffect,
-    useState,
+  useEffect,
+  useState,
 } from "react";
-import {
-    FlatList,
-    StyleSheet,
-    Text,
-    View,
-    type ListRenderItemInfo,
-} from "react-native";
 
 import {
-    EmptyView,
-    ErrorView,
-    LoadingView,
-    PrimaryButton,
-    ScreenContainer,
+  useNavigation,
+} from "@react-navigation/native";
+
+import {
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  View,
+  type ListRenderItemInfo,
+} from "react-native";
+
+import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  EmptyView,
+  ErrorView,
+  LoadingView,
+  PrimaryButton,
+  ScreenContainer,
 } from "../../../shared/components";
 import {
-    colors,
-    spacing,
-    textLineLimits,
-    typography,
+  colors,
+  spacing,
+  textLineLimits,
+  typography,
 } from "../../../shared/constants";
 import {
-    InterestCategoryOption,
+  InterestCategoryOption,
 } from "../components";
 import {
-    useCategories,
+  useCategories,
 } from "../hooks/useCategories";
+import { useUpdateInterests } from "../hooks/useUpdateInterests";
 import {
-    useUserInterests,
+  useUserInterests,
 } from "../hooks/useUserInterests";
 import type {
-    CategoryItem,
+  CategoryItem,
 } from "../types/category";
 
 function createInitialSelectedCategoryIds(
@@ -109,10 +117,20 @@ export function InterestEditScreen() {
       initialSelectedCategoryIds,
     );
 
+  const navigation = useNavigation();
+
+  const {
+    revalidateSession,
+  } = useAuth();
+
+  const updateInterestsMutation =
+    useUpdateInterests();
+
   const isSaveDisabled =
     !isDraftInitialized ||
     selectedCategoryIds.length === 0 ||
-    !isDirty;
+    !isDirty ||
+    updateInterestsMutation.isPending;
 
   useEffect(() => {
     if (
@@ -143,7 +161,10 @@ export function InterestEditScreen() {
   function toggleCategory(
     categoryId: number,
   ): void {
-    if (!isDraftInitialized) {
+    if (
+      !isDraftInitialized ||
+      updateInterestsMutation.isPending
+    ) {
       return;
     }
 
@@ -166,16 +187,121 @@ export function InterestEditScreen() {
     );
   }
 
+  function handleSave(): void {
+    if (isSaveDisabled) {
+      return;
+    }
+
+    updateInterestsMutation.mutate(
+      {
+        category_ids:
+          selectedCategoryIds,
+      },
+      {
+        onSuccess: (data) => {
+          setInitialSelectedCategoryIds(
+            data.selected_category_ids,
+          );
+
+          setSelectedCategoryIds(
+            data.selected_category_ids,
+          );
+
+          navigation.goBack();
+        },
+
+        onError: (error) => {
+          const errorResponse =
+            error.response?.data;
+
+          if (!errorResponse) {
+            Alert.alert(
+              "네트워크 오류",
+              "서버에 연결할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.",
+            );
+            return;
+          }
+
+          switch (
+            errorResponse.statusCode
+          ) {
+            case 400:
+            case 404:
+              void refetchCategories();
+
+              Alert.alert(
+                "관심 분야 정보를 확인해 주세요",
+                errorResponse.message,
+              );
+              return;
+
+            case 401:
+              return;
+
+            case 409:
+              if (
+                errorResponse.data.reason ===
+                "INTERESTS_NOT_INITIALIZED"
+              ) {
+                revalidateAfterConflict();
+              }
+              return;
+
+            case 422:
+              Alert.alert(
+                "선택 정보를 확인해 주세요",
+                errorResponse.message,
+              );
+              return;
+
+            case 500:
+              Alert.alert(
+                "관심 분야를 저장할 수 없습니다",
+                errorResponse.message,
+              );
+              return;
+          }
+        },
+      },
+    );
+  }
+
+
+  function revalidateAfterConflict(): void {
+    void revalidateSession().catch(() => {
+      Alert.alert(
+        "로그인 상태 확인 실패",
+        "서버의 현재 상태를 확인하지 못했습니다.",
+        [
+          {
+            text: "취소",
+            style: "cancel",
+          },
+          {
+            text: "다시 시도",
+            onPress:
+              revalidateAfterConflict,
+          },
+        ],
+      );
+    });
+  }
+
   function renderCategory({
     item,
   }: ListRenderItemInfo<CategoryItem>) {
     return (
       <InterestCategoryOption
         category={item}
+        disabled={
+          updateInterestsMutation.isPending
+        }
         onPress={toggleCategory}
-        selected={selectedCategoryIds.includes(
-          item.category_id,
-        )}
+        selected={
+          selectedCategoryIds.includes(
+            item.category_id,
+          )
+        }
         style={styles.categoryOption}
       />
     );
@@ -295,7 +421,10 @@ export function InterestEditScreen() {
       <PrimaryButton
         disabled={isSaveDisabled}
         label="변경사항 저장"
-        onPress={() => undefined}
+        loading={
+          updateInterestsMutation.isPending
+        }
+        onPress={handleSave}
       />
     </ScreenContainer>
   );
