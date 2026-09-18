@@ -10,7 +10,7 @@ import {
   InterestEditScreen,
 } from "../../features/interest/screens/InterestEditScreen";
 
-type AppStackParamList = {
+export type AppStackParamList = {
   Main: undefined;
   InterestEdit: undefined;
 };
