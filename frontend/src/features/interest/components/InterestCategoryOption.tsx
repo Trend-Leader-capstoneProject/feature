@@ -110,10 +110,10 @@ export function InterestCategoryOption({
 
 const styles = StyleSheet.create({
   option: {
-    minHeight: 112,
-    alignItems: "flex-start",
+    minHeight: 156,
+    alignItems: "center",
     justifyContent: "center",
-    gap: spacing.inlineGap,
+    gap: spacing.space2,
     padding: spacing.space4,
     borderWidth: borders.borderWidthDefault,
     borderColor: colors.borderDefault,
@@ -145,6 +145,7 @@ const styles = StyleSheet.create({
   categoryName: {
     ...typography.itemTitle,
     color: colors.textPrimary,
+    textAlign: "center",
   },
   selectedCategoryName: {
     color: colors.textBrand,
