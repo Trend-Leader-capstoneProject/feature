@@ -1,13 +1,18 @@
 import {
-    createNativeStackNavigator,
+  createNativeStackNavigator,
 } from "@react-navigation/native-stack";
 
 import {
-    MainPlaceholderScreen,
+  MainPlaceholderScreen,
 } from "../screens/MainPlaceholderScreen";
+
+import {
+  InterestEditScreen,
+} from "../../features/interest/screens/InterestEditScreen";
 
 type AppStackParamList = {
   Main: undefined;
+  InterestEdit: undefined;
 };
 
 const Stack =
@@ -24,6 +29,12 @@ export function AppNavigator() {
         name="Main"
         component={MainPlaceholderScreen}
       />
+
+      <Stack.Screen
+        name="InterestEdit"
+        component={InterestEditScreen}
+      />
+
     </Stack.Navigator>
   );
 }
