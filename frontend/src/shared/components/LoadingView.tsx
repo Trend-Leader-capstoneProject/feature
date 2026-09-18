@@ -31,6 +31,7 @@ export function LoadingView({
 
   return (
     <View
+      accessible
       accessibilityLabel={resolvedAccessibilityLabel}
       accessibilityLiveRegion="polite"
       accessibilityRole="progressbar"
