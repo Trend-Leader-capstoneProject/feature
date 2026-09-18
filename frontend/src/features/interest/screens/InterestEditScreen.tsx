@@ -4,10 +4,6 @@ import {
 } from "react";
 
 import {
-  useNavigation,
-} from "@react-navigation/native";
-
-import {
   Alert,
   FlatList,
   StyleSheet,
@@ -15,6 +11,14 @@ import {
   View,
   type ListRenderItemInfo,
 } from "react-native";
+
+import type {
+  NativeStackScreenProps
+} from "@react-navigation/native-stack";
+
+import type {
+  AppStackParamList,
+} from "../../../app/navigation/AppNavigator";
 
 import { useAuth } from "../../../app/providers/AuthProvider";
 import {
@@ -43,6 +47,13 @@ import {
 import type {
   CategoryItem,
 } from "../types/category";
+
+
+type InterestEditScreenProps =
+  NativeStackScreenProps<
+    AppStackParamList,
+    "InterestEdit"
+  >;
 
 function createInitialSelectedCategoryIds(
   categories: CategoryItem[],
@@ -77,7 +88,9 @@ function areSameCategoryIdSet(
   );
 }
 
-export function InterestEditScreen() {
+export function InterestEditScreen({
+  navigation,
+}: InterestEditScreenProps) {
   const {
     data: categoryData,
     isError: isCategoryError,
@@ -116,8 +129,6 @@ export function InterestEditScreen() {
       selectedCategoryIds,
       initialSelectedCategoryIds,
     );
-
-  const navigation = useNavigation();
 
   const {
     revalidateSession,

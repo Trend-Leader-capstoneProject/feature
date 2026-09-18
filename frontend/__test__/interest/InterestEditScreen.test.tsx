@@ -1,10 +1,9 @@
-import { useNavigation } from "@react-navigation/native";
 import {
-    act,
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react-native";
 import type { AxiosError } from "axios";
 import { Alert } from "react-native";
@@ -16,14 +15,26 @@ import { useUserInterests } from "../../src/features/interest/hooks/useUserInter
 import { InterestEditScreen } from "../../src/features/interest/screens/InterestEditScreen";
 import type { CategoryListData } from "../../src/features/interest/types/category";
 import type {
-    InterestReadResponse,
-    InterestUpdateErrorResponse,
-    InterestUpdateResponse,
+  InterestReadResponse,
+  InterestUpdateErrorResponse,
+  InterestUpdateResponse,
 } from "../../src/features/interest/types/interest";
 
-jest.mock("@react-navigation/native", () => ({
-  useNavigation: jest.fn(),
-}));
+import type {
+  NativeStackScreenProps,
+} from "@react-navigation/native-stack";
+
+import type {
+  AppStackParamList,
+} from "../../src/app/navigation/AppNavigator";
+
+
+type InterestEditScreenProps =
+  NativeStackScreenProps<
+    AppStackParamList,
+    "InterestEdit"
+  >;
+
 
 jest.mock("../../src/app/providers/AuthProvider", () => ({
   useAuth: jest.fn(),
@@ -43,7 +54,6 @@ jest.mock("../../src/features/interest/hooks/useUpdateInterests", () => ({
 
 jest.setTimeout(20_000);
 
-const mockedUseNavigation = jest.mocked(useNavigation);
 
 const mockedUseAuth = jest.mocked(useAuth);
 
@@ -54,6 +64,16 @@ const mockedUseUserInterests = jest.mocked(useUserInterests);
 const mockedUseUpdateInterests = jest.mocked(useUpdateInterests);
 
 const goBackMock = jest.fn();
+
+const navigationMock = {
+  goBack: goBackMock,
+} as unknown as
+  InterestEditScreenProps["navigation"];
+
+const routeMock = {
+  key: "InterestEdit-test",
+  name: "InterestEdit",
+} as InterestEditScreenProps["route"];
 
 const revalidateSessionMock = jest.fn(async (): Promise<void> => undefined);
 
@@ -109,6 +129,17 @@ type MutationCallbacks = {
 
   onError?: (error: AxiosError<InterestUpdateErrorResponse>) => void;
 };
+
+
+function createInterestEditScreen() {
+  return (
+    <InterestEditScreen
+      navigation={navigationMock}
+      route={routeMock}
+    />
+  );
+}
+
 
 function mockLoadedQueries(
   interestData: InterestReadResponse = INITIAL_INTERESTS,
@@ -194,13 +225,21 @@ function createNetworkError(): AxiosError<InterestUpdateErrorResponse> {
 }
 
 async function renderLoadedScreen() {
-  const rendered = await render(<InterestEditScreen />);
+  const rendered =
+    await render(
+      createInterestEditScreen(),
+    );
 
   await waitFor(() => {
     expect(
-      screen.getByRole("button", {
-        name: "패션",
-      }).props.accessibilityState.selected,
+      screen.getByRole(
+        "button",
+        {
+          name: "패션",
+        },
+      ).props
+        .accessibilityState
+        .selected,
     ).toBe(true);
   });
 
@@ -240,9 +279,6 @@ describe("InterestEditScreen", () => {
 
     alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
 
-    mockedUseNavigation.mockReturnValue({
-      goBack: goBackMock,
-    } as unknown as ReturnType<typeof useNavigation>);
 
     mockedUseAuth.mockReturnValue({
       authState: {
@@ -335,7 +371,9 @@ describe("InterestEditScreen", () => {
       refetch: refetchUserInterestsMock,
     } as unknown as ReturnType<typeof useUserInterests>);
 
-    await rendered.rerender(<InterestEditScreen />);
+    await rendered.rerender(
+      createInterestEditScreen()
+    );
 
     expect(
       screen.getByRole("button", {
@@ -457,7 +495,9 @@ describe("InterestEditScreen", () => {
       refetch: refetchUserInterestsMock,
     } as unknown as ReturnType<typeof useUserInterests>);
 
-    await render(<InterestEditScreen />);
+    await render(
+      createInterestEditScreen()
+    );
 
     expect(screen.getByRole("progressbar")).toBeTruthy();
 
