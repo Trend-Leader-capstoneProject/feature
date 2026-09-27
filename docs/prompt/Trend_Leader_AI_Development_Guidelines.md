@@ -1029,6 +1029,14 @@ API 명세는 실제 구현과 다음 항목이 일치해야 한다.
 - 검증되지 않은 상태를 완료 커밋으로 만들지 않는다.
 - 하나의 Commit에는 설명 가능한 하나의 작업 의도를 유지한다.
 - Commit 메시지는 실제 변경 종류와 내용을 반영한다.
+- 기본 Commit Message 형식은 `[type/domain] 작업 내용`을 사용한다.
+- 특정 Domain으로 한정하기 어려운 공통 변경은 `[type] 작업 내용`을 사용할 수 있다.
+- Type과 Domain은 소문자로 작성한다.
+- 기본 Type은 `feat`, `fix`, `test`, `refactor`, `docs`, `chore`로 하며, 독립적인 DB Schema / Migration 변경에는 필요 시 `migration`을 사용할 수 있다.
+- 하나의 Commit에는 하나의 주 Type만 사용하며 `[fix, test/auth]` 같은 복합 Type은 사용하지 않는다.
+- Domain은 파일 위치나 기술 도구보다 기능 또는 책임 영역을 우선한다.
+- Commit Message의 세부 작성 기준과 예시는 Notion의 [Git / 협업 Workflow](https://www.notion.so/3d5251660b4a81feac64c6c453e8cec2)를 따른다.
+- 과거 Commit History에는 본 규칙을 소급 적용하지 않으며 규칙 확정 이후 새 Commit부터 적용한다.
 
 ### 16.4 AI 코드 제공 및 사용자 Git 반영 원칙
 
@@ -1055,6 +1063,7 @@ AI
 - AI가 제공하는 Commit Message는 제안이며, 실제 변경사항과 git diff를 기준으로 최종 확인한다.
 - 검증이 완료되지 않은 경우 완료형 Commit Message를 제시하지 않고 현재 미완료 상태를 먼저 알린다.
 - 하나의 작업이 여러 의미 있는 Commit 단위로 분리되는 경우 각 단계별 Commit Message를 구분하여 제안한다.
+- AI가 제안하는 Commit Message도 Section 16.3의 Trend Leader Commit Message 형식을 따른다.
 
 ---
 
