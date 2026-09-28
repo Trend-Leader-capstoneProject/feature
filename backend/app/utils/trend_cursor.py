@@ -70,6 +70,7 @@ def decode_trend_cursor(
         not isinstance(cursor, str)
         or not cursor
         or cursor != cursor.strip()
+        or len(cursor) > MAX_TREND_CURSOR_LENGTH
     ):
         raise TrendCursorError(
             "Cursor 형식이 올바르지 않습니다.",
