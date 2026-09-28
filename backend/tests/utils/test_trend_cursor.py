@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.utils.trend_cursor import (
+    MAX_TREND_CURSOR_LENGTH,
     TrendCursor,
     TrendCursorError,
     decode_trend_cursor,
@@ -255,4 +256,23 @@ def test_decode_trend_cursor_rejects_noncanonical_datetime() -> None:
     ):
         decode_trend_cursor(
             cursor,
+        )
+
+
+def test_decode_trend_cursor_rejects_oversized_value() -> None:
+    """최대 허용 길이를 넘는 Cursor는 decode 전에 거부한다."""
+
+    oversized_cursor = (
+        "a"
+        * (
+            MAX_TREND_CURSOR_LENGTH
+            + 1
+        )
+    )
+
+    with pytest.raises(
+        TrendCursorError,
+    ):
+        decode_trend_cursor(
+            oversized_cursor,
         )
