@@ -1188,28 +1188,62 @@ interest
 
 ### Branch 전략
 
-권장 브랜치 구조:
+기본 Branch 흐름:
 
 ```text
 main
 └── dev
-    ├── feature/frontend-init
-    ├── feature/backend-init
-    ├── feature/auth-api
-    ├── feature/interest-api
-    └── feature/trend-screen
+    └── 기능별 작업 Branch
 ```
 
-### Commit Message 예시
+- `main`: 안정된 발표·배포 기준
+- `dev`: 일반 개발 결과 통합
+- 기능별 작업은 최신 `dev`에서 별도 Branch로 분리합니다.
+- Branch의 세부 명명 및 협업 기준은 Notion의 [Git / 협업 Workflow](https://www.notion.so/3d5251660b4a81feac64c6c453e8cec2)를 따릅니다.
+
+현재 Repository에서는 다음과 같은 기능별 Branch 형태를 사용하고 있습니다.
 
 ```text
-[init] 프로젝트 초기 구조 생성
-[feat] 관심사 카테고리 조회 API 구현
-[fix] Expo SDK 버전 불일치 수정
-[docs] README 실행 방법 추가
-[refactor] 라우터 구조 분리
-[test] 관심사 저장 서비스 테스트 추가
+feat-auth
+feat-signup
+feat-interest
+feat-category
+feat-trend-list
 ```
+
+위 목록은 현재 사용 예시이며, Branch 명명 규칙 자체를 강제하는 목록은 아닙니다.
+
+### Commit Message
+
+기본 형식:
+
+```text
+[type/domain] 작업 내용
+```
+
+특정 Domain으로 한정하기 어려운 공통 변경:
+
+```text
+[type] 작업 내용
+```
+
+예:
+
+```text
+[feat/trend] 전체 트렌드 목록 조회 구현
+[test/trend] 전체 트렌드 목록 테스트 추가
+[fix/auth] 인증 실패 처리 오류 수정
+[refactor/interest] 관심사 조회 책임 분리
+[docs] README 개발 환경 정합성 보강
+[chore] 개발 의존성 설정 정리
+```
+
+기본 Type은 `feat`, `fix`, `test`, `refactor`, `docs`, `chore`를 사용합니다.
+
+독립적인 DB Schema / Migration 변경에는 필요 시 `migration`을 사용할 수 있습니다.
+
+Commit Message와 Branch / Push / Pull Request / Merge의 상세 규칙은
+Notion의 [Git / 협업 Workflow](https://www.notion.so/3d5251660b4a81feac64c6c453e8cec2)를 기준으로 합니다.
 
 ### Pull Request 기준
 
