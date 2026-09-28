@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 TREND_CURSOR_VERSION = 1
-
+MAX_TREND_CURSOR_LENGTH = 512
 _CURSOR_KEYS = {
     "version",
     "last_collected_at",
