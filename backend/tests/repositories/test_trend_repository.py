@@ -62,6 +62,7 @@ def create_test_category(
 
     return category
 
+
 def link_trend_category(
     db_session: Session,
     *,
@@ -169,6 +170,8 @@ def test_find_page_returns_only_active_trends_in_latest_order(
         oldest.trend_id,
     ]
 
+    assert hidden.trend_id not in result_ids
+
 def test_find_page_uses_trend_id_as_timestamp_tie_breaker(
     db_session: Session,
 ) -> None:
@@ -219,4 +222,374 @@ def test_find_page_uses_trend_id_as_timestamp_tie_breaker(
     ] == [
         higher_id.trend_id,
         lower_id.trend_id,
+    ]
+
+def test_find_page_applies_cursor_boundary(
+    db_session: Session,
+) -> None:
+    """Cursor보다 뒤쪽의 정렬 범위만 조회한다."""
+
+    newest_time = datetime(
+        2026,
+        9,
+        28,
+        13,
+        0,
+        0,
+    )
+    boundary_time = datetime(
+        2026,
+        9,
+        28,
+        12,
+        0,
+        0,
+    )
+    older_time = datetime(
+        2026,
+        9,
+        28,
+        11,
+        0,
+        0,
+    )
+
+    newest = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-cursor-newest"
+        ),
+        collected_at=newest_time,
+    )
+
+    lower_same_time = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-cursor-lower"
+        ),
+        collected_at=boundary_time,
+    )
+    boundary = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-cursor-boundary"
+        ),
+        collected_at=boundary_time,
+    )
+    older = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-cursor-older"
+        ),
+        collected_at=older_time,
+    )
+
+    assert (
+        boundary.trend_id
+        > lower_same_time.trend_id
+    )
+
+    repository = TrendRepository(
+        db=db_session,
+    )
+
+    result = repository.find_page(
+        limit=20,
+        category_ids=None,
+        cursor_last_collected_at=(
+            boundary.last_collected_at
+        ),
+        cursor_trend_id=(
+            boundary.trend_id
+        ),
+    )
+
+    result_ids = [
+        trend.trend_id
+        for trend in result
+    ]
+
+    assert result_ids == [
+        lower_same_time.trend_id,
+        older.trend_id,
+    ]
+
+    assert newest.trend_id not in result_ids
+    assert boundary.trend_id not in result_ids
+
+
+def test_find_page_cursor_does_not_require_boundary_row(
+    db_session: Session,
+) -> None:
+    """Cursor 경계 Trend가 없어도 값 자체로 다음 범위를 조회한다."""
+
+    boundary_time = datetime(
+        2026,
+        9,
+        28,
+        12,
+        0,
+        0,
+    )
+
+    same_time = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-missing-boundary-same"
+        ),
+        collected_at=boundary_time,
+    )
+    older = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-missing-boundary-older"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            11,
+            0,
+            0,
+        ),
+    )
+
+    repository = TrendRepository(
+        db=db_session,
+    )
+
+    nonexistent_boundary_id = (
+        same_time.trend_id
+        + 1000
+    )
+
+    result = repository.find_page(
+        limit=20,
+        category_ids=None,
+        cursor_last_collected_at=(
+            boundary_time
+        ),
+        cursor_trend_id=(
+            nonexistent_boundary_id
+        ),
+    )
+
+    assert [
+        trend.trend_id
+        for trend in result
+    ] == [
+        same_time.trend_id,
+        older.trend_id,
+    ]
+
+def test_find_page_filters_categories_without_duplicate_trends(
+    db_session: Session,
+) -> None:
+    """여러 Category에 매칭돼도 같은 Trend는 한 번만 반환한다."""
+
+    category_one = create_test_category(
+        db_session,
+        category_name=(
+            "Trend Repository Category A"
+        ),
+    )
+    category_two = create_test_category(
+        db_session,
+        category_name=(
+            "Trend Repository Category B"
+        ),
+    )
+
+    unrelated_category = create_test_category(
+        db_session,
+        category_name=(
+            "Trend Repository Category C"
+        ),
+    )
+
+    newest = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-filter-newest"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            13,
+            0,
+            0,
+        ),
+    )
+
+    older = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-filter-older"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            12,
+            0,
+            0,
+        ),
+    )
+    unrelated = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-filter-unrelated"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            14,
+            0,
+            0,
+        ),
+    )
+
+    link_trend_category(
+        db_session,
+        trend=newest,
+        category=category_one,
+    )
+    link_trend_category(
+        db_session,
+        trend=newest,
+        category=category_two,
+    )
+    link_trend_category(
+        db_session,
+        trend=older,
+        category=category_one,
+    )
+    link_trend_category(
+        db_session,
+        trend=unrelated,
+        category=unrelated_category,
+    )
+
+    repository = TrendRepository(
+        db=db_session,
+    )
+
+    result = repository.find_page(
+        limit=20,
+        category_ids=[
+            category_one.category_id,
+            category_two.category_id,
+        ],
+        cursor_last_collected_at=None,
+        cursor_trend_id=None,
+    )
+
+    assert [
+        trend.trend_id
+        for trend in result
+    ] == [
+        newest.trend_id,
+        older.trend_id,
+    ]
+
+
+def test_find_page_applies_limit_after_trend_matching(
+    db_session: Session,
+) -> None:
+    """Category 다중 매칭에서도 limit을 Trend 개수에 적용한다."""
+
+    category_one = create_test_category(
+        db_session,
+        category_name=(
+            "Trend Repository Limit Category A"
+        ),
+    )
+    category_two = create_test_category(
+        db_session,
+        category_name=(
+            "Trend Repository Limit Category B"
+        ),
+    )
+
+    newest = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-limit-newest"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            13,
+            0,
+            0,
+        ),
+    )
+    middle = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-limit-middle"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            12,
+            0,
+            0,
+        ),
+    )
+    oldest = create_test_trend(
+        db_session,
+        normalized_title=(
+            "trend-repository-limit-oldest"
+        ),
+        collected_at=datetime(
+            2026,
+            9,
+            28,
+            11,
+            0,
+            0,
+        ),
+    )
+
+    for trend in [
+        newest,
+        middle,
+        oldest,
+    ]:
+        link_trend_category(
+            db_session,
+            trend=trend,
+            category=category_one,
+        )
+        link_trend_category(
+            db_session,
+            trend=trend,
+            category=category_two,
+        )
+
+    repository = TrendRepository(
+        db=db_session,
+    )
+
+    result = repository.find_page(
+        limit=2,
+        category_ids=[
+            category_one.category_id,
+            category_two.category_id,
+        ],
+        cursor_last_collected_at=None,
+        cursor_trend_id=None,
+    )
+
+    assert [
+        trend.trend_id
+        for trend in result
+    ] == [
+        newest.trend_id,
+        middle.trend_id,
     ]
