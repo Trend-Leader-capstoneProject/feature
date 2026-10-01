@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import (
     NoReturn,
     Protocol,
@@ -449,7 +449,9 @@ class TrendService:
                 trend.thumbnail_url
             ),
             last_collected_at=(
-                trend.last_collected_at
+                cls._as_utc_datetime(
+                    trend.last_collected_at,
+                )
             ),
             categories=categories,
             latest_source=source,
@@ -518,3 +520,18 @@ class TrendService:
             for child, parent
             in ordered_pairs
         ]
+
+    @staticmethod
+    def _as_utc_datetime(
+        value: datetime,
+    ) -> datetime:
+        """UTC 저장 시각을 API용 UTC-aware datetime으로 변환한다."""
+
+        if value.tzinfo is None:
+            return value.replace(
+                tzinfo=UTC,
+            )
+
+        return value.astimezone(
+            UTC,
+        )

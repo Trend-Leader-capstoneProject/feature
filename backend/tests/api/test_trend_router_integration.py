@@ -264,6 +264,11 @@ def test_list_trends_uses_real_database_and_cursor_pagination(
     )
 
     assert (
+        first_item["last_collected_at"]
+        == "2026-09-30T13:00:00Z"
+    )
+
+    assert (
         first_item["trend_id"]
         == newest.trend_id
     )
