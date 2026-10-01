@@ -12,6 +12,7 @@ from app.api.routes import (
     category_router,
     health,
     interest_router,
+    trend_router,
 )
 
 # GET / 등 API prefix를 사용하지 않는 기본 라우터
@@ -26,3 +27,4 @@ api_router.include_router(health.router)
 api_router.include_router(auth_router.router)
 api_router.include_router(category_router.router)
 api_router.include_router(interest_router.router)
+api_router.include_router(trend_router.router)
