@@ -27,7 +27,7 @@
 
 | 확인 대상 | 확인 내용 |
 | --- | --- |
-| remote dev | 위 HEAD와 tree 확인. 로컬 사용자 작업 트리는 접근·검증하지 않음 |
+| 원격 기준 | `feat-trend-list` 최신 구현 HEAD와 관련 파일을 재확인하고, 문서 작성 직전 HEAD 변경 여부를 다시 검증함. 로컬 사용자 작업 트리는 원격에 push된 범위만 확인 |
 | Trend ORM | summary/thumbnail_url nullable, last_collected_at non-null, status/last_collected_at 인덱스 |
 | TrendSource ORM | source_title nullable, source_url non-null, collected_at non-null. Trend마다 Source가 최소 1개라는 제약은 없음 |
 | Category ORM/Taxonomy | 2단계 도메인 정책, 부모 관계, nullable category_code, 대표 Category 미사용 |
@@ -252,7 +252,7 @@ parent.sort_order ASC
 
 동일 child Category가 조립 과정에서 중복되면 `category_id` 기준으로 한 번만 반환한다.
 
-정상 매핑은 세부분류와 부모 1개다. 필터 요청에서 비활성 부모 아래 활성 자식과 3단계 Category는 `CATEGORY_NOT_AVAILABLE`로 처리한다. 다만 응답용 기존 데이터에 대분류 직접 매핑, 3단계 매핑, 부모 이상 상태가 실제로 존재하는지는 아직 별도 DB 확인이 필요하다. 이를 정상 데이터인 것처럼 DTO를 만들어 감추지 않는다.
+정상 매핑은 세부분류와 부모 1개다. 필터 요청에서 비활성 부모 아래 활성 자식과 3단계 Category는 `CATEGORY_NOT_AVAILABLE`로 처리한다. Phase 2 MariaDB Probe에서 대분류 직접 매핑, 부모 누락, 3단계 매핑 조건을 확인한 결과 `abnormal_mapping_count=0`이었다. 따라서 현재 DB 데이터는 정상 2단계 매핑 계약과 일치하며 `Child → Parent` 응답 구조를 유지한다. 다만 이 결과는 현재 데이터 확인이며 미래 비정상 입력을 DB Constraint가 차단한다는 의미는 아니므로 Demo Seed와 향후 Writer가 Taxonomy 불변조건을 지켜야 한다.
 
 ## 5. 관점 2 — Cursor와 변경 가능한 목록
 
@@ -467,7 +467,7 @@ Category는 대분류 code와 부모+세부분류 이름으로 식별하며 ID�
 | Query 재시작 | **OPEN** — 설치·lock된 TanStack Query v5 동작을 기준으로 refresh/reentry/기존 필터 Cache 재사용 시 첫 페이지 재시작을 Frontend 구현·테스트에서 확정한다 |
 | Demo 경계 | **OPEN** — 실제 `APP_ENV` 등 현재 설정과 Category Master Seed 구조를 기준으로 실행 명령, 재실행 식별, 환경 차단, 실패 rollback을 Phase 3에서 확정한다 |
 
-RESOLVED 항목은 Phase 1 코드와 자동 테스트를 근거로 현재 구현 계약에 반영한다. OPEN 항목은 문서 전체를 미확정으로 되돌리지 않지만, 해당 단계의 구현 및 기능 완료 판정 전에 실제 환경 근거로 해소하거나 별도 합의 내용을 기록해야 한다.
+RESOLVED 항목은 Phase 1·2 코드, 자동 테스트와 Runtime/DB Probe를 근거로 현재 구현 계약에 반영한다. OPEN 항목은 문서 전체를 미확정으로 되돌리지 않지만, 해당 단계의 구현 및 기능 완료 판정 전에 실제 환경 근거로 해소하거나 별도 합의 내용을 기록해야 한다.
 
 ## 14. 주의사항 추적과 해결 시 문서 갱신
 
