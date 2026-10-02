@@ -120,6 +120,120 @@ describe("useTrends", () => {
   });
 
   test(
+    "방문했던 Category로 돌아오면 Cache를 유지한 채 첫 페이지를 재검증한다",
+    async () => {
+      const revalidation =
+        createDeferred<TrendListData>();
+
+      mockedGetTrends
+        .mockResolvedValueOnce(
+          createPage(1),
+        )
+        .mockResolvedValueOnce(
+          createPage(2),
+        )
+        .mockImplementationOnce(
+          () => revalidation.promise,
+        );
+
+      const queryClient =
+        createTestQueryClient();
+
+      const { result, rerender } =
+        await renderHook(
+          ({
+            categoryId,
+          }: {
+            categoryId: number;
+          }) =>
+            useTrends({
+              categoryId,
+            }),
+          {
+            initialProps: {
+              categoryId: 1,
+            },
+            wrapper:
+              createWrapper(queryClient),
+          },
+        );
+
+      await waitFor(() => {
+        expect(
+          result.current.data
+            ?.pages[0]
+            .items[0]
+            .trend_id,
+        ).toBe(1);
+      });
+
+      await rerender({
+        categoryId: 2,
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.data
+            ?.pages[0]
+            .items[0]
+            .trend_id,
+        ).toBe(2);
+      });
+
+      await rerender({
+        categoryId: 1,
+      });
+
+      await waitFor(() => {
+        expect(
+          mockedGetTrends,
+        ).toHaveBeenCalledTimes(3);
+      });
+
+      /*
+      * 재검증 응답이 아직 도착하지 않았어도
+      * 이전 Category 1 Cache는 즉시 유지되어야 한다.
+      */
+      expect(
+        result.current.data
+          ?.pages[0]
+          .items[0]
+          .trend_id,
+      ).toBe(1);
+
+      expect(
+        result.current.isFetching,
+      ).toBe(true);
+
+      expect(
+        mockedGetTrends,
+      ).toHaveBeenNthCalledWith(
+        3,
+        {
+          cursor: undefined,
+          limit: 20,
+          category_id: 1,
+        },
+      );
+
+      await act(async () => {
+        revalidation.resolve(
+          createPage(100),
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.data
+            ?.pages[0]
+            .items[0]
+            .trend_id,
+        ).toBe(100);
+      });
+    },
+  );
+
+  test(
     "첫 페이지는 Cursor 없이 기본 limit과 Category 문맥으로 조회한다",
     async () => {
       mockedGetTrends.mockResolvedValueOnce(
