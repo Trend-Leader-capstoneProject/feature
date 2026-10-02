@@ -349,9 +349,11 @@ describe("useTrends", () => {
         await result.current.fetchNextPage();
       });
 
-      expect(
-        result.current.data?.pages,
-      ).toHaveLength(2);
+      await waitFor(() => {
+        expect(
+          result.current.data?.pages,
+        ).toHaveLength(2);
+      });
 
       await act(async () => {
         await result.current.restart();
