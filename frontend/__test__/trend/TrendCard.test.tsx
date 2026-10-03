@@ -1,4 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import {
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react-native";
 
 import { TrendCard } from "../../src/features/trend/components/TrendCard";
 import type { TrendListItem } from "../../src/features/trend/types/trend";
@@ -220,5 +225,61 @@ describe("TrendCard", () => {
         name: "원문 보기",
       }),
     ).toBeNull();
+  });
+  test("thumbnail_url이 있으면 Thumbnail을 표시한다", async () => {
+    await render(
+      <TrendCard
+        displayNumber={1}
+        onOpenSource={jest.fn()}
+        trend={createTrend({
+          thumbnail_url: "https://example.com/thumbnail.jpg",
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("AI 스마트폰 신제품 공개 썸네일")).toHaveProp(
+      "source",
+      {
+        uri: "https://example.com/thumbnail.jpg",
+      },
+    );
+  });
+
+  test("thumbnail_url이 null이면 Thumbnail 영역을 만들지 않는다", async () => {
+    await render(
+      <TrendCard
+        displayNumber={1}
+        onOpenSource={jest.fn()}
+        trend={createTrend({
+          thumbnail_url: null,
+        })}
+      />,
+    );
+
+    expect(
+      screen.queryByLabelText("AI 스마트폰 신제품 공개 썸네일"),
+    ).toBeNull();
+  });
+
+  test("Thumbnail 로딩에 실패하면 이미지 영역을 제거한다", async () => {
+    await render(
+      <TrendCard
+        displayNumber={1}
+        onOpenSource={jest.fn()}
+        trend={createTrend({
+          thumbnail_url: "https://example.com/broken.jpg",
+        })}
+      />,
+    );
+
+    const thumbnail = screen.getByLabelText("AI 스마트폰 신제품 공개 썸네일");
+
+    fireEvent(thumbnail, "error");
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("AI 스마트폰 신제품 공개 썸네일"),
+      ).toBeNull();
+    });
   });
 });
