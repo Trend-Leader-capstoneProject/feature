@@ -1,8 +1,4 @@
-import {
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   borders,
@@ -12,14 +8,9 @@ import {
   textLineLimits,
   typography,
 } from "../../../shared/constants";
-import type {
-  TrendListItem,
-} from "../types/trend";
-import {
-  TrendCategoryChips,
-} from "./TrendCategoryChips";
+import type { TrendListItem } from "../types/trend";
+import { TrendCategoryChips } from "./TrendCategoryChips";
 import { TrendSourceSection } from "./TrendSourceSection";
-
 
 export interface TrendCardProps {
   displayNumber: number;
@@ -27,25 +18,19 @@ export interface TrendCardProps {
   onOpenSource: (uri: string) => void;
 }
 
-function formatCollectedAt(
-  value: string,
-): string {
+function formatCollectedAt(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return "최근 업데이트 시각을 확인할 수 없습니다.";
   }
 
-  const formatted =
-    new Intl.DateTimeFormat(
-      "ko-KR",
-      {
-        month: "long",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      },
-    ).format(date);
+  const formatted = new Intl.DateTimeFormat("ko-KR", {
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 
   return `최근 업데이트 ${formatted}`;
 }
@@ -57,43 +42,28 @@ export function TrendCard({
 }: TrendCardProps) {
   return (
     <View style={styles.card}>
-      <Text style={styles.displayNumber}>
-        {`#${displayNumber}`}
-      </Text>
+      <Text style={styles.displayNumber}>{`#${displayNumber}`}</Text>
 
-      <Text
-        numberOfLines={
-          textLineLimits.itemTitle
-        }
-        style={styles.title}
-      >
+      <Text numberOfLines={textLineLimits.itemTitle} style={styles.title}>
         {trend.title}
       </Text>
 
       {trend.summary !== null && (
-        <Text
-          numberOfLines={3}
-          style={styles.summary}
-        >
+        <Text numberOfLines={3} style={styles.summary}>
           {trend.summary}
         </Text>
       )}
 
-      <TrendCategoryChips
-        categories={trend.categories}
-      />
+      <TrendCategoryChips categories={trend.categories} />
 
       <Text style={styles.updatedAt}>
-        {formatCollectedAt(
-          trend.last_collected_at,
-        )}
+        {formatCollectedAt(trend.last_collected_at)}
       </Text>
 
       <TrendSourceSection
         onOpenSource={onOpenSource}
         source={trend.latest_source}
       />
-
     </View>
   );
 }
@@ -102,14 +72,10 @@ const styles = StyleSheet.create({
   card: {
     gap: spacing.space3,
     padding: spacing.space4,
-    borderWidth:
-      borders.borderWidthDefault,
-    borderColor:
-      colors.borderDefault,
-    borderRadius:
-      radius.radiusMedium,
-    backgroundColor:
-      colors.backgroundSurface,
+    borderWidth: borders.borderWidthDefault,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.radiusMedium,
+    backgroundColor: colors.backgroundSurface,
   },
 
   displayNumber: {
