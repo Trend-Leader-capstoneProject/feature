@@ -1,4 +1,5 @@
 import {
+    fireEvent,
     render,
     screen,
 } from "@testing-library/react-native";
@@ -37,8 +38,10 @@ function createTrend(
         category_name: "인공지능",
         parent: {
           category_id: 2,
-          category_code: "IT_DIGITAL",
-          category_name: "IT/디지털",
+          category_code:
+            "IT_DIGITAL",
+          category_name:
+            "IT/디지털",
         },
       },
     ],
@@ -47,6 +50,7 @@ function createTrend(
   };
 }
 
+
 describe("TrendCard", () => {
   test(
     "화면 순번과 제목, 요약, Category 문맥을 표시한다",
@@ -54,6 +58,7 @@ describe("TrendCard", () => {
       await render(
         <TrendCard
           displayNumber={3}
+          onOpenSource={jest.fn()}
           trend={createTrend()}
         />,
       );
@@ -100,6 +105,7 @@ describe("TrendCard", () => {
       await render(
         <TrendCard
           displayNumber={7}
+          onOpenSource={jest.fn()}
           trend={createTrend({
             trend_id: 999,
           })}
@@ -122,6 +128,7 @@ describe("TrendCard", () => {
       await render(
         <TrendCard
           displayNumber={1}
+          onOpenSource={jest.fn()}
           trend={createTrend({
             summary: null,
             categories: [],
@@ -161,6 +168,7 @@ describe("TrendCard", () => {
       await render(
         <TrendCard
           displayNumber={1}
+          onOpenSource={jest.fn()}
           trend={createTrend()}
         />,
       );
@@ -178,7 +186,159 @@ describe("TrendCard", () => {
         screen.queryByRole(
           "button",
           {
-            name: "IT/디지털 · 인공지능",
+            name:
+              "IT/디지털 · 인공지능",
+          },
+        ),
+      ).toBeNull();
+    },
+  );
+
+  test(
+    "Latest Source의 Platform과 제목, 원문 보기 버튼을 표시한다",
+    async () => {
+      await render(
+        <TrendCard
+          displayNumber={1}
+          onOpenSource={jest.fn()}
+          trend={createTrend({
+            latest_source: {
+              source_id: 501,
+              platform: "YOUTUBE",
+              source_title:
+                "AI 신제품 공개 영상",
+              source_url:
+                "https://example.com/source",
+            },
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          "YouTube",
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByText(
+          "AI 신제품 공개 영상",
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name: "원문 보기",
+          },
+        ),
+      ).toBeTruthy();
+    },
+  );
+
+  test(
+    "원문 보기를 누르면 Source URL을 전달한다",
+    async () => {
+      const onOpenSource =
+        jest.fn();
+
+      await render(
+        <TrendCard
+          displayNumber={1}
+          onOpenSource={onOpenSource}
+          trend={createTrend({
+            latest_source: {
+              source_id: 501,
+              platform: "GOOGLE",
+              source_title:
+                "관련 기사",
+              source_url:
+                "https://example.com/article",
+            },
+          })}
+        />,
+      );
+
+      await fireEvent.press(
+        screen.getByRole(
+          "button",
+          {
+            name: "원문 보기",
+          },
+        ),
+      );
+
+      expect(
+        onOpenSource,
+      ).toHaveBeenCalledWith(
+        "https://example.com/article",
+      );
+
+      expect(
+        onOpenSource,
+      ).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test(
+    "Source 제목이 null이어도 Platform과 원문 보기는 유지한다",
+    async () => {
+      await render(
+        <TrendCard
+          displayNumber={1}
+          onOpenSource={jest.fn()}
+          trend={createTrend({
+            latest_source: {
+              source_id: 501,
+              platform: "SNS",
+              source_title: null,
+              source_url:
+                "https://example.com/post",
+            },
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText("SNS"),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name: "원문 보기",
+          },
+        ),
+      ).toBeTruthy();
+    },
+  );
+
+  test(
+    "Latest Source가 없으면 안내만 표시하고 원문 버튼은 만들지 않는다",
+    async () => {
+      await render(
+        <TrendCard
+          displayNumber={1}
+          onOpenSource={jest.fn()}
+          trend={createTrend({
+            latest_source: null,
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          "출처 정보가 없습니다.",
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.queryByRole(
+          "button",
+          {
+            name: "원문 보기",
           },
         ),
       ).toBeNull();

@@ -1,28 +1,30 @@
 import {
-    StyleSheet,
-    Text,
-    View,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import {
-    borders,
-    colors,
-    radius,
-    spacing,
-    textLineLimits,
-    typography,
+  borders,
+  colors,
+  radius,
+  spacing,
+  textLineLimits,
+  typography,
 } from "../../../shared/constants";
 import type {
-    TrendListItem,
+  TrendListItem,
 } from "../types/trend";
 import {
-    TrendCategoryChips,
+  TrendCategoryChips,
 } from "./TrendCategoryChips";
+import { TrendSourceSection } from "./TrendSourceSection";
 
 
 export interface TrendCardProps {
   displayNumber: number;
   trend: TrendListItem;
+  onOpenSource: (uri: string) => void;
 }
 
 function formatCollectedAt(
@@ -51,6 +53,7 @@ function formatCollectedAt(
 export function TrendCard({
   displayNumber,
   trend,
+  onOpenSource,
 }: TrendCardProps) {
   return (
     <View style={styles.card}>
@@ -85,6 +88,12 @@ export function TrendCard({
           trend.last_collected_at,
         )}
       </Text>
+
+      <TrendSourceSection
+        onOpenSource={onOpenSource}
+        source={trend.latest_source}
+      />
+
     </View>
   );
 }
