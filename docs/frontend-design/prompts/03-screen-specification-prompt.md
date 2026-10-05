@@ -2,43 +2,39 @@
 
 ## 문서 정보
 
-```text
-문서 유형: Prompt Template
-실행 시점: 개별 화면 구현 전
-출력: 독립적으로 저장 가능한 Screen Specification Markdown 문서
-주의: 이 단계에서는 React Native 구현 코드를 작성하지 않음
-```
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | Prompt Template |
+| 실행 시점 | 개별 화면 구현 전 |
+| 출력 | 독립적으로 저장 가능한 Screen Specification Markdown 문서 |
+| 주의 | 이 단계에서는 React Native 구현 코드를 작성하지 않음 |
 
 아래의 Trend Leader 제품 정책, Design System Snapshot, 실제 API 계약, Frontend Type과 현재 프로젝트 구조를 기준으로 `[TARGET_SCREEN_NAME]` 화면의 Screen Specification을 작성해주세요.
 
 이 프롬프트의 목적은 화면을 예쁘게 묘사하는 것이 아니라, 구현 전에 화면의 목적, 책임, 정보 계층, 데이터 계약, 상태, 인터랙션, Navigation과 변경 범위를 명확히 동결하는 것입니다.
 
+### 출력 형식 우선 규칙
+
+- 최종 Screen Specification 전체를 하나의 fenced code block으로 감싸지 않습니다.
+- Heading, 표, 목록과 일반 설명은 렌더링 가능한 일반 Markdown으로 직접 작성합니다.
+- fenced code block은 JSON, HTTP 예시, CLI 명령, 구조 보존이 필요한 원문처럼 블록 자체가 의미를 가질 때만 사용합니다.
+- 일반적인 메타데이터, 설명, 목록을 단순히 모양을 맞추기 위해 `text` code block으로 감싸지 않습니다.
+- fenced code block 전후의 일반 설명은 반드시 code block 밖의 별도 문단으로 작성합니다.
+- 복사용 Markdown 전체 원문을 별도로 요청받지 않은 경우 렌더링된 Markdown 문서를 기본 출력으로 사용합니다.
+
 ---
 
 ## 1. 작업 정보
 
-```text
-대상 화면:
-[TARGET_SCREEN_NAME]
-
-화면 명세 파일명:
-[TARGET_SCREEN_SPEC_FILENAME]
-
-대상 기능:
-[TARGET_FEATURE_NAME]
-
-명세 작업 모드:
-[CREATE_DRAFT | REVISE | PROMOTE_CANDIDATE | FREEZE]
-
-현재 문서 상태:
-[NOT_CREATED | DRAFT | CANDIDATE | FROZEN]
-
-목표 문서 상태:
-[DRAFT | CANDIDATE | FROZEN]
-
-예상 구현 모드:
-[EXISTING_API | MOCK_API | UI_ONLY | REFACTOR]
-```
+| 항목 | 값 |
+|---|---|
+| 대상 화면 | `[TARGET_SCREEN_NAME]` |
+| 화면 명세 파일명 | `[TARGET_SCREEN_SPEC_FILENAME]` |
+| 대상 기능 | `[TARGET_FEATURE_NAME]` |
+| 명세 작업 모드 | `CREATE_DRAFT` / `REVISE` / `PROMOTE_CANDIDATE` / `FREEZE` |
+| 현재 문서 상태 | `NOT_CREATED` / `DRAFT` / `CANDIDATE` / `FROZEN` |
+| 목표 문서 상태 | `DRAFT` / `CANDIDATE` / `FROZEN` |
+| 예상 구현 모드 | `EXISTING_API` / `MOCK_API` / `UI_ONLY` / `REFACTOR` |
 
 ### 1.1 명세 작업 모드 정의
 
@@ -115,7 +111,6 @@ Draft 상태의 명세를 실제 구현 기준으로 사용할 수 있는 Candid
 
 다음 자료를 우선순위에 따라 사용합니다.
 
-```text
 1. 실제 Backend Endpoint와 Response Schema
 2. 실제 Frontend Type
 3. Design System Snapshot
@@ -125,20 +120,19 @@ Draft 상태의 명세를 실제 구현 기준으로 사용할 수 있는 Candid
 7. 현재 Figma 또는 승인된 시각 자료
 8. Prompt Template
 9. Archive 또는 과거 제안 문서
-```
 
 Prompt Template과 Archive 문서는 실제 API 계약, Frontend Type, Design System 또는 현재 코드보다 우선하지 않습니다.
 
 자료가 충돌할 경우 충돌을 숨기거나 임의로 하나를 선택하지 말고 다음 형식으로 기록해주세요.
 
-```text
-충돌 항목:
-자료 A:
-자료 B:
-우선 적용한 자료:
-적용 근거:
-후속 확인 필요 여부:
-```
+| 항목 | 내용 |
+|---|---|
+| 충돌 항목 | `[CONFLICT]` |
+| 자료 A | `[SOURCE_A]` |
+| 자료 B | `[SOURCE_B]` |
+| 우선 적용한 자료 | `[SELECTED_SOURCE]` |
+| 적용 근거 | `[REASON]` |
+| 후속 확인 필요 여부 | `[YES/NO]` |
 
 ---
 
@@ -270,6 +264,7 @@ API가 아직 구현되지 않았지만 계약만 확정되었다면 구현 여�
 | Derived | 확인된 자료들을 조합하면 직접 도출할 수 있음 |
 | Candidate | 구현 및 검증을 위한 화면 단위 제안 |
 | TBD | 자료 부족 또는 팀 결정 필요 |
+| Not Defined | 현재 근거 자료에 정책이나 계약이 정의되어 있지 않으며 이번 범위에서 새로 확정하지 않음 |
 | Out of Scope | 이번 화면 또는 MVP에서 다루지 않음 |
 
 ### 5.1 분류 원칙
@@ -279,6 +274,8 @@ API가 아직 구현되지 않았지만 계약만 확정되었다면 구현 여�
 - `Candidate`는 확정된 전역 Design System과 충돌하지 않아야 합니다.
 - 핵심 제품 정책을 임의로 `Candidate`로 만들어 확정하지 않습니다.
 - `TBD`가 있어도 작성 가능한 범위는 끝까지 작성합니다.
+- `Not Defined`는 현재 근거 자료에 해당 정책이나 계약이 없고 이번 범위에서 새 결정을 만들 필요도 없을 때만 사용합니다.
+- 구현을 진행하려면 반드시 결정이 필요한 항목을 `Not Defined`로 숨기지 않고 `TBD`로 분류합니다.
 - `TBD`를 숨기기 위해 가짜 API, 필드, Navigation 또는 정책을 만들지 않습니다.
 
 ---
@@ -1199,59 +1196,64 @@ Blocking 항목이 있으면 Candidate 또는 Frozen으로 승격하지 않습�
 
 최종 결과는 다른 문서 없이도 이해 가능한 하나의 완성된 Markdown 문서로 작성해주세요.
 
+최종 문서는 렌더링 가능한 일반 Markdown으로 직접 작성하며, 문서 전체를 `markdown`, `text` 등의 fenced code block 하나로 감싸지 않습니다.
+
 다음 순서를 사용합니다.
 
-```text
-# [TARGET_SCREEN_NAME] Screen Specification
-
-## 문서 정보
-## 1. 화면 요약
-## 2. 결정 상태 요약
-## 3. Source of Truth
-## 4. 현재 구현 상태
-## 5. 화면 목적
-## 6. 진입·완료·이탈 조건
-## 7. 화면 책임과 비책임
-## 8. 사용자 시나리오
-## 9. 데이터 계약
-## 10. 기존 기능 구조 유지 조건
-## 11. 정보 계층
-## 12. 콘텐츠 구조
-## 13. Layout Specification
-## 14. Design System 적용
-## 15. 화면 전용 컴포넌트
-## 16. 사용자 인터랙션
-## 17. 인터랙션 상태
-## 18. 화면 상태
-## 19. Navigation
-## 20. 콘텐츠 문구
-## 21. 접근성
-## 22. 작은 화면과 긴 콘텐츠
-## 23. 이미지와 아이콘
-## 24. 구현 영향 범위
-## 25. 미결정 사항
-## 26. Acceptance Criteria
-## 27. 검증 계획
-## 28. 변경 이력
-```
+1. `# [TARGET_SCREEN_NAME] Screen Specification`
+2. `## 문서 정보`
+3. `## 1. 화면 요약`
+4. `## 2. 결정 상태 요약`
+5. `## 3. Source of Truth`
+6. `## 4. 현재 구현 상태`
+7. `## 5. 화면 목적`
+8. `## 6. 진입·완료·이탈 조건`
+9. `## 7. 화면 책임과 비책임`
+10. `## 8. 사용자 시나리오`
+11. `## 9. 데이터 계약`
+12. `## 10. 기존 기능 구조 유지 조건`
+13. `## 11. 정보 계층`
+14. `## 12. 콘텐츠 구조`
+15. `## 13. Layout Specification`
+16. `## 14. Design System 적용`
+17. `## 15. 화면 전용 컴포넌트`
+18. `## 16. 사용자 인터랙션`
+19. `## 17. 인터랙션 상태`
+20. `## 18. 화면 상태`
+21. `## 19. Navigation`
+22. `## 20. 콘텐츠 문구`
+23. `## 21. 접근성`
+24. `## 22. 작은 화면과 긴 콘텐츠`
+25. `## 23. 이미지와 아이콘`
+26. `## 24. 구현 영향 범위`
+27. `## 25. 미결정 사항`
+28. `## 26. Acceptance Criteria`
+29. `## 27. 검증 계획`
+30. `## 28. 변경 이력`
 
 ### 29.1 문서 정보 형식
 
-```text
-문서명:
-문서 유형: Screen Specification
-대상 화면:
-대상 기능:
-버전:
-상태:
-예상 구현 모드:
-플랫폼:
-최종 수정일:
-승인자:
-관련 API:
-관련 Hook:
-관련 Design System:
-```
+다음 항목을 최소한 포함하는 표 형식을 사용합니다.
+
+| 항목 | 내용 |
+|---|---|
+| 문서명 | `[DOCUMENT_NAME]` |
+| 문서 유형 | Screen Specification |
+| 대상 화면 | `[TARGET_SCREEN_NAME]` |
+| 대상 기능 | `[TARGET_FEATURE_NAME]` |
+| 버전 | `[VERSION]` |
+| 상태 | `[STATUS]` |
+| 예상 구현 모드 | `[IMPLEMENTATION_MODE]` |
+| 플랫폼 | `[PLATFORM]` |
+| 최종 수정일 | `[DATE]` |
+| 승인자 | `[APPROVER]` |
+| 관련 API | `[API]` |
+| 관련 Hook | `[HOOK]` |
+| 관련 Design System | `[DESIGN_SYSTEM]` |
+
+기존 Screen Specification을 수정하는 경우 기존 문서에 이미 존재하는 유효한 메타데이터를 삭제하지 않습니다.
+
+예를 들어 구현 상태, 화면 방향, 기준 브랜치, 기준 커밋, 기준일, 관련 API Function, 인증 상태, Navigation, 이전 문서 정보가 현재 문서의 정합성 판단에 필요하다면 표에 행을 추가하여 보존합니다.
 
 ### 29.2 결정 상태 요약
 
@@ -1263,9 +1265,18 @@ Blocking 항목이 있으면 Candidate 또는 Frozen으로 승격하지 않습�
 | Derived | |
 | Candidate | |
 | TBD | |
+| Not Defined | |
 | Out of Scope | |
 
-### 29.3 변경 이력
+### 29.3 구현 단계 진입 판단
+
+결정 상태 분류와 별도로 문서 전체의 구현 준비 상태를 기록합니다.
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| 구현 단계 진입 | `READY` / `BLOCKED` | `[REASON]` |
+
+### 29.4 변경 이력
 
 | 버전 | 날짜 | 상태 | 변경 내용 | 작성·검토 |
 |---|---|---|---|---|
@@ -1277,6 +1288,12 @@ Blocking 항목이 있으면 Candidate 또는 Frozen으로 승격하지 않습�
 
 ## 30. 작성 규칙
 
+- 최종 결과 전체를 fenced code block으로 감싸지 않습니다.
+- Markdown Heading, 표, 목록과 일반 설명은 fence 밖에서 일반 Markdown으로 작성합니다.
+- JSON, HTTP 예시, CLI 명령, 구조 보존이 필요한 원문에만 fenced code block을 사용합니다.
+- 단순 메타데이터, 일반 목록, 설명 문장과 Markdown 문서 목차에는 `text` code block을 사용하지 않습니다.
+- 하나의 fenced code block 안에 코드 예제와 코드 이후의 일반 설명을 함께 넣지 않습니다.
+- fenced code block이 끝나면 일반 설명은 새로운 Markdown 문단에서 이어갑니다.
 - 결과 문서는 한국어로 작성합니다.
 - API 필드명과 코드 식별자는 실제 이름을 유지합니다.
 - API Response 필드가 snake_case라면 그대로 유지합니다.
@@ -1298,6 +1315,9 @@ Blocking 항목이 있으면 Candidate 또는 Frozen으로 승격하지 않습�
 
 다음을 하지 마세요.
 
+- 최종 Screen Specification 전체를 `markdown` 또는 `text` fenced code block 하나로 감싸기
+- 일반 설명, 메타데이터와 단순 목록을 습관적으로 `text` code block으로 감싸기
+- fenced code block을 닫지 않은 상태에서 다음 Markdown Section이나 일반 설명을 이어쓰기
 - Screen 구현 코드 생성
 - API 계약 추측
 - 존재하지 않는 Backend Endpoint 생성
@@ -1373,17 +1393,29 @@ Blocking 항목이 있으면 Candidate 또는 Frozen으로 승격하지 않습�
 29. 구현 영향 범위가 구체적인가
 30. 결과 문서만으로 다음 구현 단계에 진입할 수 있는가
 
+### 출력 형식
+
+31. Screen Specification 전체를 하나의 fenced code block으로 감싸지 않았는가
+32. 일반 설명과 Heading, 표, 목록이 일반 Markdown으로 작성되었는가
+33. fenced code block이 필요한 내용만 block으로 분리되고 정상적으로 닫혔는가
+34. 사용자가 별도 설명을 요청하지 않았다면 Screen Specification 외의 사전·사후 설명을 추가하지 않았는가
+
 문제가 발견되면 결과를 출력하기 전에 문서에 바로 반영해주세요.
 
 ---
 
 ## 33. 최종 응답 형식
 
-다음 순서로 응답해주세요.
+최종 응답에는 완성된 Screen Specification Markdown 문서 자체를 출력합니다.
 
-1. 명세 상태 판단
-2. 핵심 확인 사항
-3. 충돌 또는 Blocking `TBD`
-4. 완성된 Screen Specification 전체 문서
-5. 구현 단계 진입 가능 여부
-6. 구현 전에 필요한 후속 결정
+별도의 사전 설명, 사후 요약, 검토 의견 또는 구현 제안은 기본 응답에 추가하지 않습니다.
+
+명세 상태와 핵심 확인 사항은 문서 정보와 결정 상태 요약에, 충돌은 Source of Truth에, Blocking `TBD`와 후속 결정은 미결정 사항에 기록합니다. 구현 단계 진입 가능 여부는 구현 단계 진입 판단에 기록합니다.
+
+최종 Screen Specification 전체를 `markdown`, `text` 또는 기타 fenced code block으로 감싸지 않습니다.
+
+Heading, 표, 목록과 일반 설명은 렌더링 가능한 일반 Markdown으로 직접 작성합니다.
+
+JSON, HTTP 예시, 구조 보존이 필요한 원문 등 fenced code block 자체가 의미를 가지는 내용에만 code block을 사용합니다.
+
+사용자가 별도로 검토 결과와 문서를 함께 설명해 달라고 요청한 경우에만 문서 외 설명을 추가할 수 있으며, 이 경우에도 Screen Specification 본문과 독립된 Markdown 영역으로 명확히 구분합니다.

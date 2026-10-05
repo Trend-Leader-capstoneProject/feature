@@ -1,4 +1,5 @@
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -14,7 +15,11 @@ import {
   textLineLimits,
   typography,
 } from "../../../shared/constants";
+import { interestCategoryIcons } from "../constants/interestCategoryIcons";
 import type { CategoryItem } from "../types/category";
+
+const CATEGORY_ICON_SIZE = 56;
+
 
 export type InterestCategoryOptionProps = {
   category: CategoryItem;
@@ -37,12 +42,16 @@ export function InterestCategoryOption({
       ? "두 번 탭하여 관심 분야 선택을 해제합니다."
       : "두 번 탭하여 관심 분야로 선택합니다.";
 
+  const iconSource = category.category_code
+    ? interestCategoryIcons[category.category_code]
+    : null;
+
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
       accessibilityLabel={category.category_name}
       accessibilityRole="button"
-      accessibilityState={{ 
+      accessibilityState={{
         disabled,
         selected,
       }}
@@ -63,6 +72,20 @@ export function InterestCategoryOption({
         style,
       ]}
     >
+
+      {iconSource && (
+        <Image
+          accessible={false}
+          resizeMode="contain"
+          source={iconSource}
+          style={[
+            styles.categoryIcon,
+            selected &&
+              styles.selectedCategoryIcon,
+          ]}
+        />
+      )}
+
       <Text
         numberOfLines={textLineLimits.itemTitle}
         style={[
@@ -87,10 +110,10 @@ export function InterestCategoryOption({
 
 const styles = StyleSheet.create({
   option: {
-    minHeight: 112,
-    alignItems: "flex-start",
+    minHeight: 156,
+    alignItems: "center",
     justifyContent: "center",
-    gap: spacing.inlineGap,
+    gap: spacing.space2,
     padding: spacing.space4,
     borderWidth: borders.borderWidthDefault,
     borderColor: colors.borderDefault,
@@ -111,9 +134,18 @@ const styles = StyleSheet.create({
     disabledOption: {
     opacity: 0.6,
   },
+  categoryIcon: {
+    width: CATEGORY_ICON_SIZE,
+    height: CATEGORY_ICON_SIZE,
+    tintColor: colors.textStrongSecondary,
+  },
+  selectedCategoryIcon: {
+    tintColor: colors.textBrand,
+  },
   categoryName: {
     ...typography.itemTitle,
     color: colors.textPrimary,
+    textAlign: "center",
   },
   selectedCategoryName: {
     color: colors.textBrand,

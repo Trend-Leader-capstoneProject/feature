@@ -352,6 +352,10 @@ Screen Specification에서 정의한 상태를 모두 구현합니다.
 * 의미 없는 주석을 반복하지 않습니다.
 * 파일 책임을 벗어나는 코드를 작성하지 않습니다.
 
+위의 전체 코드 제공 규칙은 **채팅 응답 형식**에 관한 규칙입니다.
+GitHub 연결을 통해 기존 파일을 직접 수정하는 경우에는 전체 파일을 다시 작성하는 방식으로 변경안을 설계하지 말고,
+`docs/prompt/Trend_Leader_GitHub_Write_Safety_Policy.md`의 Patch-first, 최신 SHA/context 재검증 및 최소 diff 원칙을 우선 적용해주세요.
+
 ---
 
 ## 12. 자체 검증
@@ -397,6 +401,9 @@ Screen Specification에서 정의한 상태를 모두 구현합니다.
 
 21. `package.json`에 없는 라이브러리를 사용하지 않았는가
 22. 제공되지 않은 path alias를 사용하지 않았는가
+23. 최종 응답 전체를 하나의 fenced code block으로 감싸지 않았는가
+24. 각 파일의 code block이 독립적으로 정상 종료되었는가
+25. 일반 설명과 파일 경로가 code block 밖에 작성되었는가
 
 자체 점검 중 문제가 발견되면 문제를 설명만 하지 말고 생성 코드에 바로 반영해주세요.
 
@@ -415,3 +422,13 @@ Screen Specification에서 정의한 상태를 모두 구현합니다.
 7. 자체 검증 결과
 
 코드를 생략하거나 일부 파일만 제공하지 마세요.
+
+### Markdown 및 코드 블록 출력 규칙
+
+- 최종 응답 전체를 하나의 `markdown`, `text` 또는 기타 fenced code block으로 감싸지 않습니다.
+- 일반 설명, 파일 경로, 변경 이유와 검증 결과는 일반 Markdown으로 작성합니다.
+- 실제 소스 코드만 해당 언어의 fenced code block으로 작성합니다.
+- 각 파일은 파일 경로를 먼저 일반 Markdown으로 표시한 뒤, 그 파일의 전체 코드를 하나의 독립된 code block으로 제공합니다.
+- 하나의 파일 code block을 반드시 닫은 뒤 다음 파일이나 일반 설명을 이어갑니다.
+- TypeScript / TSX 파일은 `typescript` 또는 `tsx`처럼 실제 코드 성격에 맞는 language identifier를 사용합니다.
+- code block 안에 일반 설명이나 다음 파일의 Heading을 포함하지 않습니다.

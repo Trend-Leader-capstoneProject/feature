@@ -1,13 +1,20 @@
 import {
-    createNativeStackNavigator,
+  createNativeStackNavigator,
 } from "@react-navigation/native-stack";
 
 import {
-    MainPlaceholderScreen,
+  MainPlaceholderScreen,
 } from "../screens/MainPlaceholderScreen";
 
-type AppStackParamList = {
+import {
+  InterestEditScreen,
+} from "../../features/interest/screens/InterestEditScreen";
+import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
+
+export type AppStackParamList = {
   Main: undefined;
+  InterestEdit: undefined;
+  LatestTrend: undefined;
 };
 
 const Stack =
@@ -24,6 +31,17 @@ export function AppNavigator() {
         name="Main"
         component={MainPlaceholderScreen}
       />
+
+      <Stack.Screen
+        name="InterestEdit"
+        component={InterestEditScreen}
+      />
+
+      <Stack.Screen
+        name="LatestTrend"
+        component={LatestTrendScreen}
+      />
+
     </Stack.Navigator>
   );
 }

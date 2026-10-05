@@ -2,12 +2,12 @@
 
 ## 문서 정보
 
-```text
-문서 유형: Prompt Template
-실행 시점: 아트 디렉션이 선택되고 art-direction.md가 작성된 후
-출력: 구현 가능한 Design System Snapshot
-주의: 대표 화면 검증 전에는 Frozen 상태로 확정하지 않음
-```
+| 항목 | 내용 |
+|---|---|
+| 문서 유형 | Prompt Template |
+| 실행 시점 | 아트 디렉션이 선택되고 `art-direction.md`가 작성된 후 |
+| 출력 | 구현 가능한 Design System Snapshot |
+| 주의 | 대표 화면 검증 전에는 Frozen 상태로 확정하지 않음 |
 
 Trend Leader의 확정된 아트 디렉션과 현재 프론트엔드 환경을 바탕으로, React Native 구현에 사용할 수 있는 전역 Design System Snapshot을 작성해주세요.
 
@@ -15,26 +15,27 @@ Trend Leader의 확정된 아트 디렉션과 현재 프론트엔드 환경을 �
 
 특정 화면의 정보 구조, API 응답 필드, Navigation과 비즈니스 정책은 포함하지 말고, 프로젝트 전체 화면에서 반복해서 사용할 수 있는 전역 디자인 원칙과 토큰만 정의해주세요.
 
+### 출력 형식 우선 규칙
+
+- 최종 응답은 `Review 영역`과 `Design System Snapshot 영역`으로 구분합니다.
+- Review 영역은 Snapshot 생성 또는 승격 판단에 필요한 내용만 간결하게 작성합니다.
+- Design System Snapshot은 독립적으로 저장 가능한 완성된 Markdown 문서로 작성합니다.
+- Snapshot 전체를 `markdown`, `text` 또는 기타 fenced code block 하나로 감싸지 않습니다.
+- Heading, 표, 목록과 일반 설명은 렌더링 가능한 일반 Markdown으로 직접 작성합니다.
+- fenced code block은 코드, 파일 트리, 구조 보존이 필요한 원문 등 block 자체가 의미를 가질 때만 사용합니다.
+- Design System Snapshot은 최종 응답의 마지막 영역으로 출력하며, Snapshot 이후에는 별도의 설명·요약·제안을 추가하지 않습니다.
+
 ---
 
 ## 1. 실행 정보
 
-```text
-실행 모드:
-[CREATE_CANDIDATE | REVISE_CANDIDATE | FREEZE]
-
-목표 버전:
-[TARGET_VERSION]
-
-현재 상태:
-[DRAFT | CANDIDATE | FROZEN]
-
-검증 화면:
-[VALIDATION_SCREENS]
-
-검증 결과:
-[VALIDATION_RESULTS]
-```
+| 항목 | 값 |
+|---|---|
+| 실행 모드 | `CREATE_CANDIDATE` / `REVISE_CANDIDATE` / `FREEZE` |
+| 목표 버전 | `[TARGET_VERSION]` |
+| 현재 상태 | `DRAFT` / `CANDIDATE` / `FROZEN` |
+| 검증 화면 | `[VALIDATION_SCREENS]` |
+| 검증 결과 | `[VALIDATION_RESULTS]` |
 
 ### CREATE_CANDIDATE
 
@@ -61,12 +62,10 @@ Trend Leader의 확정된 아트 디렉션과 현재 프론트엔드 환경을 �
 
 다음 자료가 모두 제공된 경우에만 Frozen 상태로 작성합니다.
 
-```text
 - 기존 Design System Candidate
 - 최소 2개 성격이 다른 대표 화면의 검증 결과
 - 팀 검토 결과
-- 남아 있는 필수 TBD 항목이 없음
-```
+- 남아 있는 필수 `TBD` 항목이 없음
 
 위 조건이 충족되지 않은 경우 Frozen으로 표시하지 말고, 부족한 검증 자료와 남은 결정 사항을 정리한 Candidate를 출력해주세요.
 
@@ -154,14 +153,12 @@ docs/frontend-design/design-system/art-direction.md
 
 자료가 충돌할 경우 다음 우선순위를 적용합니다.
 
-```text
 1. 팀이 확정한 브랜드 자료와 제품 정책
-2. art-direction.md
+2. `art-direction.md`
 3. 기존 Frozen Design System Snapshot
 4. 검증된 공통 프론트엔드 코드
 5. 대표 화면 검증 결과
 6. 기존 화면의 임시 스타일
-```
 
 기존 화면에 작성된 하드코딩 색상, 간격, radius와 폰트 크기는 참고 자료일 뿐이며, 자동으로 디자인 시스템의 정답으로 간주하지 마세요.
 
@@ -771,92 +768,105 @@ Candidate를 다음과 같이 성격이 다른 최소 두 화면에서 검증하
 
 ## 9. 출력 형식
 
-다음 순서로 작성해주세요.
+최종 응답은 다음 두 영역으로 구성합니다.
 
-### 1. 입력 자료 점검
+1. Review 영역
+2. Design System Snapshot 영역
 
-* 충분한 자료
-* 누락된 자료
-* 서로 충돌하는 자료
-* 확정할 수 없는 항목
-* 이번 실행에서 제안 가능한 항목
+Snapshot 영역은 반드시 최종 응답의 마지막에 위치합니다.
 
-### 2. 주요 디자인 결정 요약
+### 9.1 Review 영역
 
-* 유지한 아트 디렉션
-* 핵심 토큰 전략
-* 전역 컴포넌트 전략
-* 가장 중요한 금지 사항
-* 구현 시 주의점
+Review 영역에서는 다음 순서로 작성합니다.
 
-### 3. 팀 결정이 필요한 항목
+#### 1. 실행 결과 판단
 
-각 항목을 다음 형태로 작성해주세요.
+- 요청된 실행 모드
+- 실제 결과 상태: `Candidate` 또는 `Frozen`
+- `FREEZE` 요청 시 Frozen 승격 가능 여부
+- 승격 또는 진행을 막는 Blocking 항목
+- 유지한 아트 디렉션
+- 핵심 토큰 전략
+- 전역 컴포넌트 전략
+- 주요 구현 주의사항
 
-```text
-결정 항목:
-현재 상태:
-선택지:
-추천:
-추천 이유:
-결정하지 않았을 때의 영향:
-```
+#### 2. 입력 자료 및 팀 결정 필요 사항
 
-### 4. Design System Snapshot
+- 충분한 자료
+- 누락된 자료
+- 서로 충돌하는 자료
+- 확정할 수 없는 항목
+- 이번 실행에서 제안 가능한 항목
 
-다음 문서에 그대로 붙여넣을 수 있는 완전한 형태로 작성해주세요.
+팀 결정이 필요한 항목은 다음 표로 작성합니다.
 
-```text
-docs/frontend-design/design-system/design-system-snapshot.md
-```
+| 결정 항목 | 현재 상태 | 선택지 | 추천 | 추천 이유 | 미결정 시 영향 |
+|---|---|---|---|---|---|
+| `[DECISION]` | `[STATUS]` | `[OPTIONS]` | `[RECOMMENDATION]` | `[REASON]` | `[IMPACT]` |
 
-Snapshot은 독립된 문서여야 합니다.
+팀 결정이 필요한 항목이 없다면 `해당 없음`으로 표시합니다.
 
-다음과 같은 표현을 사용하지 마세요.
+#### 3. 변경 영향
 
-```text
-위에서 설명한 대로
-앞의 내용을 참고
-제공한 자료와 동일
-```
+`CREATE_CANDIDATE` 모드에서는 최초 생성으로 인한 주요 영향만 기록합니다.
 
-Snapshot에는 필요한 내용을 모두 포함해주세요.
+`REVISE_CANDIDATE` 또는 `FREEZE` 모드에서는 다음을 기록합니다.
 
-### 5. 검증 계획
+- 유지한 토큰
+- 수정한 토큰
+- 삭제한 토큰
+- 이름이 변경된 토큰
+- 영향받는 화면
+- 필요한 코드 마이그레이션
 
-* InterestSelectScreen 검증 항목
-* RecommendedTrendsScreen 검증 항목
-* Candidate에서 Frozen으로 전환하기 위한 조건
+### 9.2 Design System Snapshot 영역
 
-### 6. 변경 영향
+Review 영역이 끝난 뒤 완전한 Design System Snapshot을 출력합니다.
 
-`REVISE_CANDIDATE` 또는 `FREEZE` 모드에서는 다음을 추가합니다.
+Snapshot은 다음 파일에 그대로 저장할 수 있는 독립된 Markdown 문서여야 합니다.
 
-* 유지한 토큰
-* 수정한 토큰
-* 삭제한 토큰
-* 이름이 변경된 토큰
-* 영향받는 화면
-* 필요한 코드 마이그레이션
+`docs/frontend-design/design-system/design-system-snapshot.md`
+
+Snapshot 전체를 fenced code block으로 감싸지 않습니다.
+
+Snapshot은 `# Trend Leader Design System Snapshot` Heading으로 시작합니다.
+
+대표 화면 검증 계획과 Candidate에서 Frozen으로 전환하기 위한 조건은 Snapshot 내부의 정식 Section으로 포함합니다.
+
+다음과 같은 외부 참조 표현을 사용하지 않습니다.
+
+- `위에서 설명한 대로`
+- `앞의 내용을 참고`
+- `제공한 자료와 동일`
+
+Review 영역의 내용을 참조하지 않아도 Snapshot 하나만으로 이해할 수 있도록 필요한 내용을 모두 포함합니다.
+
+`FREEZE`를 요청했지만 승격 조건이 충족되지 않은 경우에도 Snapshot을 생략하지 않고, 실제 판단된 `Candidate` 상태의 완성된 Snapshot을 출력합니다.
+
+Snapshot 출력이 끝나면 응답을 종료합니다. Snapshot 이후에는 검토 의견, 요약, 다음 단계 제안 또는 기타 일반 설명을 추가하지 않습니다.
 
 ---
 
 ## 10. Snapshot 문서 메타데이터
 
-생성되는 Design System Snapshot의 상단에는 다음 정보를 포함해주세요.
+생성되는 Design System Snapshot의 상단에는 다음 항목을 최소한 포함하는 표를 작성해주세요.
 
-```text
-문서명: Trend Leader Design System Snapshot
-문서 유형: Design System
-버전: [TARGET_VERSION]
-상태: [Candidate | Frozen]
-대상: MVP
-플랫폼: React Native + Expo, Android 우선
-기준 아트 디렉션: Signal Editorial + Trend Radar
-최종 수정일: [DATE]
-승인자: [APPROVER_OR_TBD]
-검증 화면: [VALIDATION_SCREENS]
-```
+| 항목 | 내용 |
+|---|---|
+| 문서명 | Trend Leader Design System Snapshot |
+| 문서 유형 | Design System |
+| 버전 | `[TARGET_VERSION]` |
+| 상태 | `Candidate` / `Frozen` |
+| 대상 | MVP |
+| 플랫폼 | React Native + Expo, Android 우선 |
+| 기준 아트 디렉션 | Signal Editorial + Trend Radar |
+| 최종 수정일 | `[DATE]` |
+| 승인자 | `[APPROVER_OR_TBD]` |
+| 검증 화면 | `[VALIDATION_SCREENS]` |
+
+기존 Design System Snapshot을 수정하는 경우 현재 문서에 존재하는 유효한 메타데이터를 임의로 삭제하지 않습니다.
+
+화면 방향, 기준 브랜치, 기준 커밋, 검증 상태 등 문서의 정합성 판단에 필요한 기존 정보가 있다면 행을 추가하여 보존합니다.
 
 `CREATE_CANDIDATE`와 `REVISE_CANDIDATE` 모드에서는 상태를 `Candidate`로 작성합니다.
 
@@ -883,6 +893,11 @@ Snapshot에는 필요한 내용을 모두 포함해주세요.
 13. Candidate와 Frozen 상태가 올바르게 구분되었는가
 14. 대표 화면 검증 계획이 포함되어 있는가
 15. 출력된 Snapshot이 다른 대화에서도 독립적으로 사용 가능한가
+16. Review 영역과 Design System Snapshot 영역이 명확히 분리되었는가
+17. Snapshot 전체를 하나의 fenced code block으로 감싸지 않았는가
+18. Heading, 표, 목록과 일반 설명이 일반 Markdown으로 작성되었는가
+19. fenced code block이 필요한 내용만 block으로 분리되고 정상적으로 닫혔는가
+20. Design System Snapshot이 최종 응답의 마지막 영역이며 이후 추가 설명이 없는가
 
 문제가 발견되면 설명만 남기지 말고 최종 Design System Snapshot에 반영해주세요.
 
@@ -890,6 +905,10 @@ Snapshot에는 필요한 내용을 모두 포함해주세요.
 
 ## 12. 금지 사항
 
+* 최종 Design System Snapshot 전체를 `markdown`, `text` 또는 기타 fenced code block 하나로 감싸지 않습니다.
+* 일반 설명, 메타데이터와 단순 목록을 습관적으로 `text` code block으로 감싸지 않습니다.
+* Design System Snapshot이 끝난 뒤 검토 의견, 요약, 다음 단계 제안 또는 기타 설명을 추가하지 않습니다.
+* fenced code block을 닫지 않은 상태에서 다음 Markdown Section이나 일반 설명을 이어쓰지 않습니다.
 * 아직 검증되지 않은 Candidate를 Frozen으로 표시하지 않습니다.
 * 특정 화면 하나의 스타일을 전역 규칙으로 일반화하지 않습니다.
 * 모든 콘텐츠를 둥근 카드로 구성하지 않습니다.

@@ -1,4 +1,4 @@
 -r requirements.txt
 httpx2
 pytest
-ruff
+ruff==0.16.0

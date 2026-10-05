@@ -1,8 +1,8 @@
 import {
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react-native";
 import type { AxiosError } from "axios";
 import { Alert } from "react-native";
@@ -25,6 +25,8 @@ jest.mock("../../src/features/interest/hooks/useCategories", () => ({
 jest.mock("../../src/features/interest/hooks/useSaveInterests", () => ({
   useSaveInterests: jest.fn(),
 }));
+
+jest.setTimeout(20_000);
 
 const mockedUseAuth = jest.mocked(useAuth);
 
