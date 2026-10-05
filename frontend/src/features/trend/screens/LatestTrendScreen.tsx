@@ -1,6 +1,4 @@
-import {
-  useState,
-} from "react";
+import { useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -10,125 +8,113 @@ import {
 } from "react-native";
 
 import {
+  ErrorView,
+  LoadingView,
   ScreenContainer,
 } from "../../../shared/components";
-import {
-  colors,
-  sizes,
-  spacing,
-  typography,
-} from "../../../shared/constants";
-import {
-  useCategories,
-} from "../../interest/hooks/useCategories";
-import {
-  TrendCard,
-} from "../components/TrendCard";
+import { colors, sizes, spacing, typography } from "../../../shared/constants";
+import { useCategories } from "../../interest/hooks/useCategories";
+import { TrendCard } from "../components/TrendCard";
 import {
   TrendCategoryFilter,
   type TrendCategorySelection,
 } from "../components/TrendCategoryFilter";
-import {
-  TrendListFeedback,
-} from "../components/TrendListFeedback";
-import {
-  useTrends,
-} from "../hooks/useTrends";
-import type {
-  TrendListItem,
-} from "../types/trend";
-import {
-  openTrendSourceUrl,
-} from "../utils/openTrendSourceUrl";
-
+import { TrendListFeedback } from "../components/TrendListFeedback";
+import { useTrends } from "../hooks/useTrends";
+import type { TrendListItem } from "../types/trend";
+import { openTrendSourceUrl } from "../utils/openTrendSourceUrl";
 
 export function LatestTrendScreen() {
-  const [
-    selectedRootCategoryId,
-    setSelectedRootCategoryId,
-  ] = useState<number | null>(null);
+  const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<
+    number | null
+  >(null);
 
-  const [
-    selectedCategoryId,
-    setSelectedCategoryId,
-  ] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(
+    null,
+  );
 
-  const {
-    data: categoryData,
-  } = useCategories();
+  const nextPageRequestKeyRef = useRef<string | null>(null);
+
+  const { data: categoryData } = useCategories();
 
   const {
     data: trendData,
+    fetchNextPage,
+    hasNextPage,
     isError,
+    isFetchNextPageError,
     isFetching,
+    isFetchingNextPage,
     isPending,
     refetch,
   } = useTrends({
-    categoryId:
-      selectedCategoryId,
+    categoryId: selectedCategoryId,
   });
 
-  const categories =
-    categoryData?.categories ?? [];
+  const categories = categoryData?.categories ?? [];
 
-  const trends =
-    trendData?.pages.flatMap(
-      (page) => page.items,
-    ) ?? [];
+  const trends = trendData?.pages.flatMap((page) => page.items) ?? [];
 
-  const isFiltered =
-    selectedCategoryId !== null;
+  const isFiltered = selectedCategoryId !== null;
 
-  function handleCategorySelection(
-    selection: TrendCategorySelection,
-  ): void {
-    setSelectedRootCategoryId(
-      selection.rootCategoryId,
-    );
+  const lastPage = trendData?.pages[(trendData?.pages.length ?? 1) - 1];
 
-    setSelectedCategoryId(
-      selection.categoryId,
-    );
+  const nextCursor = lastPage?.next_cursor ?? null;
+
+  function handleCategorySelection(selection: TrendCategorySelection): void {
+    setSelectedRootCategoryId(selection.rootCategoryId);
+
+    setSelectedCategoryId(selection.categoryId);
   }
 
-  function handleOpenSource(
-    url: string,
-  ): void {
+  function handleOpenSource(url: string): void {
     void openTrendSourceUrl(url);
   }
 
-  function renderTrend({
-    item,
-    index,
-  }: ListRenderItemInfo<TrendListItem>) {
+  function renderTrend({ item, index }: ListRenderItemInfo<TrendListItem>) {
     return (
       <TrendCard
         displayNumber={index + 1}
-        onOpenSource={
-          handleOpenSource
-        }
+        onOpenSource={handleOpenSource}
         trend={item}
       />
     );
   }
 
-  function renderContent() {
-    if (isPending) {
+  function renderListFooter() {
+    if (isFetchingNextPage) {
       return (
-        <TrendListFeedback
-          state="loading"
+        <LoadingView
+          accessibilityLabel="다음 트렌드를 불러오는 중입니다."
+          style={styles.nextPageFeedback}
         />
       );
+    }
+
+    if (isFetchNextPageError) {
+      return (
+        <ErrorView
+          onRetry={handleRetryNextPage}
+          retrying={isFetchingNextPage}
+          style={styles.nextPageFeedback}
+          title="다음 트렌드를 불러오지 못했습니다."
+        />
+      );
+    }
+
+    return null;
+  }
+
+  function renderContent() {
+    if (isPending) {
+      return <TrendListFeedback state="loading" />;
     }
 
     /*
      * Cache가 존재하는 background revalidation 오류까지
      * 전체 화면 오류로 덮어쓰지 않는다.
      */
-    if (
-      isError &&
-      trendData === undefined
-    ) {
+    if (isError && trendData === undefined) {
       return (
         <TrendListFeedback
           onRetry={() => {
@@ -141,52 +127,72 @@ export function LatestTrendScreen() {
     }
 
     if (trends.length === 0) {
-      return (
-        <TrendListFeedback
-          filtered={isFiltered}
-          state="empty"
-        />
-      );
+      return <TrendListFeedback filtered={isFiltered} state="empty" />;
     }
 
     return (
       <FlatList
-        contentContainerStyle={
-          styles.trendList
-        }
+        contentContainerStyle={styles.trendList}
         data={trends}
-        keyExtractor={(item) =>
-          item.trend_id.toString()
-        }
+        keyExtractor={(item) => item.trend_id.toString()}
+        ListFooterComponent={renderListFooter}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.4}
         renderItem={renderTrend}
-        showsVerticalScrollIndicator={
-          false
-        }
+        showsVerticalScrollIndicator={false}
+        testID="trend-list"
       />
     );
+  }
+
+  function requestNextPage(): void {
+    if (!hasNextPage || nextCursor === null || isFetchingNextPage) {
+      return;
+    }
+
+    const requestKey = `${selectedCategoryId ?? "all"}:${nextCursor}`;
+
+    if (nextPageRequestKeyRef.current === requestKey) {
+      return;
+    }
+
+    nextPageRequestKeyRef.current = requestKey;
+
+    void fetchNextPage().finally(() => {
+      if (nextPageRequestKeyRef.current === requestKey) {
+        nextPageRequestKeyRef.current = null;
+      }
+    });
+  }
+
+  function handleEndReached(): void {
+    /*
+     * 실패 직후 FlatList가 다시 onEndReached를 발생시켜
+     * 자동 Retry하지 않도록 한다.
+     */
+    if (isFetchNextPageError) {
+      return;
+    }
+
+    requestNextPage();
+  }
+
+  function handleRetryNextPage(): void {
+    requestNextPage();
   }
 
   return (
     <ScreenContainer>
       <View style={styles.brandHeader}>
-        <View
-          style={styles.headerSlot}
-        />
+        <View style={styles.headerSlot} />
 
-        <Text style={styles.brand}>
-          T&L
-        </Text>
+        <Text style={styles.brand}>T&L</Text>
 
-        <View
-          style={styles.headerSlot}
-        />
+        <View style={styles.headerSlot} />
       </View>
 
       <View style={styles.intro}>
-        <Text
-          accessibilityRole="header"
-          style={styles.title}
-        >
+        <Text accessibilityRole="header" style={styles.title}>
           최신 트렌드
         </Text>
 
@@ -198,21 +204,13 @@ export function LatestTrendScreen() {
       <View style={styles.filterRegion}>
         <TrendCategoryFilter
           categories={categories}
-          onSelectionChange={
-            handleCategorySelection
-          }
-          selectedCategoryId={
-            selectedCategoryId
-          }
-          selectedRootCategoryId={
-            selectedRootCategoryId
-          }
+          onSelectionChange={handleCategorySelection}
+          selectedCategoryId={selectedCategoryId}
+          selectedRootCategoryId={selectedRootCategoryId}
         />
       </View>
 
-      <View style={styles.contentRegion}>
-        {renderContent()}
-      </View>
+      <View style={styles.contentRegion}>{renderContent()}</View>
     </ScreenContainer>
   );
 }
@@ -221,8 +219,7 @@ const styles = StyleSheet.create({
   brandHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
     marginBottom: spacing.space5,
   },
 
@@ -257,8 +254,7 @@ const styles = StyleSheet.create({
    * ScreenContainer의 padding을 한 번 상쇄한다.
    */
   filterRegion: {
-    marginHorizontal:
-      -spacing.screenGutter,
+    marginHorizontal: -spacing.screenGutter,
     marginBottom: spacing.space5,
   },
 
@@ -268,7 +264,10 @@ const styles = StyleSheet.create({
 
   trendList: {
     gap: spacing.itemGap,
-    paddingBottom:
-      spacing.screenBottomSpacing,
+    paddingBottom: spacing.screenBottomSpacing,
+  },
+
+  nextPageFeedback: {
+    paddingVertical: spacing.space4,
   },
 });
