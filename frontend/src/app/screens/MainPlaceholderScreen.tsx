@@ -22,7 +22,7 @@ import {
   typography,
 } from "../../shared/constants";
 
-import {
+import type {
   AppStackParamList
 } from "../navigation/AppNavigator";
 
