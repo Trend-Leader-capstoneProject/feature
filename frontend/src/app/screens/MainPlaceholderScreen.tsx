@@ -8,7 +8,10 @@ import {
   View,
 } from "react-native";
 
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type {
+  NativeStackScreenProps
+} from "@react-navigation/native-stack";
+
 import {
   PrimaryButton,
   ScreenContainer,
@@ -18,7 +21,11 @@ import {
   spacing,
   typography,
 } from "../../shared/constants";
-import { AppStackParamList } from "../navigation/AppNavigator";
+
+import {
+  AppStackParamList
+} from "../navigation/AppNavigator";
+
 import {
   useAuth,
 } from "../providers/AuthProvider";
@@ -26,7 +33,7 @@ import {
 type MainPlaceholderScreenProps =
   NativeStackScreenProps<
     AppStackParamList,
-   "Main"
+    "Main"
   >;
 
 export function MainPlaceholderScreen({
@@ -87,14 +94,6 @@ export function MainPlaceholderScreen({
         </Text>
 
         <PrimaryButton
-          label="로그아웃"
-          loading={isLoggingOut}
-          onPress={() => {
-            void handleLogout();
-          }}
-        />
-
-        <PrimaryButton
           label="최신 트렌드 보기"
           onPress={() =>
             navigation.navigate(
@@ -102,6 +101,15 @@ export function MainPlaceholderScreen({
             )
           }
         />
+
+        <PrimaryButton
+          label="로그아웃"
+          loading={isLoggingOut}
+          onPress={() => {
+            void handleLogout();
+          }}
+        />
+
       </View>
     </ScreenContainer>
   );
