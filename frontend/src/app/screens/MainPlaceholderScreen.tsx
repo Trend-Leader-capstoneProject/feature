@@ -8,6 +8,10 @@ import {
   View,
 } from "react-native";
 
+import type {
+  NativeStackScreenProps
+} from "@react-navigation/native-stack";
+
 import {
   PrimaryButton,
   ScreenContainer,
@@ -17,11 +21,24 @@ import {
   spacing,
   typography,
 } from "../../shared/constants";
+
+import type {
+  AppStackParamList
+} from "../navigation/AppNavigator";
+
 import {
   useAuth,
 } from "../providers/AuthProvider";
 
-export function MainPlaceholderScreen() {
+type MainPlaceholderScreenProps =
+  NativeStackScreenProps<
+    AppStackParamList,
+    "Main"
+  >;
+
+export function MainPlaceholderScreen({
+  navigation,
+}: MainPlaceholderScreenProps) {
   const {
     authState,
     logout,
@@ -73,9 +90,17 @@ export function MainPlaceholderScreen() {
             ? `${userName}님, 로그인되어 있습니다.`
             : "로그인 세션이 정상적으로 복원되었습니다."}
           {"\n"}
-          메인 트렌드 기능은 후속 작업에서
-          연결합니다.
+          최신 트렌드 목록을 확인해 보세요.
         </Text>
+
+        <PrimaryButton
+          label="최신 트렌드 보기"
+          onPress={() =>
+            navigation.navigate(
+              "LatestTrend",
+            )
+          }
+        />
 
         <PrimaryButton
           label="로그아웃"
@@ -84,6 +109,7 @@ export function MainPlaceholderScreen() {
             void handleLogout();
           }}
         />
+
       </View>
     </ScreenContainer>
   );

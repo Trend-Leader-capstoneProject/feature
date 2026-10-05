@@ -8,10 +8,12 @@ import {
 import {
   SignupScreen,
 } from "../../features/auth/screens/SignupScreen";
+import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
 
 export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
+  LatestTrend: undefined;
 };
 
 const Stack =
@@ -33,6 +35,12 @@ export function AuthNavigator() {
         name="Signup"
         component={SignupScreen}
       />
+
+      <Stack.Screen
+        name="LatestTrend"
+        component={LatestTrendScreen}
+      />
+
     </Stack.Navigator>
   );
 }

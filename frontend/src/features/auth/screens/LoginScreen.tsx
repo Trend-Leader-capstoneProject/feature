@@ -9,23 +9,16 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 
-import type {
-  NativeStackScreenProps,
-} from "@react-navigation/native-stack";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import type {
-  AuthStackParamList,
-} from "../../../app/navigation/AuthNavigator";
+import type { AuthStackParamList } from "../../../app/navigation/AuthNavigator";
 
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
-import {
-  PrimaryButton,
-  ScreenContainer,
-} from "../../../shared/components";
+import { PrimaryButton, ScreenContainer } from "../../../shared/components";
 import {
   borders,
   colors,
@@ -37,25 +30,16 @@ import {
 } from "../../../shared/constants";
 import { useLogin } from "../hooks/useLogin";
 
-type LoginScreenProps =
-  NativeStackScreenProps<
-    AuthStackParamList,
-    "Login"
-  >;
+type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, "Login">;
 
-type FocusedField =
-  | "loginId"
-  | "password"
-  | null;
+type FocusedField = "loginId" | "password" | null;
 
 interface LoginErrorPresentation {
   message: string;
   highlightFields: boolean;
 }
 
-function isNativeNetworkError(
-  error: unknown,
-): boolean {
+function isNativeNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
@@ -70,20 +54,16 @@ function isNativeNetworkError(
   );
 }
 
-function getLoginErrorPresentation(
-  error: unknown,
-): LoginErrorPresentation {
+function getLoginErrorPresentation(error: unknown): LoginErrorPresentation {
   if (axios.isAxiosError(error)) {
     if (!error.response) {
       return {
-        message:
-          "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+        message: "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
         highlightFields: false,
       };
     }
 
-    const errorResponse: unknown =
-      error.response.data;
+    const errorResponse: unknown = error.response.data;
 
     const responseMessage =
       typeof errorResponse === "object" &&
@@ -97,16 +77,13 @@ function getLoginErrorPresentation(
       case 401:
         return {
           message:
-            responseMessage ??
-            "아이디 또는 비밀번호가 올바르지 않습니다.",
+            responseMessage ?? "아이디 또는 비밀번호가 올바르지 않습니다.",
           highlightFields: true,
         };
 
       case 422:
         return {
-          message:
-            responseMessage ??
-            "입력 정보를 확인해 주세요.",
+          message: responseMessage ?? "입력 정보를 확인해 주세요.",
           highlightFields: true,
         };
 
@@ -129,62 +106,38 @@ function getLoginErrorPresentation(
 
   if (isNativeNetworkError(error)) {
     return {
-      message:
-        "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+      message: "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
       highlightFields: false,
     };
   }
 
   return {
-    message:
-      "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+    message: "로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
     highlightFields: false,
   };
 }
 
+export function LoginScreen({ navigation }: LoginScreenProps) {
+  const { establishSession } = useAuth();
 
-export function LoginScreen({
-  navigation,
-}: LoginScreenProps) {
+  const loginMutation = useLogin(establishSession);
 
-  const {
-    establishSession,
-  } = useAuth();
+  const passwordInputRef = useRef<TextInput>(null);
 
-  const loginMutation =
-    useLogin(establishSession);
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [focusedField, setFocusedField] = useState<FocusedField>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [shouldHighlightFields, setShouldHighlightFields] = useState(false);
 
-  const passwordInputRef =
-    useRef<TextInput>(null);
-
-  const [loginId, setLoginId] =
-    useState("");
-  const [password, setPassword] =
-    useState("");
-  const [focusedField, setFocusedField] =
-    useState<FocusedField>(null);
-  const [errorMessage, setErrorMessage] =
-    useState<string | null>(null);
-  const [
-    shouldHighlightFields,
-    setShouldHighlightFields,
-  ] = useState(false);
-
-  const hasLoginId =
-    loginId.trim().length > 0;
-  const hasPassword =
-    password.length > 0;
+  const hasLoginId = loginId.trim().length > 0;
+  const hasPassword = password.length > 0;
 
   const isSubmitDisabled =
-    !hasLoginId ||
-    !hasPassword ||
-    loginMutation.isPending;
+    !hasLoginId || !hasPassword || loginMutation.isPending;
 
   function clearLoginError(): void {
-    if (
-      errorMessage === null &&
-      !shouldHighlightFields
-    ) {
+    if (errorMessage === null && !shouldHighlightFields) {
       return;
     }
 
@@ -192,16 +145,12 @@ export function LoginScreen({
     setShouldHighlightFields(false);
   }
 
-  function handleLoginIdChange(
-    value: string,
-  ): void {
+  function handleLoginIdChange(value: string): void {
     setLoginId(value);
     clearLoginError();
   }
 
-  function handlePasswordChange(
-    value: string,
-  ): void {
+  function handlePasswordChange(value: string): void {
     setPassword(value);
     clearLoginError();
   }
@@ -224,15 +173,10 @@ export function LoginScreen({
           setPassword("");
         },
         onError: (error) => {
-          const presentation =
-            getLoginErrorPresentation(error);
+          const presentation = getLoginErrorPresentation(error);
 
-          setErrorMessage(
-            presentation.message,
-          );
-          setShouldHighlightFields(
-            presentation.highlightFields,
-          );
+          setErrorMessage(presentation.message);
+          setShouldHighlightFields(presentation.highlightFields);
         },
       },
     );
@@ -241,17 +185,11 @@ export function LoginScreen({
   return (
     <ScreenContainer>
       <KeyboardAvoidingView
-        behavior={
-          Platform.OS === "ios"
-            ? "padding"
-            : undefined
-        }
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardAvoidingView}
       >
         <ScrollView
-          contentContainerStyle={
-            styles.scrollContent
-          }
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -259,9 +197,7 @@ export function LoginScreen({
             <Image
               accessible={false}
               resizeMode="contain"
-              source={
-                appImages.trendLeaderLogo
-              }
+              source={appImages.trendLeaderLogo}
               style={styles.logo}
             />
           </View>
@@ -269,61 +205,39 @@ export function LoginScreen({
           <View style={styles.header}>
             <Text
               accessibilityRole="header"
-              numberOfLines={
-                textLineLimits.screenTitle
-              }
+              numberOfLines={textLineLimits.screenTitle}
               style={styles.title}
             >
               로그인
             </Text>
 
             <Text style={styles.description}>
-              관심 분야의 최신 트렌드를
-              빠르게 확인해 보세요.
+              관심 분야의 최신 트렌드를 빠르게 확인해 보세요.
             </Text>
           </View>
 
           <View style={styles.form}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>
-                아이디
-              </Text>
+              <Text style={styles.label}>아이디</Text>
 
               <TextInput
                 accessibilityLabel="아이디"
                 autoCapitalize="none"
                 autoComplete="username"
                 autoCorrect={false}
-                editable={
-                  !loginMutation.isPending
-                }
+                editable={!loginMutation.isPending}
                 maxLength={50}
-                onBlur={() =>
-                  setFocusedField(null)
-                }
-                onChangeText={
-                  handleLoginIdChange
-                }
-                onFocus={() =>
-                  setFocusedField(
-                    "loginId",
-                  )
-                }
-                onSubmitEditing={() =>
-                  passwordInputRef.current?.focus()
-                }
+                onBlur={() => setFocusedField(null)}
+                onChangeText={handleLoginIdChange}
+                onFocus={() => setFocusedField("loginId")}
+                onSubmitEditing={() => passwordInputRef.current?.focus()}
                 placeholder="아이디를 입력하세요"
-                placeholderTextColor={
-                  colors.textDisabled
-                }
+                placeholderTextColor={colors.textDisabled}
                 returnKeyType="next"
                 style={[
                   styles.input,
-                  focusedField ===
-                    "loginId" &&
-                    styles.inputFocused,
-                  shouldHighlightFields &&
-                    styles.inputError,
+                  focusedField === "loginId" && styles.inputFocused,
+                  shouldHighlightFields && styles.inputError,
                 ]}
                 textContentType="username"
                 value={loginId}
@@ -331,9 +245,7 @@ export function LoginScreen({
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>
-                비밀번호
-              </Text>
+              <Text style={styles.label}>비밀번호</Text>
 
               <TextInput
                 ref={passwordInputRef}
@@ -341,36 +253,19 @@ export function LoginScreen({
                 autoCapitalize="none"
                 autoComplete="current-password"
                 autoCorrect={false}
-                editable={
-                  !loginMutation.isPending
-                }
-                onBlur={() =>
-                  setFocusedField(null)
-                }
-                onChangeText={
-                  handlePasswordChange
-                }
-                onFocus={() =>
-                  setFocusedField(
-                    "password",
-                  )
-                }
-                onSubmitEditing={
-                  handleLogin
-                }
+                editable={!loginMutation.isPending}
+                onBlur={() => setFocusedField(null)}
+                onChangeText={handlePasswordChange}
+                onFocus={() => setFocusedField("password")}
+                onSubmitEditing={handleLogin}
                 placeholder="비밀번호를 입력하세요"
-                placeholderTextColor={
-                  colors.textDisabled
-                }
+                placeholderTextColor={colors.textDisabled}
                 returnKeyType="done"
                 secureTextEntry
                 style={[
                   styles.input,
-                  focusedField ===
-                    "password" &&
-                    styles.inputFocused,
-                  shouldHighlightFields &&
-                    styles.inputError,
+                  focusedField === "password" && styles.inputFocused,
+                  shouldHighlightFields && styles.inputError,
                 ]}
                 textContentType="password"
                 value={password}
@@ -389,14 +284,8 @@ export function LoginScreen({
 
             <PrimaryButton
               disabled={isSubmitDisabled}
-              label={
-                loginMutation.isPending
-                  ? "로그인 중..."
-                  : "로그인"
-              }
-              loading={
-                loginMutation.isPending
-              }
+              label={loginMutation.isPending ? "로그인 중..." : "로그인"}
+              loading={loginMutation.isPending}
               onPress={handleLogin}
               style={styles.loginButton}
             />
@@ -408,15 +297,19 @@ export function LoginScreen({
               <Pressable
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={() =>
-                  navigation.navigate("Signup")
-                }
+                onPress={() => navigation.navigate("Signup")}
               >
-                <Text style={styles.signupLink}>
-                  회원가입
-                </Text>
+                <Text style={styles.signupLink}>회원가입</Text>
               </Pressable>
             </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate("LatestTrend")}
+              style={styles.trendEntry}
+            >
+              <Text style={styles.trendEntryText}>최신 트렌드 둘러보기</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -500,6 +393,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   signupLink: {
+    ...typography.bodyStrong,
+    color: colors.textLink,
+  },
+  trendEntry: {
+    alignSelf: "center",
+    paddingHorizontal: spacing.space3,
+    paddingVertical: spacing.space2,
+  },
+
+  trendEntryText: {
     ...typography.bodyStrong,
     color: colors.textLink,
   },

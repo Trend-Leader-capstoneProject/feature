@@ -9,10 +9,12 @@ import {
 import {
   InterestEditScreen,
 } from "../../features/interest/screens/InterestEditScreen";
+import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
 
 export type AppStackParamList = {
   Main: undefined;
   InterestEdit: undefined;
+  LatestTrend: undefined;
 };
 
 const Stack =
@@ -33,6 +35,11 @@ export function AppNavigator() {
       <Stack.Screen
         name="InterestEdit"
         component={InterestEditScreen}
+      />
+
+      <Stack.Screen
+        name="LatestTrend"
+        component={LatestTrendScreen}
       />
 
     </Stack.Navigator>
