@@ -1,11 +1,16 @@
 import { useRef, useState } from "react";
 import {
   FlatList,
+  Image,
   StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
 } from "react-native";
+
+import {
+  appImages,
+} from "../../../assets";
 
 import {
   ErrorView,
@@ -219,7 +224,13 @@ export function LatestTrendScreen() {
       <View style={styles.brandHeader}>
         <View style={styles.headerSlot} />
 
-        <Text style={styles.brand}>T&L</Text>
+        <Image
+          accessibilityLabel="Trend Leader"
+          accessible
+          resizeMode="contain"
+          source={appImages.trendLeaderLogo}
+          style={styles.brandLogo}
+        />
 
         <View style={styles.headerSlot} />
       </View>
@@ -261,10 +272,9 @@ const styles = StyleSheet.create({
     height: sizes.touchTarget,
   },
 
-  brand: {
-    ...typography.sectionTitle,
-    color: colors.textBrand,
-    textAlign: "center",
+  brandLogo: {
+    width: sizes.touchTarget,
+    height: sizes.touchTarget,
   },
 
   intro: {

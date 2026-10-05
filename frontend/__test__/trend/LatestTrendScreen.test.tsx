@@ -218,7 +218,11 @@ describe("LatestTrendScreen", () => {
 
     await render(<LatestTrendScreen />);
 
-    expect(screen.getByText("T&L")).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        "Trend Leader",
+      ),
+    ).toBeTruthy();
 
     expect(screen.getByText("최신 트렌드")).toBeTruthy();
 
