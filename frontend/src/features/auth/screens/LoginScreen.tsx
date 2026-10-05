@@ -416,6 +416,20 @@ export function LoginScreen({
                   회원가입
                 </Text>
               </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  navigation.navigate(
+                    "LatestTrend",
+                  )
+                }
+                style={styles.trendEntry}
+              >
+                <Text style={styles.trendEntryText}>
+                  최신 트렌드 둘러보기
+                </Text>
+              </Pressable>
             </View>
           </View>
         </ScrollView>
@@ -500,6 +514,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   signupLink: {
+    ...typography.bodyStrong,
+    color: colors.textLink,
+  },
+  trendEntry: {
+    alignSelf: "center",
+    paddingHorizontal: spacing.space3,
+    paddingVertical: spacing.space2,
+  },
+
+  trendEntryText: {
     ...typography.bodyStrong,
     color: colors.textLink,
   },
