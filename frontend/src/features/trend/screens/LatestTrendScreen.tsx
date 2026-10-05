@@ -33,6 +33,11 @@ export function LatestTrendScreen() {
     null,
   );
 
+  const [
+    isRefreshing,
+    setIsRefreshing,
+  ] = useState(false);
+
   const nextPageRequestKeyRef = useRef<string | null>(null);
 
   const { data: categoryData } = useCategories();
@@ -47,6 +52,7 @@ export function LatestTrendScreen() {
     isFetchingNextPage,
     isPending,
     refetch,
+    restart,
   } = useTrends({
     categoryId: selectedCategoryId,
   });
@@ -71,6 +77,19 @@ export function LatestTrendScreen() {
     void openTrendSourceUrl(url);
   }
 
+  function handleRefresh(): void {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    void restart()
+      .catch(() => undefined)
+      .finally(() => {
+        setIsRefreshing(false);
+      });
+  }
   function renderTrend({ item, index }: ListRenderItemInfo<TrendListItem>) {
     return (
       <TrendCard
@@ -134,12 +153,26 @@ export function LatestTrendScreen() {
       <FlatList
         contentContainerStyle={styles.trendList}
         data={trends}
-        keyExtractor={(item) => item.trend_id.toString()}
-        ListFooterComponent={renderListFooter}
-        onEndReached={handleEndReached}
+        keyExtractor={(item) =>
+          item.trend_id.toString()
+        }
+        ListFooterComponent={
+          renderListFooter
+        }
+        onEndReached={
+          handleEndReached
+        }
         onEndReachedThreshold={0.4}
+        onRefresh={
+          handleRefresh
+        }
+        refreshing={
+          isRefreshing
+        }
         renderItem={renderTrend}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={
+          false
+        }
         testID="trend-list"
       />
     );

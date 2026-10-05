@@ -168,7 +168,6 @@ function createDeferred<T>() {
 }
 
 describe("LatestTrendScreen", () => {
-
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -180,22 +179,15 @@ describe("LatestTrendScreen", () => {
     restartMock.mockReset();
     fetchNextPageMock.mockReset();
 
-    refetchMock.mockResolvedValue(
-      undefined,
-    );
+    refetchMock.mockResolvedValue(undefined);
 
-    restartMock.mockResolvedValue(
-      undefined,
-    );
+    restartMock.mockResolvedValue(undefined);
 
-    fetchNextPageMock.mockResolvedValue(
-      undefined,
-    );
+    fetchNextPageMock.mockResolvedValue(undefined);
 
     mockCategories();
 
-    mockedOpenTrendSourceUrl
-      .mockResolvedValue(undefined);
+    mockedOpenTrendSourceUrl.mockResolvedValue(undefined);
   });
 
   test("화면 기본 정보와 여러 Page의 Trend를 연속 순번으로 표시한다", async () => {
@@ -448,5 +440,87 @@ describe("LatestTrendScreen", () => {
     );
 
     expect(fetchNextPageMock).toHaveBeenCalledTimes(1);
+  });
+  test("Pull-to-refresh는 기존 목록을 유지한 채 restart하고 Refresh 상태를 표시한다", async () => {
+    const refresh = createDeferred<void>();
+
+    restartMock.mockImplementation(() => refresh.promise);
+
+    mockedUseTrends.mockReturnValue(
+      createTrendQueryResult({
+        pages: [createPage([createTrend(101)])],
+      }),
+    );
+
+    await render(<LatestTrendScreen />);
+
+    const list = screen.getByTestId("trend-list");
+
+    expect(screen.getByText("Trend 101")).toBeTruthy();
+
+    expect(list).toHaveProp("refreshing", false);
+
+    await fireEvent(list, "refresh");
+
+    expect(restartMock).toHaveBeenCalledTimes(1);
+
+    /*
+     * Refresh 중에도 기존 Card는 유지한다.
+     */
+    expect(screen.getByText("Trend 101")).toBeTruthy();
+
+    expect(screen.getByTestId("trend-list")).toHaveProp("refreshing", true);
+
+    refresh.resolve(undefined);
+
+    await refresh.promise;
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trend-list")).toHaveProp("refreshing", false);
+    });
+  });
+  test("Category 선택 후 Pull-to-refresh해도 현재 Category 문맥을 유지한다", async () => {
+    mockedUseTrends.mockImplementation(({ categoryId }) =>
+      createTrendQueryResult({
+        pages: [createPage([createTrend(categoryId === null ? 101 : 201)])],
+      }),
+    );
+
+    await render(<LatestTrendScreen />);
+
+    expect(screen.getByText("Trend 101")).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "게임",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Trend 201")).toBeTruthy();
+    });
+
+    expect(mockedUseTrends).toHaveBeenLastCalledWith({
+      categoryId: 1,
+    });
+
+    await fireEvent(screen.getByTestId("trend-list"), "refresh");
+
+    expect(restartMock).toHaveBeenCalledTimes(1);
+
+    expect(mockedUseTrends).toHaveBeenLastCalledWith({
+      categoryId: 1,
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "게임",
+      }),
+    ).toHaveProp(
+      "accessibilityState",
+      expect.objectContaining({
+        selected: true,
+      }),
+    );
   });
 });
