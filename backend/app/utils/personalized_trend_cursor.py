@@ -130,14 +130,23 @@ def decode_personalized_trend_cursor(
             "지원하지 않는 Cursor 버전입니다.",
         )
 
+    last_collected_at = _parse_datetime(
+        payload["last_collected_at"],
+    )
+
+    trend_id = _parse_positive_int(
+        payload["trend_id"],
+        field_name="trend_id",
+    )
+
+    context_fingerprint = _parse_context_fingerprint(
+        payload["context_fingerprint"],
+    )
+
     return PersonalizedTrendCursor(
-        last_collected_at=datetime.fromisoformat(
-            payload["last_collected_at"],
-        ),
-        trend_id=payload["trend_id"],
-        context_fingerprint=(
-            payload["context_fingerprint"]
-        ),
+        last_collected_at=last_collected_at,
+        trend_id=trend_id,
+        context_fingerprint=context_fingerprint,
     )
 
 
@@ -173,3 +182,71 @@ def _decode_payload(
         raise PersonalizedTrendCursorError(
             "Cursor 형식이 올바르지 않습니다.",
         ) from exc
+
+
+def _parse_datetime(
+    value: Any,
+) -> datetime:
+    """Cursor datetime을 server 발급 형식 그대로 검증한다."""
+
+    if not isinstance(value, str):
+        raise PersonalizedTrendCursorError(
+            "Cursor 시각 형식이 올바르지 않습니다.",
+        )
+
+    try:
+        parsed = datetime.fromisoformat(
+            value,
+        )
+    except ValueError as exc:
+        raise PersonalizedTrendCursorError(
+            "Cursor 시각 형식이 올바르지 않습니다.",
+        ) from exc
+
+    canonical = parsed.isoformat(
+        timespec="microseconds",
+    )
+
+    if canonical != value:
+        raise PersonalizedTrendCursorError(
+            "Cursor 시각 정밀도가 올바르지 않습니다.",
+        )
+
+    return parsed
+
+def _parse_positive_int(
+    value: Any,
+    *,
+    field_name: str,
+) -> int:
+    """bool을 제외한 양의 정수 Cursor 필드를 검증한다."""
+
+    if (
+        type(value) is not int
+        or value <= 0
+    ):
+        raise PersonalizedTrendCursorError(
+            f"Cursor {field_name} 값이 올바르지 않습니다.",
+        )
+
+    return value
+
+
+def _parse_context_fingerprint(
+    value: Any,
+) -> str:
+    """Context Fingerprint가 lowercase SHA-256 hex인지 검증한다."""
+
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in value
+        )
+    ):
+        raise PersonalizedTrendCursorError(
+            "Cursor Context Fingerprint가 올바르지 않습니다.",
+        )
+
+    return value
