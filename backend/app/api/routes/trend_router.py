@@ -103,6 +103,31 @@ def list_trends(
         "ACTIVE 트렌드를 최신순으로 조회합니다. "
         "Cursor 기반 페이지네이션을 지원합니다."
     ),
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "잘못된 Personalized Cursor",
+        },
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "인증 실패",
+        },
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": (
+                "관심사 미초기화 또는 "
+                "사용 가능한 관심사 범위 없음"
+            ),
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "model": ErrorResponse,
+            "description": "Query Parameter 검증 실패",
+        },
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "model": ErrorResponse,
+            "description": "서버 오류",
+        },
+    },
 )
 def list_personalized_trends(
     current_user: CurrentUserDep,

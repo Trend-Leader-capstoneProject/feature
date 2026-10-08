@@ -312,3 +312,89 @@ def test_personalized_trends_returns_interest_conflict_response(
         limit=20,
         cursor=None,
     )
+
+
+def test_personalized_trends_openapi_declares_error_responses() -> None:
+    """맞춤 Trend 목록의 주요 HTTP 응답을 OpenAPI에 선언한다."""
+
+    application = create_app()
+
+    operation = application.openapi()["paths"][
+        "/api/trends/personalized"
+    ]["get"]
+
+    expected_response_codes = {
+        "200",
+        "400",
+        "401",
+        "409",
+        "422",
+        "500",
+    }
+
+    assert expected_response_codes.issubset(
+        operation["responses"],
+    )
+
+
+def test_personalized_trends_openapi_requires_bearer_auth() -> None:
+    """맞춤 Trend 목록은 OpenAPI에서 Bearer 인증을 요구한다."""
+
+    application = create_app()
+
+    operation = application.openapi()["paths"][
+        "/api/trends/personalized"
+    ]["get"]
+
+    assert {
+        "BearerAuth": [],
+    } in operation.get(
+        "security",
+        [],
+    )
+
+
+def test_personalized_trends_openapi_query_contract() -> None:
+    """맞춤 Trend 목록의 Query Parameter 계약을 검증한다."""
+
+    application = create_app()
+
+    operation = application.openapi()["paths"][
+        "/api/trends/personalized"
+    ]["get"]
+
+    parameters = {
+        parameter["name"]: parameter
+        for parameter in operation["parameters"]
+    }
+
+    # 공식 Query Parameter는 limit과 cursor뿐이다.
+    assert set(parameters) == {
+        "limit",
+        "cursor",
+    }
+
+    assert all(
+        parameter["in"] == "query"
+        for parameter in parameters.values()
+    )
+
+    # limit: 선택, 기본값 20, 허용 범위 1~50
+    limit_parameter = parameters["limit"]
+
+    assert limit_parameter["required"] is False
+
+    limit_schema = limit_parameter["schema"]
+
+    assert limit_schema["default"] == 20
+    assert limit_schema["minimum"] == 1
+    assert limit_schema["maximum"] == 50
+
+    # cursor: 선택
+    cursor_parameter = parameters["cursor"]
+
+    assert cursor_parameter["required"] is False
+
+    # 사용자 ID와 Category Scope는 요청 Query로 받지 않는다.
+    assert "user_id" not in parameters
+    assert "category_id" not in parameters
