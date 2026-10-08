@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies.auth_dependency import get_current_user
+from app.core.exceptions import BadRequestException
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.models.user import User
@@ -215,4 +216,44 @@ def test_personalized_trends_accepts_limit_boundaries(
         user_id=15,
         limit=limit,
         cursor=None,
+    )
+
+
+def test_personalized_trends_returns_invalid_cursor_response(
+    client: TestClient,
+) -> None:
+    """Service의 INVALID_CURSOR 오류를 HTTP 400으로 반환한다."""
+
+    with patch.object(
+        PersonalizedTrendService,
+        "list_personalized_trends",
+        side_effect=BadRequestException(
+            message="페이지 정보가 올바르지 않습니다.",
+            data={
+                "reason": "INVALID_CURSOR",
+            },
+        ),
+    ) as list_personalized_trends:
+        response = client.get(
+            "/api/trends/personalized",
+            params={
+                "cursor": "invalid-cursor",
+            },
+        )
+
+    assert response.status_code == 400
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 400,
+        "message": "페이지 정보가 올바르지 않습니다.",
+        "data": {
+            "reason": "INVALID_CURSOR",
+        },
+    }
+
+    list_personalized_trends.assert_called_once_with(
+        user_id=15,
+        limit=20,
+        cursor="invalid-cursor",
     )
