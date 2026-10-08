@@ -58,6 +58,27 @@ class PersonalizedTrendService:
             interest_category_ids,
         )
 
+        requested_category_ids = set(
+            interest_category_ids,
+        )
+
+        found_category_ids = {
+            category.category_id
+            for category in interest_categories
+        }
+
+        missing_category_ids = (
+            requested_category_ids
+            - found_category_ids
+        )
+
+        if missing_category_ids:
+            raise RuntimeError(
+                "저장된 관심사가 존재하지 않는 "
+                "Category를 참조합니다. "
+                f"missing_category_ids={sorted(missing_category_ids)}"
+            )
+
         active_roots = [
             category
             for category in interest_categories

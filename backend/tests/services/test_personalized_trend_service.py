@@ -11,9 +11,11 @@ from app.core.exceptions import (
 from app.models.category import Category
 from app.models.db_enums import (
     CategoryCode,
+    TrendSourcePlatform,
     TrendStatus,
 )
 from app.models.trend import Trend
+from app.models.trend_source import TrendSource
 from app.models.user_interest_category import (
     UserInterestCategory,
 )
@@ -719,3 +721,515 @@ def test_list_personalized_trends_applies_valid_cursor_boundary() -> None:
 
     trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
     trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+
+
+def test_list_personalized_trends_detects_missing_interest_category() -> None:
+    """저장된 관심사의 Category 참조가 누락되면 무결성 오류로 처리한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+    )
+
+    mobile_game = make_category(
+        11,
+        parent_id=1,
+    )
+
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=15,
+            category_id=1,
+        ),
+        make_user_interest(
+            user_id=15,
+            category_id=999,
+        ),
+    ]
+
+    # 저장된 관심사 2개 중 Category 999가 누락된 상태
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        game_root,
+        mobile_game,
+    ]
+
+    trend_repository_mock.find_page.return_value = []
+
+    with pytest.raises(RuntimeError):
+        service.list_personalized_trends(
+            user_id=15,
+            limit=20,
+            cursor=None,
+        )
+
+    category_repository_mock.find_list_by_ids.assert_called_once_with(
+        [1, 999],
+    )
+
+    trend_repository_mock.find_page.assert_not_called()
+    trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
+    trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+
+
+def test_list_personalized_trends_rejects_malformed_cursor() -> None:
+    """잘못된 Cursor 형식은 Trend 조회 이전에 거부한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+    )
+
+    mobile_game = make_category(
+        11,
+        parent_id=1,
+    )
+
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=15,
+            category_id=1,
+        ),
+    ]
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        game_root,
+        mobile_game,
+    ]
+
+    with pytest.raises(
+        BadRequestException,
+    ) as exc_info:
+        service.list_personalized_trends(
+            user_id=15,
+            limit=20,
+            cursor="!!invalid!!",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.data == {
+        "reason": "INVALID_CURSOR",
+    }
+
+    trend_repository_mock.find_page.assert_not_called()
+    trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
+    trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+
+
+def test_list_personalized_trends_rejects_other_user_cursor() -> None:
+    """Child Scope가 같아도 다른 사용자의 Cursor는 거부한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+    )
+
+    mobile_game = make_category(
+        11,
+        parent_id=1,
+    )
+
+    # 현재 요청 사용자: User B (ID=20)
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=20,
+            category_id=1,
+        ),
+    ]
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        game_root,
+        mobile_game,
+    ]
+
+    # User A (ID=15)가 발급받은 Cursor
+    user_a_fingerprint = build_personalized_context_fingerprint(
+        user_id=15,
+        effective_child_category_ids=[11],
+    )
+
+    user_a_cursor = encode_personalized_trend_cursor(
+        PersonalizedTrendCursor(
+            last_collected_at=datetime(
+                2026,
+                10,
+                8,
+                12,
+                0,
+                0,
+                tzinfo=UTC,
+            ),
+            trend_id=101,
+            context_fingerprint=user_a_fingerprint,
+        )
+    )
+
+    with pytest.raises(
+        BadRequestException,
+    ) as exc_info:
+        service.list_personalized_trends(
+            user_id=20,
+            limit=20,
+            cursor=user_a_cursor,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.data == {
+        "reason": "INVALID_CURSOR",
+    }
+
+    interest_repository_mock.find_by_user_id.assert_called_once_with(
+        20,
+    )
+
+    trend_repository_mock.find_page.assert_not_called()
+    trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
+    trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+
+
+def test_list_personalized_trends_uses_valid_children_with_inactive_root() -> None:
+    """일부 Root가 비활성이어도 나머지 활성 Child로 조회한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+        is_active=True,
+    )
+
+    food_root = make_category(
+        2,
+        category_code=CategoryCode.FOOD,
+        is_active=False,
+    )
+
+    mobile_game = make_category(
+        11,
+        parent_id=1,
+    )
+
+    pc_game = make_category(
+        12,
+        parent_id=1,
+    )
+
+    dessert = make_category(
+        21,
+        parent_id=2,
+    )
+
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=15,
+            category_id=1,
+        ),
+        make_user_interest(
+            user_id=15,
+            category_id=2,
+        ),
+    ]
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+        food_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        dessert,
+        pc_game,
+        game_root,
+        mobile_game,
+    ]
+
+    trend_repository_mock.find_page.return_value = []
+
+    result = service.list_personalized_trends(
+        user_id=15,
+        limit=20,
+        cursor=None,
+    )
+
+    assert result.model_dump() == {
+        "items": [],
+        "next_cursor": None,
+        "has_next": False,
+    }
+
+    interest_repository_mock.find_by_user_id.assert_called_once_with(
+        15,
+    )
+
+    category_repository_mock.find_list_by_ids.assert_called_once_with(
+        [1, 2],
+    )
+
+    category_repository_mock.find_all_active.assert_called_once_with()
+
+    trend_repository_mock.find_page.assert_called_once_with(
+        limit=21,
+        category_ids=[11, 12],
+        cursor_last_collected_at=None,
+        cursor_trend_id=None,
+    )
+
+    trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
+    trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+
+
+def test_list_personalized_trends_maps_source_to_correct_trend() -> None:
+    """Source를 올바른 Trend에만 연결한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+    )
+
+    mobile_game = make_category(
+        11,
+        parent_id=1,
+    )
+
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=15,
+            category_id=1,
+        ),
+    ]
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        game_root,
+        mobile_game,
+    ]
+
+    collected_at = datetime(
+        2026, 10, 8, 12, 0, 0,
+    )
+
+    trend_102 = make_trend(
+        102,
+        collected_at=collected_at,
+    )
+
+    trend_101 = make_trend(
+        101,
+        collected_at=collected_at,
+    )
+
+    source_501 = TrendSource(
+        source_id=501,
+        source_key="5" * 64,
+        source_url="https://example.com/source/501",
+        source_title="테스트 출처 501",
+        platform=TrendSourcePlatform.YOUTUBE,
+        collected_at=collected_at,
+        external_id=None,
+        trend_id=101,
+    )
+
+    trend_repository_mock.find_page.return_value = [
+        trend_102,
+        trend_101,
+    ]
+
+    trend_repository_mock.find_latest_sources_by_trend_ids.return_value = {
+        101: source_501,
+    }
+
+    trend_repository_mock.find_categories_by_trend_ids.return_value = {}
+
+    result = service.list_personalized_trends(
+        user_id=15,
+        limit=20,
+        cursor=None,
+    )
+
+    assert [
+        item.trend_id
+        for item in result.items
+    ] == [102, 101]
+
+    # Trend 102에는 Source가 없음
+    assert result.items[0].latest_source is None
+
+    # Trend 101에만 Source 501 연결
+    latest_source = result.items[1].latest_source
+
+    assert latest_source is not None
+    assert latest_source.source_id == 501
+    assert latest_source.source_title == "테스트 출처 501"
+    assert latest_source.source_url == (
+        "https://example.com/source/501"
+    )
+    assert latest_source.platform == TrendSourcePlatform.YOUTUBE
+
+    trend_repository_mock.find_latest_sources_by_trend_ids.assert_called_once_with(
+        [102, 101],
+    )
+
+    trend_repository_mock.find_categories_by_trend_ids.assert_called_once_with(
+        [102, 101],
+    )
+
+
+def test_list_personalized_trends_builds_category_metadata() -> None:
+    """Trend의 전체 Category를 중복 제거하고 정렬해 반환한다."""
+
+    (
+        service,
+        category_repository_mock,
+        interest_repository_mock,
+        trend_repository_mock,
+    ) = make_service()
+
+    game_root = make_category(
+        1,
+        category_code=CategoryCode.GAME,
+    )
+    food_root = make_category(
+        2,
+        category_code=CategoryCode.FOOD,
+    )
+
+    mobile_game = make_category(11, parent_id=1)
+    pc_game = make_category(12, parent_id=1)
+    dessert = make_category(21, parent_id=2)
+
+    interest_repository_mock.find_by_user_id.return_value = [
+        make_user_interest(
+            user_id=15,
+            category_id=1,
+        ),
+    ]
+
+    category_repository_mock.find_list_by_ids.return_value = [
+        game_root,
+    ]
+
+    category_repository_mock.find_all_active.return_value = [
+        dessert,
+        pc_game,
+        food_root,
+        mobile_game,
+        game_root,
+    ]
+
+    trend = make_trend(
+        101,
+        collected_at=datetime(2026, 10, 8, 12, 0, 0),
+    )
+
+    trend_repository_mock.find_page.return_value = [
+        trend,
+    ]
+
+    trend_repository_mock.find_latest_sources_by_trend_ids.return_value = {}
+
+    # 일부러 순서를 섞고 모바일 게임을 중복 배치
+    trend_repository_mock.find_categories_by_trend_ids.return_value = {
+        101: [
+            (dessert, food_root),
+            (pc_game, game_root),
+            (mobile_game, game_root),
+            (mobile_game, game_root),
+        ],
+    }
+
+    result = service.list_personalized_trends(
+        user_id=15,
+        limit=20,
+        cursor=None,
+    )
+
+    assert len(result.items) == 1
+
+    categories = result.items[0].categories
+
+    assert [
+        category.category_id
+        for category in categories
+    ] == [11, 12, 21]
+
+    assert [
+        category.parent.category_id
+        for category in categories
+    ] == [1, 1, 2]
+
+    assert [
+        category.parent.category_code
+        for category in categories
+    ] == [
+        CategoryCode.GAME,
+        CategoryCode.GAME,
+        CategoryCode.FOOD,
+    ]
+
+    assert [
+        category.category_name
+        for category in categories
+    ] == [
+        "카테고리 11",
+        "카테고리 12",
+        "카테고리 21",
+    ]
+
+    # 검색 필터에는 사용자의 관심 Child만 적용
+    trend_repository_mock.find_page.assert_called_once_with(
+        limit=21,
+        category_ids=[11, 12],
+        cursor_last_collected_at=None,
+        cursor_trend_id=None,
+    )
+
+    # 응답 조립에는 Trend의 전체 Category 매핑 사용
+    trend_repository_mock.find_categories_by_trend_ids.assert_called_once_with(
+        [101],
+    )
