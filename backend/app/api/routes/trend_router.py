@@ -6,7 +6,13 @@ from fastapi import (
     status,
 )
 
-from app.api.dependencies.trend_dependency import TrendServiceDep
+from app.api.dependencies.auth_dependency import (
+    CurrentUserDep,
+)
+from app.api.dependencies.trend_dependency import (
+    PersonalizedTrendServiceDep,
+    TrendServiceDep,
+)
 from app.schemas.common_schema import CommonResponse
 from app.schemas.error_schema import ErrorResponse
 from app.schemas.trend_schema import TrendListData
@@ -82,6 +88,50 @@ def list_trends(
 
     return success_response(
         message="전체 트렌드를 조회했습니다.",
+        data=result,
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@router.get(
+    "/personalized",
+    response_model=CommonResponse[TrendListData],
+    status_code=status.HTTP_200_OK,
+    summary="관심사 기반 맞춤 트렌드 목록 조회",
+    description=(
+        "인증된 사용자의 활성 관심사를 기준으로 "
+        "ACTIVE 트렌드를 최신순으로 조회합니다. "
+        "Cursor 기반 페이지네이션을 지원합니다."
+    ),
+)
+def list_personalized_trends(
+    current_user: CurrentUserDep,
+    service: PersonalizedTrendServiceDep,
+    cursor: Annotated[
+        str | None,
+        Query(
+            description="서버가 발급한 Personalized Cursor",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=50,
+            description="페이지당 Trend 개수",
+        ),
+    ] = 20,
+) -> CommonResponse[TrendListData]:
+    """현재 사용자의 관심사 기반 Trend 목록을 조회한다."""
+
+    result = service.list_personalized_trends(
+        user_id=current_user.user_id,
+        limit=limit,
+        cursor=cursor,
+    )
+
+    return success_response(
+        message="맞춤 트렌드를 조회했습니다.",
         data=result,
         status_code=status.HTTP_200_OK,
     )
