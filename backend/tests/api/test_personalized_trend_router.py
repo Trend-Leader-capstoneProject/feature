@@ -5,7 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies.auth_dependency import get_current_user
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import (
+    BadRequestException,
+    ConflictException,
+)
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.models.user import User
@@ -256,4 +259,56 @@ def test_personalized_trends_returns_invalid_cursor_response(
         user_id=15,
         limit=20,
         cursor="invalid-cursor",
+    )
+
+
+@pytest.mark.parametrize(
+    ("message", "reason"),
+    [
+        (
+            "저장된 관심사가 없습니다.",
+            "INTERESTS_NOT_INITIALIZED",
+        ),
+        (
+            "현재 관심사로 맞춤 트렌드를 조회할 수 없습니다.",
+            "INTERESTS_NOT_AVAILABLE",
+        ),
+    ],
+)
+def test_personalized_trends_returns_interest_conflict_response(
+    client: TestClient,
+    message: str,
+    reason: str,
+) -> None:
+    """관심사 상태 충돌을 reason이 포함된 HTTP 409로 반환한다."""
+
+    with patch.object(
+        PersonalizedTrendService,
+        "list_personalized_trends",
+        side_effect=ConflictException(
+            message=message,
+            data={
+                "reason": reason,
+            },
+        ),
+    ) as list_personalized_trends:
+        response = client.get(
+            "/api/trends/personalized",
+        )
+
+    assert response.status_code == 409
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 409,
+        "message": message,
+        "data": {
+            "reason": reason,
+        },
+    }
+
+    list_personalized_trends.assert_called_once_with(
+        user_id=15,
+        limit=20,
+        cursor=None,
     )
