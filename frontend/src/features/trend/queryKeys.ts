@@ -14,4 +14,18 @@ export const trendQueryKeys = {
       limit,
     },
   ] as const,
+
+  personalizedAll: [
+    "trends",
+    "personalized",
+  ] as const,
+
+  personalizedList: (
+    limit: number,
+  ) => [
+    ...trendQueryKeys.personalizedAll,
+    {
+      limit,
+    },
+  ] as const,
 };
