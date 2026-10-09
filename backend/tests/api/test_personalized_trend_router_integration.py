@@ -3,6 +3,7 @@ from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth_dependency import get_current_user
@@ -1075,3 +1076,296 @@ def test_personalized_trends_returns_all_mapped_categories(
             },
         },
     ]
+
+
+# Phase 3-6A: Trend 수가 증가해도 Source 조회는 한 번만 수행한다.
+def test_personalized_trends_loads_sources_in_one_batch(
+    db_session: Session,
+) -> None:
+    """Trend가 여러 개여도 Source 조회 SQL은 한 번만 실행한다."""
+
+    user = User(
+        name="Personalized Batch 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Batch Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Batch Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+    db_session.add(game_child)
+    db_session.flush()
+
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    collected_at = datetime(2026, 10, 9, 14, 0, 0)
+    trends = [
+        Trend(
+            title=f"Personalized Batch Trend {index}",
+            normalized_title=(
+                f"personalized-batch-trend-{index}"
+            ),
+            summary=None,
+            thumbnail_url=None,
+            status=TrendStatus.ACTIVE,
+            first_collected_at=collected_at,
+            last_collected_at=collected_at,
+            updated_at=None,
+        )
+        for index in range(3)
+    ]
+    db_session.add_all(trends)
+    db_session.flush()
+
+    for index, trend in enumerate(trends):
+        db_session.add_all([
+            TrendCategoryMap(
+                trend_id=trend.trend_id,
+                category_id=game_child.category_id,
+                is_primary=False,
+            ),
+            TrendSource(
+                source_key=f"{index + 1:064x}",
+                source_url=f"https://example.com/batch/{index}",
+                source_title=f"Batch Source {index}",
+                platform=TrendSourcePlatform.ETC,
+                collected_at=collected_at,
+                external_id=None,
+                trend_id=trend.trend_id,
+            ),
+        ])
+    db_session.flush()
+
+    source_select_statements: list[str] = []
+
+    def record_sql(
+        conn,
+        cursor,
+        statement,
+        parameters,
+        context,
+        executemany,
+    ) -> None:
+        normalized_sql = " ".join(statement.lower().split())
+        if (
+            normalized_sql.startswith("select")
+            and "from trend_sources" in normalized_sql
+        ):
+            source_select_statements.append(statement)
+
+    connection = db_session.connection()
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            event.listen(
+                connection,
+                "before_cursor_execute",
+                record_sql,
+            )
+            try:
+                response = client.get(
+                    "/api/trends/personalized",
+                    params={"limit": 3},
+                )
+            finally:
+                event.remove(
+                    connection,
+                    "before_cursor_execute",
+                    record_sql,
+                )
+    finally:
+        application.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    items = response.json()["data"]["items"]
+    assert len(items) == 3
+    assert {item["trend_id"] for item in items} == {
+        trend.trend_id for trend in trends
+    }
+    assert all(item["latest_source"] is not None for item in items)
+    assert len(source_select_statements) == 1, source_select_statements
+
+
+# Phase 3-6B: Trend 수가 증가해도 Category 조회는 한 번만 수행한다.
+def test_personalized_trends_loads_categories_in_one_batch(
+    db_session: Session,
+) -> None:
+    """Trend가 여러 개여도 Category 조회 SQL은 한 번만 실행한다."""
+
+    user = User(
+        name="Personalized Category Batch 사용자",
+        status=UserStatus.ACTIVE,
+    )
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Category Batch Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Category Batch Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+    db_session.add(game_child)
+    db_session.flush()
+
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    collected_at = datetime(2026, 10, 9, 15, 0, 0)
+    trends = [
+        Trend(
+            title=f"Personalized Category Batch Trend {index}",
+            normalized_title=(
+                f"personalized-category-batch-trend-{index}"
+            ),
+            summary=None,
+            thumbnail_url=None,
+            status=TrendStatus.ACTIVE,
+            first_collected_at=collected_at,
+            last_collected_at=collected_at,
+            updated_at=None,
+        )
+        for index in range(3)
+    ]
+    db_session.add_all(trends)
+    db_session.flush()
+
+    db_session.add_all([
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        )
+        for trend in trends
+    ])
+    db_session.flush()
+
+    category_select_statements: list[str] = []
+    all_select_statements: list[str] = []
+
+    def record_sql(
+        conn,
+        cursor,
+        statement,
+        parameters,
+        context,
+        executemany,
+    ) -> None:
+        normalized_sql = " ".join(statement.lower().split())
+        if not normalized_sql.startswith("select"):
+            return
+
+        all_select_statements.append(statement)
+
+        # Trend 페이지의 EXISTS 서브쿼리는 JOIN categories를 사용하지 않는다.
+        # Category Batch 조회는 trend_category_map과 categories를 JOIN한다.
+        if (
+            "from trend_category_map" in normalized_sql
+            and "join categories" in normalized_sql
+        ):
+            category_select_statements.append(statement)
+
+    connection = db_session.connection()
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            event.listen(
+                connection,
+                "before_cursor_execute",
+                record_sql,
+            )
+            try:
+                response = client.get(
+                    "/api/trends/personalized",
+                    params={"limit": 3},
+                )
+            finally:
+                event.remove(
+                    connection,
+                    "before_cursor_execute",
+                    record_sql,
+                )
+    finally:
+        application.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    items = response.json()["data"]["items"]
+    assert len(items) == 3
+    assert {item["trend_id"] for item in items} == {
+        trend.trend_id for trend in trends
+    }
+
+    expected_categories = [
+        {
+            "category_id": game_child.category_id,
+            "category_name": game_child.category_name,
+            "parent": {
+                "category_id": game_root.category_id,
+                "category_code": "GAME",
+                "category_name": game_root.category_name,
+            },
+        },
+    ]
+    assert all(
+        item["categories"] == expected_categories
+        for item in items
+    )
+    assert len(category_select_statements) == 1, (
+        "Category Batch SELECT 감지 결과가 1회가 아닙니다.\n"
+        f"감지 횟수: {len(category_select_statements)}\n"
+        "실제 SELECT SQL:\n"
+        + "\n---\n".join(all_select_statements)
+    )
