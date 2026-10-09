@@ -59,6 +59,11 @@ export interface GetTrendsParams {
   category_id?: number;
 }
 
+export interface GetPersonalizedTrendsParams {
+  cursor?: string;
+  limit?: number;
+}
+
 export type TrendListErrorReason =
   | "INVALID_CURSOR"
   | "CATEGORY_NOT_AVAILABLE"
