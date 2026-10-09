@@ -1369,3 +1369,574 @@ def test_personalized_trends_loads_categories_in_one_batch(
         "실제 SELECT SQL:\n"
         + "\n---\n".join(all_select_statements)
     )
+
+
+def test_personalized_trends_returns_409_when_interests_not_initialized(
+    db_session: Session,
+) -> None:
+    """관심사를 저장하지 않은 사용자는 409를 반환한다."""
+
+    # 1. 관심사 기록이 없는 사용자 생성
+    user = User(
+        name="Personalized No Interest 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    db_session.add(user)
+    db_session.flush()
+
+    # UserInterestCategory는 생성하지 않는다.
+
+    # 2. 실제 MariaDB를 사용하는 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    # 3. Personalized API 호출
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 4. 관심사 미초기화 오류 검증
+    assert response.status_code == 409, response.text
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 409,
+        "message": "저장된 관심사가 없습니다.",
+        "data": {
+            "reason": "INTERESTS_NOT_INITIALIZED",
+        },
+    }
+
+
+def test_personalized_trends_returns_409_when_no_active_child(
+    db_session: Session,
+) -> None:
+    """관심사 Root에 활성 Child가 없으면 409를 반환한다."""
+
+    # 1. 사용자와 활성 Root Category 생성
+    user = User(
+        name="Personalized Unavailable 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Unavailable Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    # 2. 비활성 Child Category 생성
+    inactive_child = Category(
+        category_code=None,
+        category_name="Personalized Unavailable Mobile",
+        sort_order=1,
+        is_active=False,
+        parent_id=game_root.category_id,
+    )
+
+    db_session.add(inactive_child)
+    db_session.flush()
+
+    # 3. 사용자는 활성 GAME Root를 관심사로 선택
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    db_session.flush()
+
+    # 4. 실제 MariaDB Repository를 사용하는 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    # 5. Personalized API 호출
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 6. 유효 Child Scope가 없으므로 409
+    assert response.status_code == 409, response.text
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 409,
+        "message": (
+            "현재 관심사로 맞춤 트렌드를 "
+            "조회할 수 없습니다."
+        ),
+        "data": {
+            "reason": "INTERESTS_NOT_AVAILABLE",
+        },
+    }
+
+
+def test_personalized_trends_rejects_malformed_cursor(
+    db_session: Session,
+) -> None:
+    """잘못된 Personalized Cursor는 실제 DB 경로에서도 400이다."""
+
+    # 1. 정상적인 사용자와 활성 관심 Category 생성
+    user = User(
+        name="Personalized Invalid Cursor 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Invalid Cursor Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Invalid Cursor Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    db_session.add(game_child)
+    db_session.flush()
+
+    # 2. 사용자의 관심사는 정상적으로 초기화한다.
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    db_session.flush()
+
+    # 3. 실제 MariaDB Repository를 사용하는 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    # 4. 잘못된 Cursor를 전달한다.
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+                params={
+                    "cursor": "invalid-personalized-cursor",
+                },
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 5. INVALID_CURSOR 오류 응답 검증
+    assert response.status_code == 400, response.text
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 400,
+        "message": "페이지 정보가 올바르지 않습니다.",
+        "data": {
+            "reason": "INVALID_CURSOR",
+        },
+    }
+
+
+def test_personalized_trends_rejects_cursor_from_another_user(
+    db_session: Session,
+) -> None:
+    """관심사가 같아도 다른 사용자의 Cursor는 거부한다."""
+
+    # 1. 사용자 A와 B 생성
+    user_a = User(
+        name="Personalized Cursor User A",
+        status=UserStatus.ACTIVE,
+    )
+
+    user_b = User(
+        name="Personalized Cursor User B",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Cross User Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([
+        user_a,
+        user_b,
+        game_root,
+    ])
+    db_session.flush()
+
+    # 2. 활성 Child 생성
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Cross User Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    db_session.add(game_child)
+    db_session.flush()
+
+    # 3. 두 사용자가 동일한 GAME 관심사를 선택
+    db_session.add_all([
+        UserInterestCategory(
+            user_id=user_a.user_id,
+            category_id=game_root.category_id,
+        ),
+        UserInterestCategory(
+            user_id=user_b.user_id,
+            category_id=game_root.category_id,
+        ),
+    ])
+    db_session.flush()
+
+    # 4. Cursor를 발급받기 위한 ACTIVE Trend 두 개
+    collected_at = datetime(2026, 10, 9, 12, 0, 0)
+
+    trends = [
+        Trend(
+            title=f"Personalized Cross User Trend {index}",
+            normalized_title=(
+                f"personalized-cross-user-trend-{index}"
+            ),
+            summary=None,
+            thumbnail_url=None,
+            status=TrendStatus.ACTIVE,
+            first_collected_at=collected_at,
+            last_collected_at=collected_at,
+            updated_at=None,
+        )
+        for index in range(2)
+    ]
+
+    db_session.add_all(trends)
+    db_session.flush()
+
+    db_session.add_all([
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        )
+        for trend in trends
+    ])
+    db_session.flush()
+
+    # 5. 인증 사용자를 요청 사이에 전환할 수 있도록 구성
+    application = create_app()
+
+    active_user = user_a
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return active_user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            # 6. 사용자 A가 첫 페이지 조회
+            first_response = client.get(
+                "/api/trends/personalized",
+                params={"limit": 1},
+            )
+
+            assert first_response.status_code == 200, (
+                first_response.text
+            )
+
+            first_data = first_response.json()["data"]
+
+            assert len(first_data["items"]) == 1
+            assert first_data["has_next"] is True
+
+            user_a_cursor = first_data["next_cursor"]
+
+            assert isinstance(user_a_cursor, str)
+            assert user_a_cursor
+
+            # 7. 인증 사용자만 B로 전환
+            active_user = user_b
+
+            # 사용자 B가 A의 Cursor를 재사용
+            second_response = client.get(
+                "/api/trends/personalized",
+                params={
+                    "limit": 1,
+                    "cursor": user_a_cursor,
+                },
+            )
+
+    finally:
+        application.dependency_overrides.clear()
+
+    # 8. 다른 사용자의 Cursor이므로 400
+    assert second_response.status_code == 400, (
+        second_response.text
+    )
+
+    assert second_response.json() == {
+        "success": False,
+        "statusCode": 400,
+        "message": "페이지 정보가 올바르지 않습니다.",
+        "data": {
+            "reason": "INVALID_CURSOR",
+        },
+    }
+
+
+def test_personalized_trends_rejects_cursor_after_interest_change(
+    db_session: Session,
+) -> None:
+    """관심사가 변경되면 기존 Personalized Cursor를 거부한다."""
+
+    # 1. 사용자와 두 Root Category 생성
+    user = User(
+        name="Personalized Interest Change 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Scope Change Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    food_root = Category(
+        category_code=CategoryCode.FOOD,
+        category_name="Personalized Scope Change Food",
+        sort_order=2,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([
+        user,
+        game_root,
+        food_root,
+    ])
+    db_session.flush()
+
+    # 2. 각 Root의 활성 Child 생성
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Scope Change Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    food_child = Category(
+        category_code=None,
+        category_name="Personalized Scope Change Dessert",
+        sort_order=1,
+        is_active=True,
+        parent_id=food_root.category_id,
+    )
+
+    db_session.add_all([
+        game_child,
+        food_child,
+    ])
+    db_session.flush()
+
+    # 3. 최초 관심사는 GAME
+    user_interest = UserInterestCategory(
+        user_id=user.user_id,
+        category_id=game_root.category_id,
+    )
+
+    db_session.add(user_interest)
+    db_session.flush()
+
+    # 4. 첫 페이지 Cursor 발급을 위한 GAME Trend 두 개
+    collected_at = datetime(2026, 10, 9, 14, 0, 0)
+
+    game_trends = [
+        Trend(
+            title=f"Personalized Scope Change Trend {index}",
+            normalized_title=(
+                f"personalized-scope-change-game-{index}"
+            ),
+            summary=None,
+            thumbnail_url=None,
+            status=TrendStatus.ACTIVE,
+            first_collected_at=collected_at,
+            last_collected_at=collected_at,
+            updated_at=None,
+        )
+        for index in range(2)
+    ]
+
+    db_session.add_all(game_trends)
+    db_session.flush()
+
+    db_session.add_all([
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        )
+        for trend in game_trends
+    ])
+    db_session.flush()
+
+    # 5. 실제 MariaDB를 사용하는 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            # 6. GAME 관심사 기준 첫 페이지 조회
+            first_response = client.get(
+                "/api/trends/personalized",
+                params={"limit": 1},
+            )
+
+            assert first_response.status_code == 200, (
+                first_response.text
+            )
+
+            first_data = first_response.json()["data"]
+
+            assert len(first_data["items"]) == 1
+            assert first_data["has_next"] is True
+
+            old_cursor = first_data["next_cursor"]
+
+            assert isinstance(old_cursor, str)
+            assert old_cursor
+
+            # 7. DB에 저장된 관심사를 GAME → FOOD로 변경
+            user_interest.category_id = food_root.category_id
+            db_session.flush()
+
+            # 8. 변경 전 Cursor를 그대로 재사용
+            stale_response = client.get(
+                "/api/trends/personalized",
+                params={
+                    "limit": 1,
+                    "cursor": old_cursor,
+                },
+            )
+
+            # 9. Cursor 없이 새 관심사 기준 첫 페이지 조회
+            fresh_response = client.get(
+                "/api/trends/personalized",
+                params={"limit": 1},
+            )
+
+    finally:
+        application.dependency_overrides.clear()
+
+    # 10. 변경 전 Cursor는 INVALID_CURSOR
+    assert stale_response.status_code == 400, (
+        stale_response.text
+    )
+
+    assert stale_response.json() == {
+        "success": False,
+        "statusCode": 400,
+        "message": "페이지 정보가 올바르지 않습니다.",
+        "data": {
+            "reason": "INVALID_CURSOR",
+        },
+    }
+
+    # 11. 새로운 관심사 기준 첫 페이지 조회는 정상
+    assert fresh_response.status_code == 200, (
+        fresh_response.text
+    )
+
+    fresh_data = fresh_response.json()["data"]
+
+    # FOOD에 매핑된 Trend가 없으므로 정상적인 빈 목록
+    assert fresh_data["items"] == []
+    assert fresh_data["has_next"] is False
+    assert fresh_data["next_cursor"] is None
