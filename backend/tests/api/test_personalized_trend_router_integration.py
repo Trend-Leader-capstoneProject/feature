@@ -1940,3 +1940,254 @@ def test_personalized_trends_rejects_cursor_after_interest_change(
     assert fresh_data["items"] == []
     assert fresh_data["has_next"] is False
     assert fresh_data["next_cursor"] is None
+
+
+def test_personalized_trends_rejects_inactive_interest_root(
+    db_session: Session,
+) -> None:
+    """관심 Root가 비활성이면 활성 Child가 있어도 409를 반환한다."""
+
+    # 1. 사용자와 비활성 Root 생성
+    user = User(
+        name="Personalized Inactive Root 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Inactive Root Game",
+        sort_order=1,
+        is_active=False,
+        parent_id=None,
+    )
+
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    # 2. Root 아래 활성 Child 생성
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Inactive Root Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    db_session.add(game_child)
+    db_session.flush()
+
+    # 3. 비활성 Root에 대한 기존 관심사 기록 생성
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+    db_session.flush()
+
+    # 4. 실제 MariaDB 기반 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 5. Root가 비활성이므로 AVAILABLE 오류
+    assert response.status_code == 409, response.text
+
+    assert response.json() == {
+        "success": False,
+        "statusCode": 409,
+        "message": (
+            "현재 관심사로 맞춤 트렌드를 "
+            "조회할 수 없습니다."
+        ),
+        "data": {
+            "reason": "INTERESTS_NOT_AVAILABLE",
+        },
+    }
+
+
+def test_personalized_trends_uses_valid_roots_when_interests_mixed(
+    db_session: Session,
+) -> None:
+    """활성·비활성 관심사가 섞이면 활성 Root만 사용한다."""
+
+    # 1. 사용자 및 Root Category 생성
+    user = User(
+        name="Personalized Mixed Interest 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Mixed Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    food_root = Category(
+        category_code=CategoryCode.FOOD,
+        category_name="Personalized Mixed Food",
+        sort_order=2,
+        is_active=False,
+        parent_id=None,
+    )
+
+    db_session.add_all([
+        user,
+        game_root,
+        food_root,
+    ])
+    db_session.flush()
+
+    # 2. 두 Root 아래에 각각 활성 Child 생성
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Mixed Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    food_child = Category(
+        category_code=None,
+        category_name="Personalized Mixed Dessert",
+        sort_order=1,
+        is_active=True,
+        parent_id=food_root.category_id,
+    )
+
+    db_session.add_all([
+        game_child,
+        food_child,
+    ])
+    db_session.flush()
+
+    # 3. 사용자는 GAME과 FOOD를 모두 관심사로 저장
+    db_session.add_all([
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        ),
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=food_root.category_id,
+        ),
+    ])
+    db_session.flush()
+
+    # 4. 각 Child에 연결할 ACTIVE Trend 생성
+    game_time = datetime(2026, 10, 9, 12, 0, 0)
+    food_time = datetime(2026, 10, 9, 14, 0, 0)
+
+    game_trend = Trend(
+        title="Personalized Mixed Game Trend",
+        normalized_title="personalized-mixed-game-trend",
+        summary=None,
+        thumbnail_url=None,
+        status=TrendStatus.ACTIVE,
+        first_collected_at=game_time,
+        last_collected_at=game_time,
+        updated_at=None,
+    )
+
+    food_trend = Trend(
+        title="Personalized Mixed Food Trend",
+        normalized_title="personalized-mixed-food-trend",
+        summary=None,
+        thumbnail_url=None,
+        status=TrendStatus.ACTIVE,
+        first_collected_at=food_time,
+        last_collected_at=food_time,
+        updated_at=None,
+    )
+
+    db_session.add_all([
+        game_trend,
+        food_trend,
+    ])
+    db_session.flush()
+
+    # 5. Trend별 Category 매핑
+    db_session.add_all([
+        TrendCategoryMap(
+            trend_id=game_trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        ),
+        TrendCategoryMap(
+            trend_id=food_trend.trend_id,
+            category_id=food_child.category_id,
+            is_primary=False,
+        ),
+    ])
+    db_session.flush()
+
+    # 6. 실제 MariaDB 기반 API 구성
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 7. 활성 관심사가 있으므로 정상 200
+    assert response.status_code == 200, response.text
+
+    body = response.json()
+
+    assert body["success"] is True
+    assert body["statusCode"] == 200
+
+    # GAME Trend만 반환되어야 한다.
+    returned_ids = [
+        item["trend_id"]
+        for item in body["data"]["items"]
+    ]
+
+    assert returned_ids == [
+        game_trend.trend_id,
+    ]
+
+    # FOOD Trend는 더 최신이어도 제외된다.
+    assert food_trend.trend_id not in returned_ids
+
+    assert body["data"]["has_next"] is False
+    assert body["data"]["next_cursor"] is None
