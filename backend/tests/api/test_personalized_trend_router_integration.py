@@ -11,11 +11,13 @@ from app.main import create_app
 from app.models.category import Category
 from app.models.db_enums import (
     CategoryCode,
+    TrendSourcePlatform,
     TrendStatus,
     UserStatus,
 )
 from app.models.trend import Trend
 from app.models.trend_category_map import TrendCategoryMap
+from app.models.trend_source import TrendSource
 from app.models.user import User
 from app.models.user_interest_category import UserInterestCategory
 
@@ -775,3 +777,301 @@ def test_personalized_trends_cursor_uses_collected_at_boundary(
 
     finally:
         application.dependency_overrides.clear()
+
+
+def test_personalized_trends_returns_latest_source_by_collected_at(
+    db_session: Session,
+) -> None:
+    """실제 DB에서 Trend의 가장 최근 Source를 응답에 연결한다."""
+
+    # 1. 사용자와 관심 Category 생성
+    user = User(
+        name="Personalized Source 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Source Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([user, game_root])
+    db_session.flush()
+
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Source Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    db_session.add(game_child)
+    db_session.flush()
+
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    # 2. 관심 Category에 매핑할 Trend 생성
+    collected_at = datetime(2026, 10, 9, 15, 0, 0)
+
+    trend = Trend(
+        title="Personalized Source Selection",
+        normalized_title="personalized-source-selection",
+        summary=None,
+        thumbnail_url=None,
+        status=TrendStatus.ACTIVE,
+        first_collected_at=collected_at,
+        last_collected_at=collected_at,
+        updated_at=None,
+    )
+
+    db_session.add(trend)
+    db_session.flush()
+
+    db_session.add(
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        )
+    )
+
+    # 3. 최신 Source를 먼저 저장
+    latest_source = TrendSource(
+        source_key="a" * 64,
+        source_url="https://example.com/latest",
+        source_title="최신 Source",
+        platform=TrendSourcePlatform.YOUTUBE,
+        collected_at=datetime(2026, 10, 9, 14, 0, 0),
+        external_id=None,
+        trend_id=trend.trend_id,
+    )
+
+    db_session.add(latest_source)
+    db_session.flush()
+
+    # 4. 오래된 Source를 나중에 저장
+    older_source = TrendSource(
+        source_key="b" * 64,
+        source_url="https://example.com/older",
+        source_title="오래된 Source",
+        platform=TrendSourcePlatform.GOOGLE,
+        collected_at=datetime(2026, 10, 9, 13, 0, 0),
+        external_id=None,
+        trend_id=trend.trend_id,
+    )
+
+    db_session.add(older_source)
+    db_session.flush()
+
+    # 최신 Source의 ID가 더 작도록 보장
+    assert latest_source.source_id < older_source.source_id
+
+    # 5. 실제 MariaDB를 사용하는 Personalized API 호출
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 6. 가장 최근 수집된 Source가 반환되는지 확인
+    assert response.status_code == 200, response.text
+
+    body = response.json()
+
+    assert body["success"] is True
+    assert body["statusCode"] == 200
+
+    items = body["data"]["items"]
+
+    assert len(items) == 1
+    assert items[0]["trend_id"] == trend.trend_id
+
+    assert items[0]["latest_source"] == {
+        "source_id": latest_source.source_id,
+        "platform": "YOUTUBE",
+        "source_title": "최신 Source",
+        "source_url": "https://example.com/latest",
+    }
+
+
+def test_personalized_trends_returns_all_mapped_categories(
+    db_session: Session,
+) -> None:
+    """관심사로 검색된 Trend의 전체 Category를 반환한다."""
+
+    # 1. 사용자와 대분류 생성
+    user = User(
+        name="Personalized Category 테스트 사용자",
+        status=UserStatus.ACTIVE,
+    )
+
+    game_root = Category(
+        category_code=CategoryCode.GAME,
+        category_name="Personalized Category Game",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+
+    food_root = Category(
+        category_code=CategoryCode.FOOD,
+        category_name="Personalized Category Food",
+        sort_order=2,
+        is_active=True,
+        parent_id=None,
+    )
+
+    db_session.add_all([
+        user,
+        game_root,
+        food_root,
+    ])
+    db_session.flush()
+
+    # 2. 각각의 활성 Child 생성
+    game_child = Category(
+        category_code=None,
+        category_name="Personalized Category Mobile",
+        sort_order=1,
+        is_active=True,
+        parent_id=game_root.category_id,
+    )
+
+    food_child = Category(
+        category_code=None,
+        category_name="Personalized Category Dessert",
+        sort_order=1,
+        is_active=True,
+        parent_id=food_root.category_id,
+    )
+
+    db_session.add_all([
+        game_child,
+        food_child,
+    ])
+    db_session.flush()
+
+    # 3. 사용자는 GAME Root만 선택
+    db_session.add(
+        UserInterestCategory(
+            user_id=user.user_id,
+            category_id=game_root.category_id,
+        )
+    )
+
+    # 4. 두 Child에 모두 매핑할 Trend 생성
+    collected_at = datetime(2026, 10, 9, 14, 0, 0)
+
+    trend = Trend(
+        title="Personalized Multiple Category",
+        normalized_title="personalized-multiple-category",
+        summary=None,
+        thumbnail_url=None,
+        status=TrendStatus.ACTIVE,
+        first_collected_at=collected_at,
+        last_collected_at=collected_at,
+        updated_at=None,
+    )
+
+    db_session.add(trend)
+    db_session.flush()
+
+    db_session.add_all([
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=game_child.category_id,
+            is_primary=False,
+        ),
+        TrendCategoryMap(
+            trend_id=trend.trend_id,
+            category_id=food_child.category_id,
+            is_primary=False,
+        ),
+    ])
+    db_session.flush()
+
+    # 5. 실제 DB를 사용하는 Personalized API 호출
+    application = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        yield db_session
+
+    def override_current_user() -> User:
+        return user
+
+    application.dependency_overrides[
+        get_db
+    ] = override_get_db
+
+    application.dependency_overrides[
+        get_current_user
+    ] = override_current_user
+
+    try:
+        with TestClient(application) as client:
+            response = client.get(
+                "/api/trends/personalized",
+            )
+    finally:
+        application.dependency_overrides.clear()
+
+    # 6. 실제 응답 검증
+    assert response.status_code == 200, response.text
+
+    body = response.json()
+
+    assert body["success"] is True
+
+    items = body["data"]["items"]
+
+    assert len(items) == 1
+    assert items[0]["trend_id"] == trend.trend_id
+
+    # GAME만 선택했더라도 FOOD Category도 반환해야 한다.
+    assert items[0]["categories"] == [
+        {
+            "category_id": game_child.category_id,
+            "category_name": game_child.category_name,
+            "parent": {
+                "category_id": game_root.category_id,
+                "category_code": "GAME",
+                "category_name": game_root.category_name,
+            },
+        },
+        {
+            "category_id": food_child.category_id,
+            "category_name": food_child.category_name,
+            "parent": {
+                "category_id": food_root.category_id,
+                "category_code": "FOOD",
+                "category_name": food_root.category_name,
+            },
+        },
+    ]
