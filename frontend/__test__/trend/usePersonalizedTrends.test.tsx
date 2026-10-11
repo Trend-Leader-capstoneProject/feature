@@ -177,4 +177,110 @@ describe("usePersonalizedTrends", () => {
 
     expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
   });
+  test("restart 시 기존 Pages와 Cursor를 버리고 첫 페이지부터 재조회한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const secondPage: TrendListData = {
+      items: [],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const refreshedFirstPage: TrendListData = {
+      items: [],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage)
+      .mockResolvedValueOnce(refreshedFirstPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    // 기존 Cursor로 두 번째 페이지까지 조회
+    // 첫 페이지에서 다음 페이지가 존재하는지 확인
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 기존 Cursor로 두 번째 페이지 요청
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 서버의 다음 페이지 요청이 실제로 발생했는지 검증
+    await waitFor(() => {
+      expect(
+        mockedGetPersonalizedTrends,
+      ).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: "OLD_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // React Hook에 두 번째 페이지가 반영될 때까지 대기
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([
+        firstPage,
+        secondPage,
+      ]);
+
+      expect(result.current.data?.pageParams).toEqual([
+        undefined,
+        "OLD_CURSOR",
+      ]);
+    });
+
+    // Cursor Chain 폐기 후 첫 페이지 재시작
+    await act(async () => {
+      await result.current.restart();
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([refreshedFirstPage]);
+    });
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    // 세 번째 요청에는 이전 Cursor가 없어야 함
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 모든 과거 페이지를 다시 조회하지 않았는지 확인
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+
+    expect(
+      queryClient.getQueryData(trendQueryKeys.personalizedList(5)),
+    ).toMatchObject({
+      pages: [refreshedFirstPage],
+      pageParams: [undefined],
+    });
+  });
 });
