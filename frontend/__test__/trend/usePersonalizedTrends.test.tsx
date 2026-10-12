@@ -643,4 +643,126 @@ describe("usePersonalizedTrends", () => {
 
     expect(result.current.data?.pages).toEqual([firstPage]);
   });
+
+  test("INVALID_CURSOR 복구 중 추가 페이지와 재시작의 중복 실행을 차단한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const recoveredFirstPage: TrendListData = {
+      items: [],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    const invalidCursorError = Object.assign(
+      new Error("페이지 정보가 올바르지 않습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            statusCode: 400,
+            message: "페이지 정보가 올바르지 않습니다.",
+            data: {
+              reason: "INVALID_CURSOR",
+            },
+          },
+        },
+      },
+    );
+
+    // 복구 첫 페이지의 응답을 직접 제어한다.
+    let resolveRecovery!: (value: TrendListData) => void;
+
+    const recoveryPromise = new Promise<TrendListData>((resolve) => {
+      resolveRecovery = resolve;
+    });
+
+    let recoverySignal: AbortSignal | undefined;
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(invalidCursorError)
+      .mockImplementationOnce((_params, signal) => {
+        recoverySignal = signal;
+        return recoveryPromise;
+      })
+      // 중복 요청이 발생하더라도 undefined를 반환하지 않도록 설정
+      .mockResolvedValue(recoveredFirstPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 최초 첫 페이지 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. 다음 페이지에서 INVALID_CURSOR 발생
+    await act(async () => {
+      void result.current.fetchNextPage();
+    });
+
+    // 3. 자동 복구 요청이 시작될 때까지 기다린다.
+    await waitFor(() => {
+      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+    });
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(recoverySignal?.aborted).toBe(false);
+
+    // 4. 복구 요청이 아직 완료되지 않은 상태
+    // 추가 페이지 요청과 restart를 동시에 시도한다.
+    await act(async () => {
+      void result.current.fetchNextPage();
+      void result.current.restart();
+    });
+
+    // 응답을 완료시키기 전에 실제 상태를 기록한다.
+    const callCountDuringRecovery =
+      mockedGetPersonalizedTrends.mock.calls.length;
+
+    const wasRecoveryAborted = recoverySignal?.aborted;
+
+    // 5. 대기 중이던 복구 응답을 완료한다.
+    await act(async () => {
+      resolveRecovery(recoveredFirstPage);
+      await recoveryPromise;
+    });
+
+    // 6. 복구 중 새로운 API 요청이 발생하지 않았어야 한다.
+    expect(callCountDuringRecovery).toBe(3);
+
+    // 기존 복구 요청도 취소되지 않았어야 한다.
+    expect(wasRecoveryAborted).toBe(false);
+
+    // 7. 복구된 첫 페이지가 반영되어야 한다.
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([recoveredFirstPage]);
+    });
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+  });
 });
