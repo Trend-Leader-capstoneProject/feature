@@ -9,6 +9,7 @@ import type {
   LoginResponse,
   SessionResponse,
 } from "../../src/features/auth/types/auth";
+import { trendQueryKeys } from "../../src/features/trend/queryKeys";
 import {
   registerAuthFailureHandler,
   type AuthFailureHandler,
@@ -400,5 +401,83 @@ describe("AuthProvider session termination", () => {
         next_step: "MAIN",
       },
     });
+  });
+
+  test("사용자 A 로그아웃 후 사용자 B 로그인 시 Personalized Cache가 남지 않는다", async () => {
+    const queryClient = createTestQueryClient();
+
+    const key20 = trendQueryKeys.personalizedList(20);
+    const key5 = trendQueryKeys.personalizedList(5);
+
+    // 1. 사용자 A의 기존 Personalized Cache
+    const userACache = {
+      pages: [
+        {
+          items: [],
+          next_cursor: "USER_A_CURSOR",
+          has_next: true,
+        },
+      ],
+      pageParams: [undefined],
+    };
+
+    // 서로 다른 limit을 가진 Cache를 준비한다.
+    queryClient.setQueryData(key20, userACache);
+    queryClient.setQueryData(key5, userACache);
+
+    // 2. 사용자 A 인증 Session 복원
+    const { result } = await renderAuthenticatedProvider(queryClient);
+
+    expect(result.current.authState).toEqual({
+      status: "AUTHENTICATED",
+      session: MAIN_SESSION,
+    });
+
+    expect(queryClient.getQueryData(key20)).toEqual(userACache);
+
+    expect(queryClient.getQueryData(key5)).toEqual(userACache);
+
+    // 3. 사용자 A 로그아웃
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+
+    // 기존 Personalized Cache 전체 삭제
+    expect(queryClient.getQueryData(key20)).toBeUndefined();
+    expect(queryClient.getQueryData(key5)).toBeUndefined();
+
+    expect(
+      queryClient.getQueryCache().findAll({
+        queryKey: trendQueryKeys.personalizedAll,
+      }),
+    ).toHaveLength(0);
+
+    // 4. 같은 Provider에서 사용자 B 로그인
+    await act(async () => {
+      await result.current.establishSession(LOGIN_B_RESPONSE);
+    });
+
+    expect(result.current.authState).toEqual({
+      status: "AUTHENTICATED",
+      session: {
+        user: LOGIN_B_RESPONSE.user,
+        has_selected_interests: true,
+        next_step: "MAIN",
+      },
+    });
+
+    // 5. B 로그인 직후 A의 Cache가 복원되지 않아야 한다.
+    expect(queryClient.getQueryData(key20)).toBeUndefined();
+    expect(queryClient.getQueryData(key5)).toBeUndefined();
+
+    expect(
+      queryClient.getQueryCache().findAll({
+        queryKey: trendQueryKeys.personalizedAll,
+      }),
+    ).toHaveLength(0);
+
+    // B의 Main 조회는 새 요청으로 시작해야 한다.
   });
 });
