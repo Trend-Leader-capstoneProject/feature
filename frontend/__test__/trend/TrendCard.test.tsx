@@ -1,8 +1,8 @@
 import {
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react-native";
 
 import { TrendCard } from "../../src/features/trend/components/TrendCard";
@@ -281,5 +281,23 @@ describe("TrendCard", () => {
         screen.queryByLabelText("AI 스마트폰 신제품 공개 썸네일"),
       ).toBeNull();
     });
+  });
+
+  test("Personalized TrendCard는 순번 없이 기존 콘텐츠를 표시한다", async () => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend()} />);
+
+    // 맞춤 추천 목록에서는 순번을 표시하지 않는다.
+    expect(screen.queryByText(/^#/)).toBeNull();
+
+    // 순번 이외의 콘텐츠는 그대로 유지한다.
+    expect(screen.getByText("AI 스마트폰 신제품 공개")).toBeTruthy();
+
+    expect(
+      screen.getByText("새로운 온디바이스 AI 기능이 공개되었습니다."),
+    ).toBeTruthy();
+
+    expect(screen.getByText("게임 · PC 게임")).toBeTruthy();
+
+    expect(screen.getByText("IT/디지털 · 인공지능")).toBeTruthy();
   });
 });
