@@ -863,4 +863,145 @@ describe("usePersonalizedTrends", () => {
 
     expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(4);
   });
+
+  test("다음 페이지 조회 중 restart하면 이전 요청을 취소하고 새 첫 페이지를 유지한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const oldSecondPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "이전 페이지 Trend",
+          summary: null,
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const refreshedFirstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 202,
+          title: "새로고침된 Trend",
+          summary: null,
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T10:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    // 기존 다음 페이지 응답을 지연시킨다.
+    let resolveOldSecondPage!: (value: TrendListData) => void;
+
+    const oldSecondPagePromise = new Promise<TrendListData>((resolve) => {
+      resolveOldSecondPage = resolve;
+    });
+
+    let oldPageSignal: AbortSignal | undefined;
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce((_params, signal) => {
+        oldPageSignal = signal;
+
+        // AbortSignal을 무시하는 늦은 응답 재현
+        return oldSecondPagePromise;
+      })
+      .mockResolvedValueOnce(refreshedFirstPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 첫 페이지 조회 완료
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. OLD_CURSOR로 다음 페이지 요청 시작
+    // 응답을 지연시켰으므로 await하지 않는다.
+    await act(async () => {
+      void result.current.fetchNextPage();
+    });
+
+    await waitFor(() => {
+      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: "OLD_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(oldPageSignal?.aborted).toBe(false);
+
+    // 3. 이전 요청이 진행 중인 상태에서 새로고침
+    await act(async () => {
+      await result.current.restart();
+    });
+
+    // 이전 요청에는 취소 신호가 전달되어야 한다.
+    expect(oldPageSignal?.aborted).toBe(true);
+
+    // 4. 새로고침은 Cursor 없는 첫 페이지 조회
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([refreshedFirstPage]);
+    });
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    // 5. 취소된 이전 요청이 뒤늦게 완료된다.
+    await act(async () => {
+      resolveOldSecondPage(oldSecondPage);
+      await oldSecondPagePromise;
+    });
+
+    // 6. 늦은 응답은 새 Cache를 오염시키지 않는다.
+    expect(
+      queryClient.getQueryData(trendQueryKeys.personalizedList(5)),
+    ).toMatchObject({
+      pages: [refreshedFirstPage],
+      pageParams: [undefined],
+    });
+
+    expect(result.current.data?.pages).toEqual([refreshedFirstPage]);
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    // 최초 조회 + 기존 다음 페이지 + 새로고침
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+  });
 });
