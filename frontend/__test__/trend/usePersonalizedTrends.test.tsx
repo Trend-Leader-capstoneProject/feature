@@ -536,4 +536,111 @@ describe("usePersonalizedTrends", () => {
       pageParams: [undefined],
     });
   });
+
+  test("INVALID_CURSOR 복구 첫 페이지가 실패하면 재시작을 반복하지 않는다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    // 추가 페이지에서 발생한 INVALID_CURSOR
+    const invalidCursorError = Object.assign(
+      new Error("페이지 정보가 올바르지 않습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            statusCode: 400,
+            message: "페이지 정보가 올바르지 않습니다.",
+            data: {
+              reason: "INVALID_CURSOR",
+            },
+          },
+        },
+      },
+    );
+
+    // 복구 첫 페이지에서 발생한 409
+    const recoveryError = Object.assign(
+      new Error("현재 관심사로 조회할 수 없습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "현재 관심사로 조회할 수 없습니다.",
+            data: {
+              reason: "INTERESTS_NOT_AVAILABLE",
+            },
+          },
+        },
+      },
+    );
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(invalidCursorError)
+      .mockRejectedValueOnce(recoveryError);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 최초 첫 페이지 정상 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. 추가 페이지 INVALID_CURSOR 발생
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 3. 복구 첫 페이지 요청도 실패
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    // 4. 최종 오류는 복구 첫 페이지의 409
+    expect(result.current.error).toBe(recoveryError);
+
+    // 5. 최초 조회 + 추가 페이지 실패 + 복구 실패
+    // 정확히 세 번만 요청해야 한다.
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: "OLD_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 6. 기존 추가 페이지 Cursor는 폐기
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    expect(result.current.data?.pages).toEqual([firstPage]);
+  });
 });
