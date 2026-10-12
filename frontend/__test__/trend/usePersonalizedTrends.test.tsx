@@ -765,4 +765,102 @@ describe("usePersonalizedTrends", () => {
 
     expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
   });
+
+  test("INVALID_CURSOR 복구 완료 후 새로운 Cursor로 다음 페이지를 조회한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const recoveredFirstPage: TrendListData = {
+      items: [],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    const recoveredSecondPage: TrendListData = {
+      items: [],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const invalidCursorError = Object.assign(
+      new Error("페이지 정보가 올바르지 않습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            statusCode: 400,
+            message: "페이지 정보가 올바르지 않습니다.",
+            data: {
+              reason: "INVALID_CURSOR",
+            },
+          },
+        },
+      },
+    );
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(invalidCursorError)
+      .mockResolvedValueOnce(recoveredFirstPage)
+      .mockResolvedValueOnce(recoveredSecondPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 최초 첫 페이지 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    // 2. OLD_CURSOR 오류로 자동 복구
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([recoveredFirstPage]);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 3. 복구 완료 이후 다음 페이지 요청
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 4. NEW_CURSOR로 요청했는지 확인
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      4,
+      {
+        cursor: "NEW_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 5. 복구 이후 두 페이지 누적
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([
+        recoveredFirstPage,
+        recoveredSecondPage,
+      ]);
+    });
+
+    expect(result.current.data?.pageParams).toEqual([undefined, "NEW_CURSOR"]);
+
+    expect(result.current.hasNextPage).toBe(false);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(4);
+  });
 });
