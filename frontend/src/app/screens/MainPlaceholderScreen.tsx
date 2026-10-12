@@ -46,6 +46,7 @@ export function MainPlaceholderScreen({
     isError,
     isFetching,
     refetch,
+    hasCursorRecoveryFailed,
   } = usePersonalizedTrends();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -92,7 +93,8 @@ export function MainPlaceholderScreen({
     }
 
     // Phase 5-2D: 데이터가 없는 상태의 일반 조회 오류
-    if (isError && trendData === undefined) {
+
+    if (isError && (trendData === undefined || hasCursorRecoveryFailed)) {
       return (
         <ErrorView
           title="관심사에 맞는 트렌드를 불러오지 못했습니다."

@@ -616,6 +616,12 @@ describe("usePersonalizedTrends", () => {
     // 4. 최종 오류는 복구 첫 페이지의 409
     expect(result.current.error).toBe(recoveryError);
 
+    // 복구 첫 페이지 자체가 실패했음을
+    // 일반 Background Refetch 오류와 구분한다.
+    await waitFor(() => {
+      expect(result.current.hasCursorRecoveryFailed).toBe(true);
+    });
+
     // 5. 최초 조회 + 추가 페이지 실패 + 복구 실패
     // 정확히 세 번만 요청해야 한다.
     expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);

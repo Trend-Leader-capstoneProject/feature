@@ -288,4 +288,126 @@ describe("Personalized Main", () => {
 
     expect(refetchMock).not.toHaveBeenCalled();
   });
+
+  test("기존 Cache가 있는 일반 재조회 실패에서는 트렌드 목록을 유지한다", async () => {
+    const cachedPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "캐시된 AI 기술 트렌드",
+          summary: "이전에 정상 조회한 트렌드입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [cachedPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: true,
+      isRefetchError: true,
+      isFetching: false,
+      error: new Error("Network Error"),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 기존 캐시 목록을 유지한다.
+    expect(screen.getByText("캐시된 AI 기술 트렌드")).toBeTruthy();
+
+    expect(screen.getByText("이전에 정상 조회한 트렌드입니다.")).toBeTruthy();
+
+    // 2. 전체 화면 Error로 대체하지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeNull();
+
+    // 3. 정상 Empty로 오인하지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드가 아직 없습니다."),
+    ).toBeNull();
+
+    // 4. Personalized 목록이 유지된다.
+    expect(screen.getByTestId("personalized-trend-list")).toBeTruthy();
+  });
+
+  test("INVALID_CURSOR 복구 실패 시 기존 Cache 대신 오류 UI를 표시한다", async () => {
+    const cachedPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "이전 관심사 트렌드",
+          summary: "Cursor 복구 전에 조회한 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const refetchMock = jest.fn();
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [cachedPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: true,
+      isRefetchError: true,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: true,
+      error: new Error("Recovery request failed"),
+      refetch: refetchMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 복구 실패 시 오류 안내를 표시한다.
+    expect(
+      screen.getByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeTruthy();
+
+    // 2. 기존 Cache를 정상 목록처럼 보여주지 않는다.
+    expect(screen.queryByText("이전 관심사 트렌드")).toBeNull();
+
+    expect(screen.queryByTestId("personalized-trend-list")).toBeNull();
+
+    // 3. Retry 경로를 제공한다.
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "다시 시도",
+      }),
+    );
+
+    expect(refetchMock).toHaveBeenCalledTimes(1);
+
+    // 4. 전체 최신 트렌드 진입점은 유지한다.
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+  });
 });
