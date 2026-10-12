@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
 import { useAuth } from "../../src/app/providers/AuthProvider";
@@ -152,5 +152,140 @@ describe("Personalized Main", () => {
         name: "최신 트렌드 보기",
       }),
     ).toBeTruthy();
+  });
+
+  test("정상 조회 결과가 비어 있으면 Personalized Empty 안내를 표시한다", async () => {
+    const emptyPage: TrendListData = {
+      items: [],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [emptyPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+    } as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 정상 Empty 안내 표시
+    expect(
+      screen.getByText("관심사에 맞는 트렌드가 아직 없습니다."),
+    ).toBeTruthy();
+
+    // 2. 트렌드 목록은 생성되지 않는다.
+    expect(screen.queryByTestId("personalized-trend-list")).toBeNull();
+
+    // 3. Loading 메시지는 표시되지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오고 있습니다."),
+    ).toBeNull();
+
+    // 4. 기존 전체 최신 트렌드 진입점 유지
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+  });
+
+  test("최초 맞춤 트렌드 조회 실패 시 Error를 표시하고 다시 시도한다", async () => {
+    const refetchMock = jest.fn();
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      error: new Error("Network Error"),
+      refetch: refetchMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 일반 오류 안내가 표시되어야 한다.
+    expect(
+      screen.getByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeTruthy();
+
+    // 2. 일반 오류를 정상 Empty로 오인하지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드가 아직 없습니다."),
+    ).toBeNull();
+
+    // 3. Loading 메시지를 표시하지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오고 있습니다."),
+    ).toBeNull();
+
+    // 4. Retry 버튼을 누르면 refetch를 호출한다.
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "다시 시도",
+      }),
+    );
+
+    expect(refetchMock).toHaveBeenCalledTimes(1);
+
+    // 5. 기존 전체 최신 트렌드 진입점은 유지한다.
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+  });
+
+  test("일반 오류 재조회 중에는 Retry 버튼을 비활성화한다", async () => {
+    const refetchMock = jest.fn();
+
+    // 이전 조회에서 오류가 발생했고,
+    // 사용자의 재조회 요청이 진행 중인 상태
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: true,
+      error: new Error("Network Error"),
+      refetch: refetchMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 기존 오류 안내를 유지한다.
+    expect(
+      screen.getByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeTruthy();
+
+    // 2. Retry 버튼이 비활성화되어야 한다.
+    const retryButton = screen.getByRole("button", {
+      name: "다시 시도",
+    });
+
+    expect(retryButton).toHaveProp(
+      "accessibilityState",
+      expect.objectContaining({
+        disabled: true,
+        busy: true,
+      }),
+    );
+
+    // 3. 재조회 진행 중에는 추가 호출을 막는다.
+    await fireEvent.press(retryButton);
+
+    expect(refetchMock).not.toHaveBeenCalled();
   });
 });
