@@ -10,6 +10,7 @@ import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersona
 
 import { trendQueryKeys } from "../../src/features/trend/queryKeys";
 
+import { AxiosError } from "axios";
 import type { TrendListData } from "../../src/features/trend/types/trend";
 
 jest.mock("../../src/features/trend/api/getPersonalizedTrends", () => ({
@@ -225,9 +226,7 @@ describe("usePersonalizedTrends", () => {
 
     // 서버의 다음 페이지 요청이 실제로 발생했는지 검증
     await waitFor(() => {
-      expect(
-        mockedGetPersonalizedTrends,
-      ).toHaveBeenCalledTimes(2);
+      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
     });
 
     expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
@@ -241,10 +240,7 @@ describe("usePersonalizedTrends", () => {
 
     // React Hook에 두 번째 페이지가 반영될 때까지 대기
     await waitFor(() => {
-      expect(result.current.data?.pages).toEqual([
-        firstPage,
-        secondPage,
-      ]);
+      expect(result.current.data?.pages).toEqual([firstPage, secondPage]);
 
       expect(result.current.data?.pageParams).toEqual([
         undefined,
@@ -282,5 +278,176 @@ describe("usePersonalizedTrends", () => {
       pages: [refreshedFirstPage],
       pageParams: [undefined],
     });
+  });
+
+  test("추가 페이지 INVALID_CURSOR 발생 시 첫 페이지부터 자동 재시작한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const refreshedFirstPage: TrendListData = {
+      items: [],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    const invalidCursorError = Object.assign(
+      new Error("페이지 정보가 올바르지 않습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            statusCode: 400,
+            message: "페이지 정보가 올바르지 않습니다.",
+            data: {
+              reason: "INVALID_CURSOR",
+            },
+          },
+        },
+      },
+    ) as AxiosError;
+
+    // 첫 페이지 성공 → 추가 페이지 오류 → 복구 성공
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(invalidCursorError)
+      .mockResolvedValueOnce(refreshedFirstPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 첫 페이지 성공
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. OLD_CURSOR를 사용하는 추가 페이지 요청
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 3. INVALID_CURSOR 자동 복구 후 새 첫 페이지 확인
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([refreshedFirstPage]);
+    });
+
+    // 4. API 요청 순서 검증
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      1,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: "OLD_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 5. 복구 요청은 한 번만 발생
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+
+    // 6. 기존 Cursor Chain 폐기
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    expect(
+      queryClient.getQueryData(trendQueryKeys.personalizedList(5)),
+    ).toMatchObject({
+      pages: [refreshedFirstPage],
+      pageParams: [undefined],
+    });
+  });
+
+  test("추가 페이지 409 오류에서는 자동 재시작하지 않는다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const conflictError = Object.assign(
+      new Error("현재 관심사로 조회할 수 없습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "현재 관심사로 조회할 수 없습니다.",
+            data: {
+              reason: "INTERESTS_NOT_AVAILABLE",
+            },
+          },
+        },
+      },
+    );
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(conflictError);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 첫 페이지 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    // 추가 페이지에서 409 발생
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 오류 상태 확인
+    await waitFor(() => {
+      expect(result.current.isFetchNextPageError).toBe(true);
+    });
+
+    // 409에서는 자동 재시작하지 않는다.
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
+
+    // 기존 첫 페이지와 Cursor 유지
+    expect(result.current.data?.pages).toEqual([firstPage]);
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    // 오류 발생 후 기존 Cursor로 추가 페이지를
+    // 재시도할 수 있는 상태가 유지된다.
+    expect(result.current.hasNextPage).toBe(true);
   });
 });

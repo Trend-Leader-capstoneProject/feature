@@ -4,18 +4,20 @@ import {
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 
 import {
   getPersonalizedTrends,
 } from "../api/getPersonalizedTrends";
-
 import {
   trendQueryKeys,
 } from "../queryKeys";
-
 import type {
   TrendListData,
 } from "../types/trend";
+import {
+  isInvalidPersonalizedCursorError,
+} from "../utils/isInvalidPersonalizedCursorError";
 
 const DEFAULT_PERSONALIZED_TREND_LIMIT = 20;
 
@@ -31,7 +33,6 @@ export function usePersonalizedTrends({
   const queryKey =
     trendQueryKeys.personalizedList(limit);
 
-  // 1. Personalized Infinite Query
   const query = useInfiniteQuery({
     queryKey,
 
@@ -58,20 +59,35 @@ export function usePersonalizedTrends({
       return lastPage.next_cursor ?? undefined;
     },
 
-    // Personalized 목록은 Live Feed
+    // 4xx 오류는 같은 요청으로 반복 재시도하지 않는다.
+    // 네트워크 및 서버 오류에는 일반 Retry 정책 적용.
+    retry: (failureCount, error) => {
+      if (isAxiosError(error)) {
+        const status = error.response?.status;
+
+        if (
+          status !== undefined &&
+          status >= 400 &&
+          status < 500
+        ) {
+          return false;
+        }
+      }
+
+      return failureCount < 3;
+    },
+
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  // 2. 기존 Cursor Chain 폐기 및 첫 페이지 재조회
+  // 기존 Pages 및 Cursor Chain 폐기 후 첫 페이지 재조회
   async function restart(): Promise<void> {
-    // 진행 중인 Personalized 요청 취소
     await queryClient.cancelQueries({
       queryKey,
       exact: true,
     });
 
-    // 기존 Pages와 Cursor Chain 초기화
     queryClient.setQueryData<
       InfiniteData<
         TrendListData,
@@ -91,13 +107,34 @@ export function usePersonalizedTrends({
       },
     );
 
-    // Cursor 없는 첫 페이지부터 다시 조회
     await query.refetch();
   }
 
-  // 3. 기존 Query 기능과 restart() 함께 반환
+  // 다음 페이지 오류가 INVALID_CURSOR인 경우 자동 복구
+  async function fetchNextPage(
+    options?: Parameters<
+      typeof query.fetchNextPage
+    >[0],
+  ) {
+    const fetchResult =
+      await query.fetchNextPage(options);
+
+    if (
+      fetchResult.isFetchNextPageError &&
+      isInvalidPersonalizedCursorError(
+        fetchResult.error,
+      )
+    ) {
+      // 추가 페이지 오류에서만 첫 페이지 재시작
+      await restart();
+    }
+
+    return fetchResult;
+  }
+
   return {
     ...query,
+    fetchNextPage,
     restart,
   };
 }
