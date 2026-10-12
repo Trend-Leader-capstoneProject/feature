@@ -1004,4 +1004,131 @@ describe("usePersonalizedTrends", () => {
     // 최초 조회 + 기존 다음 페이지 + 새로고침
     expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
   });
+
+  test("연속 restart는 요청을 중복하지 않고 완료 후 새 Cursor로 Pagination한다", async () => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const refreshedFirstPage: TrendListData = {
+      items: [],
+      next_cursor: "NEW_CURSOR",
+      has_next: true,
+    };
+
+    const refreshedSecondPage: TrendListData = {
+      items: [],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    // 새로고침 응답 완료 시점을 제어한다.
+    let resolveRefresh!: (value: TrendListData) => void;
+
+    const refreshPromise = new Promise<TrendListData>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    let refreshSignal: AbortSignal | undefined;
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockImplementationOnce((_params, signal) => {
+        refreshSignal = signal;
+        return refreshPromise;
+      })
+      .mockResolvedValueOnce(refreshedSecondPage);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 최초 첫 페이지 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. restart를 연속 두 번 호출한다.
+    // 응답이 지연되어 있으므로 즉시 await하지 않는다.
+    let firstRestart!: Promise<void>;
+    let secondRestart!: Promise<void>;
+
+    await act(async () => {
+      firstRestart = result.current.restart();
+      secondRestart = result.current.restart();
+    });
+
+    // 3. 새로고침 API 요청이 시작되었는지 확인
+    await waitFor(() => {
+      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: undefined,
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 연속 호출이 기존 새로고침을 취소하면 안 된다.
+    expect(refreshSignal?.aborted).toBe(false);
+
+    // 4. 지연된 새로고침 응답 완료
+    await act(async () => {
+      resolveRefresh(refreshedFirstPage);
+
+      await Promise.all([firstRestart, secondRestart]);
+    });
+
+    // 5. 새 첫 페이지와 Cursor 확인
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([refreshedFirstPage]);
+    });
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    // 중복 요청이 없었는지 다시 확인
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
+
+    // 6. 새로고침 완료 후 정상 Pagination
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.pages).toEqual([
+        refreshedFirstPage,
+        refreshedSecondPage,
+      ]);
+    });
+
+    // 7. 기존 OLD_CURSOR가 아닌 NEW_CURSOR 사용
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      3,
+      {
+        cursor: "NEW_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    expect(result.current.data?.pageParams).toEqual([undefined, "NEW_CURSOR"]);
+
+    expect(result.current.hasNextPage).toBe(false);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(3);
+  });
 });
