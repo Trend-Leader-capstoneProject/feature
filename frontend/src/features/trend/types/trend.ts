@@ -67,7 +67,9 @@ export interface GetPersonalizedTrendsParams {
 export type TrendListErrorReason =
   | "INVALID_CURSOR"
   | "CATEGORY_NOT_AVAILABLE"
-  | "CATEGORY_NOT_FOUND";
+  | "CATEGORY_NOT_FOUND"
+  | "INTERESTS_NOT_INITIALIZED"
+  | "INTERESTS_NOT_AVAILABLE";
 
 export interface TrendListErrorData {
   reason: TrendListErrorReason;

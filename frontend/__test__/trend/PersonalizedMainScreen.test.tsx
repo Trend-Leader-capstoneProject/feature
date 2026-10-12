@@ -1,6 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import {
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
+import { Alert } from "react-native";
 import { useAuth } from "../../src/app/providers/AuthProvider";
 import { MainPlaceholderScreen } from "../../src/app/screens/MainPlaceholderScreen";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
@@ -24,6 +30,8 @@ const navigationMock = {
   navigate: jest.fn(),
 } as unknown as MainScreenProps["navigation"];
 
+const revalidateSessionMock = jest.fn(async (): Promise<void> => undefined);
+
 const routeMock = {
   key: "Main-test",
   name: "Main",
@@ -32,6 +40,9 @@ const routeMock = {
 describe("Personalized Main", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    revalidateSessionMock.mockReset();
+    revalidateSessionMock.mockResolvedValue(undefined);
 
     mockedUseAuth.mockReturnValue({
       authState: {
@@ -47,6 +58,8 @@ describe("Personalized Main", () => {
           next_step: "MAIN",
         },
       },
+      revalidateSession: revalidateSessionMock,
+
       logout: jest.fn(async (): Promise<void> => undefined),
     } as unknown as ReturnType<typeof useAuth>);
   });
@@ -409,5 +422,345 @@ describe("Personalized Main", () => {
         name: "최신 트렌드 보기",
       }),
     ).toBeTruthy();
+  });
+
+  test("INTERESTS_NOT_INITIALIZED 발생 시 Session을 재검증하고 직접 이동하지 않는다", async () => {
+    const notInitializedError = Object.assign(
+      new Error("관심사 초기화가 필요합니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "관심사 초기화가 필요합니다.",
+            data: {
+              reason: "INTERESTS_NOT_INITIALIZED",
+            },
+          },
+        },
+      },
+    );
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notInitializedError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    const mainScreen = (
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />
+    );
+
+    const rendered = await render(mainScreen);
+
+    // 1. 서버의 Session 상태를 재확인한다.
+    await waitFor(() => {
+      expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+    });
+
+    // 2. Main에서 Onboarding으로 직접 이동하지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+
+    // 3. 동일 오류 상태에서 다시 렌더링되어도
+    //    Session 재검증을 반복하지 않는다.
+    await rendered.rerender(mainScreen);
+
+    expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("INTERESTS_NOT_INITIALIZED 재검증 중에는 기존 Cache를 표시하지 않는다", async () => {
+    const cachedPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "이전 관심사 트렌드",
+          summary: "이전에 조회된 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const notInitializedError = Object.assign(
+      new Error("관심사 초기화가 필요합니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "관심사 초기화가 필요합니다.",
+            data: {
+              reason: "INTERESTS_NOT_INITIALIZED",
+            },
+          },
+        },
+      },
+    );
+
+    // Session 재검증이 진행 중인 상태로 유지한다.
+    revalidateSessionMock.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
+    );
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [cachedPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notInitializedError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    await waitFor(() => {
+      expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+    });
+
+    // 세션 확인 중이라는 안내를 표시한다.
+    expect(
+      screen.getByText("관심사 설정 상태를 확인하고 있습니다."),
+    ).toBeTruthy();
+
+    // 이전 Cache를 정상 목록처럼 표시하지 않는다.
+    expect(screen.queryByText("이전 관심사 트렌드")).toBeNull();
+
+    expect(screen.queryByTestId("personalized-trend-list")).toBeNull();
+
+    // 409 오류를 일반 API Retry로 반복하지 않는다.
+    expect(
+      screen.queryByRole("button", {
+        name: "다시 시도",
+      }),
+    ).toBeNull();
+
+    // 직접 Onboarding으로 이동하지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("INTERESTS_NOT_INITIALIZED 재검증 실패 시 Loading을 종료하고 복구 UI를 표시한다", async () => {
+    const notInitializedError = Object.assign(
+      new Error("관심사 초기화가 필요합니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "관심사 초기화가 필요합니다.",
+            data: {
+              reason: "INTERESTS_NOT_INITIALIZED",
+            },
+          },
+        },
+      },
+    );
+
+    // Session 재검증이 실패하도록 설정한다.
+    revalidateSessionMock.mockRejectedValueOnce(
+      new Error("Session revalidation failed"),
+    );
+
+    // 현재 구현의 Alert를 테스트 환경에서 가로챈다.
+    const alertSpy = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notInitializedError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    try {
+      await render(
+        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      );
+
+      // 1. Session 재검증이 실행된다.
+      await waitFor(() => {
+        expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+      });
+
+      // 2. 재검증 실패 시 오류 안내를 표시한다.
+      await waitFor(() => {
+        expect(
+          screen.getByText("관심사 설정 상태를 확인하지 못했습니다."),
+        ).toBeTruthy();
+      });
+
+      // 3. 더 이상 Loading 화면에 머물지 않는다.
+      expect(
+        screen.queryByText("관심사 설정 상태를 확인하고 있습니다."),
+      ).toBeNull();
+
+      // 4. 사용자가 수동으로 재검증할 수 있다.
+      expect(
+        screen.getByRole("button", {
+          name: "다시 확인",
+        }),
+      ).toBeTruthy();
+
+      // 5. 직접 Navigation하지 않는다.
+      expect(navigationMock.navigate).not.toHaveBeenCalled();
+    } finally {
+      alertSpy.mockRestore();
+    }
+  });
+
+  test("INTERESTS_NOT_INITIALIZED 재검증 실패 후 수동 재시도를 실행한다", async () => {
+    const notInitializedError = Object.assign(
+      new Error("관심사 초기화가 필요합니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "관심사 초기화가 필요합니다.",
+            data: {
+              reason: "INTERESTS_NOT_INITIALIZED",
+            },
+          },
+        },
+      },
+    );
+
+    // 첫 번째 자동 재검증은 실패한다.
+    // 두 번째 수동 재검증은 성공하도록 설정한다.
+    revalidateSessionMock
+      .mockRejectedValueOnce(new Error("Session revalidation failed"))
+      .mockResolvedValueOnce(undefined);
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notInitializedError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 최초 자동 재검증 실패
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "다시 확인",
+        }),
+      ).toBeTruthy();
+    });
+
+    expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+
+    // 2. 사용자가 다시 확인 버튼을 누른다.
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "다시 확인",
+      }),
+    );
+
+    // 3. 수동 재검증을 정확히 한 번 실행한다.
+    await waitFor(() => {
+      expect(revalidateSessionMock).toHaveBeenCalledTimes(2);
+    });
+
+    // 4. 재검증을 시작하면 기존 오류 UI를 해제한다.
+    expect(
+      screen.queryByText("관심사 설정 상태를 확인하지 못했습니다."),
+    ).toBeNull();
+
+    // 5. Main에서 직접 Navigation하지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("INTERESTS_NOT_INITIALIZED 재검증 성공 후 MAIN 유지 시 불일치 안내를 표시한다", async () => {
+    const notInitializedError = Object.assign(
+      new Error("관심사 초기화가 필요합니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "관심사 초기화가 필요합니다.",
+            data: {
+              reason: "INTERESTS_NOT_INITIALIZED",
+            },
+          },
+        },
+      },
+    );
+
+    // 세션 재검증 요청은 성공하지만,
+    // 테스트의 AuthState는 여전히 MAIN을 유지한다.
+    revalidateSessionMock.mockResolvedValueOnce(undefined);
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notInitializedError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. Session을 정확히 한 번 재검증한다.
+    await waitFor(() => {
+      expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+    });
+
+    // 2. MAIN 상태가 유지되면 불일치 안내를 표시한다.
+    await waitFor(() => {
+      expect(
+        screen.getByText("관심사 설정 상태가 일치하지 않습니다."),
+      ).toBeTruthy();
+    });
+
+    // 3. 무한 Loading에 머무르지 않는다.
+    expect(
+      screen.queryByText("관심사 설정 상태를 확인하고 있습니다."),
+    ).toBeNull();
+
+    // 4. 사용자가 다시 확인할 수 있다.
+    expect(
+      screen.getByRole("button", {
+        name: "다시 확인",
+      }),
+    ).toBeTruthy();
+
+    // 5. 자동 재검증 반복 및 직접 Navigation 방지
+    expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
   });
 });
