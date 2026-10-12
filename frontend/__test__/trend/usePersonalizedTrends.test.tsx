@@ -450,4 +450,90 @@ describe("usePersonalizedTrends", () => {
     // 재시도할 수 있는 상태가 유지된다.
     expect(result.current.hasNextPage).toBe(true);
   });
+
+  test.each([
+    {
+      label: "400 OTHER_ERROR",
+      status: 400,
+      reason: "OTHER_ERROR",
+    },
+    {
+      label: "401 Unauthorized",
+      status: 401,
+      reason: undefined,
+    },
+  ])("$label 오류에서는 자동 재시작하지 않는다", async ({ status, reason }) => {
+    const firstPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const apiError = Object.assign(new Error("API 요청 실패"), {
+      isAxiosError: true,
+      response: {
+        status,
+        data: {
+          success: false,
+          statusCode: status,
+          message: "API 요청 실패",
+          data: reason ? { reason } : null,
+        },
+      },
+    });
+
+    mockedGetPersonalizedTrends
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(apiError);
+
+    const queryClient = createTestQueryClient();
+
+    const { result } = await renderHook(
+      () => usePersonalizedTrends({ limit: 5 }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 첫 페이지 정상 조회
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    // 2. 다음 페이지에서 API 오류 발생
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // 3. 추가 페이지 오류 상태 확인
+    await waitFor(() => {
+      expect(result.current.isFetchNextPageError).toBe(true);
+    });
+
+    // 4. 요청은 최초 조회 + 실패한 추가 조회만 발생
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: "OLD_CURSOR",
+        limit: 5,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 5. 자동 재시작 없이 기존 페이지 유지
+    expect(result.current.data?.pages).toEqual([firstPage]);
+
+    expect(result.current.data?.pageParams).toEqual([undefined]);
+
+    expect(
+      queryClient.getQueryData(trendQueryKeys.personalizedList(5)),
+    ).toMatchObject({
+      pages: [firstPage],
+      pageParams: [undefined],
+    });
+  });
 });
