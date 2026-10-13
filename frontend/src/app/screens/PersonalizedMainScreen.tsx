@@ -35,14 +35,14 @@ import { isAxiosError } from "axios";
 import type { CommonErrorResponse } from "../../shared/types/api";
 import { useAuth } from "../providers/AuthProvider";
 
-type MainPlaceholderScreenProps = NativeStackScreenProps<
+type PersonalizedMainScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "Main"
 >;
 
-export function MainPlaceholderScreen({
+export function PersonalizedMainScreen ({
   navigation,
-}: MainPlaceholderScreenProps) {
+}: PersonalizedMainScreenProps) {
   const { authState, logout, revalidateSession } = useAuth();
 
   const {

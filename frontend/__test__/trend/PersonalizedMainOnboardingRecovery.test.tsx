@@ -1,17 +1,17 @@
 
 import {
-    QueryClient,
-    QueryClientProvider,
+  QueryClient,
+  QueryClientProvider,
 } from "@tanstack/react-query";
 import {
-    act,
-    render,
-    screen,
-    waitFor,
+  act,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react-native";
 import type {
-    ComponentProps,
-    PropsWithChildren,
+  ComponentProps,
+  PropsWithChildren,
 } from "react";
 import { Text } from "react-native";
 
@@ -19,7 +19,7 @@ import { AppNavigator } from "../../src/app/navigation/AppNavigator";
 import { OnboardingNavigator } from "../../src/app/navigation/OnboardingNavigator";
 import { RootNavigator } from "../../src/app/navigation/RootNavigator";
 import { AuthProvider } from "../../src/app/providers/AuthProvider";
-import { MainPlaceholderScreen } from "../../src/app/screens/MainPlaceholderScreen";
+import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
 import type { SessionResponse } from "../../src/features/auth/types/auth";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
@@ -85,7 +85,7 @@ const mockedRegisterAuthFailureHandler = jest.mocked(
   registerAuthFailureHandler,
 );
 
-type MainProps = ComponentProps<typeof MainPlaceholderScreen>;
+type MainProps = ComponentProps<typeof PersonalizedMainScreen >;
 
 const navigateMock = jest.fn();
 
@@ -146,7 +146,7 @@ describe("Personalized Main onboarding recovery", () => {
 
     // AppNavigator 대신 실제 Main 화면을 렌더링한다.
     mockedAppNavigator.mockImplementation(() => (
-      <MainPlaceholderScreen
+      <PersonalizedMainScreen
         navigation={navigationMock}
         route={routeMock}
       />

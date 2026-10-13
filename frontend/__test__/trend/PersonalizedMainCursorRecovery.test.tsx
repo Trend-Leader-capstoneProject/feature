@@ -8,7 +8,7 @@ import {
 import { act, type ComponentProps } from "react";
 
 import { useAuth } from "../../src/app/providers/AuthProvider";
-import { MainPlaceholderScreen } from "../../src/app/screens/MainPlaceholderScreen";
+import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { getPersonalizedTrends } from "../../src/features/trend/api/getPersonalizedTrends";
 import { trendQueryKeys } from "../../src/features/trend/queryKeys";
 import type {
@@ -27,7 +27,7 @@ jest.mock("../../src/features/trend/api/getPersonalizedTrends", () => ({
 const mockedUseAuth = jest.mocked(useAuth);
 const mockedGetPersonalizedTrends = jest.mocked(getPersonalizedTrends);
 
-type MainProps = ComponentProps<typeof MainPlaceholderScreen>;
+type MainProps = ComponentProps<typeof PersonalizedMainScreen >;
 
 const navigationMock = {
   navigate: jest.fn(),
@@ -121,7 +121,7 @@ describe("Personalized Main Cursor Recovery", () => {
 
     await render(
       <QueryClientProvider client={queryClient}>
-        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />
+        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />
       </QueryClientProvider>,
     );
 
@@ -225,7 +225,7 @@ describe("Personalized Main Cursor Recovery", () => {
 
     await render(
       <QueryClientProvider client={queryClient}>
-        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />
+        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />
       </QueryClientProvider>,
     );
 

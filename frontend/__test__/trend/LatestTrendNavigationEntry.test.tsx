@@ -2,7 +2,7 @@ import { fireEvent, render } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
 import { useAuth } from "../../src/app/providers/AuthProvider";
-import { MainPlaceholderScreen } from "../../src/app/screens/MainPlaceholderScreen";
+import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { useLogin } from "../../src/features/auth/hooks/useLogin";
 import { LoginScreen } from "../../src/features/auth/screens/LoginScreen";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
@@ -35,7 +35,7 @@ const mockedUsePersonalizedTrends = jest.mocked(usePersonalizedTrends);
 
 type LoginScreenProps = ComponentProps<typeof LoginScreen>;
 
-type MainScreenProps = ComponentProps<typeof MainPlaceholderScreen>;
+type MainScreenProps = ComponentProps<typeof PersonalizedMainScreen>;
 
 const loginNavigationMock = {
   navigate: navigateMock,
@@ -135,7 +135,7 @@ describe("LatestTrend navigation entry", () => {
     } as unknown as ReturnType<typeof useAuth>);
 
     const view = await render(
-      <MainPlaceholderScreen
+      <PersonalizedMainScreen
         navigation={mainNavigationMock}
         route={mainRouteMock}
       />,

@@ -8,7 +8,7 @@ import { act, type ComponentProps } from "react";
 
 import { Alert } from "react-native";
 import { useAuth } from "../../src/app/providers/AuthProvider";
-import { MainPlaceholderScreen } from "../../src/app/screens/MainPlaceholderScreen";
+import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
 import { TrendListData } from "../../src/features/trend/types/trend";
 
@@ -24,7 +24,7 @@ const mockedUseAuth = jest.mocked(useAuth);
 
 const mockedUsePersonalizedTrends = jest.mocked(usePersonalizedTrends);
 
-type MainScreenProps = ComponentProps<typeof MainPlaceholderScreen>;
+type MainScreenProps = ComponentProps<typeof PersonalizedMainScreen>;
 
 const navigationMock = {
   navigate: jest.fn(),
@@ -73,7 +73,7 @@ describe("Personalized Main", () => {
     } as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // Main 진입 시 맞춤 트렌드 Hook을 사용해야 한다.
@@ -138,7 +138,7 @@ describe("Personalized Main", () => {
     } as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 서로 다른 페이지의 Trend가 모두 표시된다.
@@ -188,7 +188,7 @@ describe("Personalized Main", () => {
     } as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 정상 Empty 안내 표시
@@ -225,7 +225,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 일반 오류 안내가 표시되어야 한다.
@@ -275,7 +275,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 기존 오류 안내를 유지한다.
@@ -335,7 +335,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 기존 캐시 목록을 유지한다.
@@ -394,7 +394,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 복구 실패 시 오류 안내를 표시한다.
@@ -453,7 +453,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     const mainScreen = (
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />
     );
 
     const rendered = await render(mainScreen);
@@ -526,7 +526,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     await waitFor(() => {
@@ -594,7 +594,7 @@ describe("Personalized Main", () => {
 
     try {
       await render(
-        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
       );
 
       // 1. Session 재검증이 실행된다.
@@ -663,7 +663,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 최초 자동 재검증 실패
@@ -731,7 +731,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. Session을 정확히 한 번 재검증한다.
@@ -812,7 +812,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 관심사 수정 안내를 표시한다.
@@ -882,7 +882,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 관심사 조회 불가로 잘못 분류하지 않는다.
@@ -953,7 +953,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 첫 페이지 데이터 표시
@@ -1014,7 +1014,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     const list = screen.getByTestId("personalized-trend-list");
@@ -1085,7 +1085,7 @@ describe("Personalized Main", () => {
       } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
       await render(
-        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
       );
 
       // 기존 데이터는 정상 표시된다.
@@ -1137,7 +1137,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 기존 목록은 계속 표시된다.
@@ -1195,7 +1195,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 첫 페이지 목록은 유지한다.
@@ -1268,7 +1268,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 기존 목록이 표시된다.
@@ -1332,7 +1332,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     // 1. 새로고침 전 기존 목록과 Refresh 상태를 확인한다.
@@ -1423,7 +1423,7 @@ describe("Personalized Main", () => {
     } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
     await render(
-      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
     const list = screen.getByTestId("personalized-trend-list");
