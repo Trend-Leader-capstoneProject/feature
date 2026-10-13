@@ -4,7 +4,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react-native";
-import type { ComponentProps } from "react";
+import { act, type ComponentProps } from "react";
 
 import { Alert } from "react-native";
 import { useAuth } from "../../src/app/providers/AuthProvider";
@@ -914,6 +914,318 @@ describe("Personalized Main", () => {
     // 자동 조회 반복이나 직접 Navigation은 발생하지 않는다.
     expect(refetchMock).not.toHaveBeenCalled();
 
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("Personalized 목록 끝에 도달하면 다음 페이지를 요청한다", async () => {
+    const fetchNextPageMock = jest.fn(async (): Promise<void> => undefined);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "첫 번째 맞춤 트렌드",
+          summary: "첫 페이지 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEXT_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: null,
+      fetchNextPage: fetchNextPageMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 첫 페이지 데이터 표시
+    expect(screen.getByText("첫 번째 맞춤 트렌드")).toBeTruthy();
+
+    const list = screen.getByTestId("personalized-trend-list");
+
+    // 2. 사용자가 목록 끝에 도달한다.
+    await fireEvent(list, "endReached");
+
+    // 3. 다음 페이지 요청이 실행된다.
+    expect(fetchNextPageMock).toHaveBeenCalledTimes(1);
+
+    // 4. 기존 Main Navigation은 변경되지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("동일 Cursor의 endReached가 연속 발생해도 다음 페이지를 한 번만 요청한다", async () => {
+    // 다음 페이지 요청의 완료 시점을 직접 제어한다.
+    let resolveRequest!: () => void;
+
+    const pendingRequest = new Promise<void>((resolve) => {
+      resolveRequest = resolve;
+    });
+
+    const fetchNextPageMock = jest.fn(() => pendingRequest);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "첫 번째 맞춤 트렌드",
+          summary: "첫 페이지 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEXT_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: null,
+      fetchNextPage: fetchNextPageMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    const list = screen.getByTestId("personalized-trend-list");
+
+    // 1. 첫 번째 스크롤 끝 이벤트
+    await fireEvent(list, "endReached");
+
+    // 2. 첫 번째 요청이 완료되기 전에
+    //    동일 이벤트가 다시 발생한다.
+    await fireEvent(list, "endReached");
+
+    // 3. 동일 Cursor에 대한 중복 요청을 방지한다.
+    expect(fetchNextPageMock).toHaveBeenCalledTimes(1);
+
+    // 4. 대기 중인 요청을 완료한다.
+    await act(async () => {
+      resolveRequest();
+      await pendingRequest;
+    });
+  });
+
+  test.each([
+    {
+      caseName: "다음 페이지가 없는 경우",
+      hasNextPage: false,
+      nextCursor: null,
+    },
+    {
+      caseName: "다음 Cursor가 없는 경우",
+      hasNextPage: true,
+      nextCursor: null,
+    },
+  ])(
+    "$caseName endReached에서 추가 요청하지 않는다",
+    async ({ hasNextPage, nextCursor }) => {
+      const fetchNextPageMock = jest.fn(async (): Promise<void> => undefined);
+
+      const firstPage: TrendListData = {
+        items: [
+          {
+            trend_id: 101,
+            title: "마지막 맞춤 트렌드",
+            summary: null,
+            thumbnail_url: null,
+            last_collected_at: "2026-10-01T09:00:00Z",
+            categories: [],
+            latest_source: null,
+          },
+        ],
+        next_cursor: nextCursor,
+        has_next: hasNextPage,
+      };
+
+      mockedUsePersonalizedTrends.mockReturnValue({
+        data: {
+          pages: [firstPage],
+          pageParams: [undefined],
+        },
+        isPending: false,
+        isError: false,
+        isFetching: false,
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        hasNextPage,
+        hasCursorRecoveryFailed: false,
+        error: null,
+        fetchNextPage: fetchNextPageMock,
+      } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+      await render(
+        <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+      );
+
+      // 기존 데이터는 정상 표시된다.
+      expect(screen.getByText("마지막 맞춤 트렌드")).toBeTruthy();
+
+      const list = screen.getByTestId("personalized-trend-list");
+
+      // 목록 끝 이벤트가 반복 발생해도
+      // 불필요한 요청을 생성해서는 안 된다.
+      await fireEvent(list, "endReached");
+      await fireEvent(list, "endReached");
+
+      expect(fetchNextPageMock).not.toHaveBeenCalled();
+
+      expect(navigationMock.navigate).not.toHaveBeenCalled();
+    },
+  );
+
+  test("다음 페이지 조회 중 기존 TrendCard와 Footer Loading을 함께 표시한다", async () => {
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "기존 맞춤 트렌드",
+          summary: "첫 페이지 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEXT_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: true,
+      isFetchingNextPage: true,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: null,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 기존 목록은 계속 표시된다.
+    expect(screen.getByText("기존 맞춤 트렌드")).toBeTruthy();
+
+    expect(screen.getByTestId("personalized-trend-list")).toBeTruthy();
+
+    // 2. 목록 하단에 다음 페이지 Loading을 표시한다.
+    expect(
+      screen.getByLabelText("다음 트렌드를 불러오는 중입니다."),
+    ).toBeTruthy();
+
+    // 3. 최초 진입 Loading으로 되돌아가지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오고 있습니다."),
+    ).toBeNull();
+
+    // 4. 기존 Navigation은 변경되지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("추가 페이지 조회 실패 시 기존 목록을 유지하고 Footer에서 수동 재시도한다", async () => {
+    const fetchNextPageMock = jest.fn(async (): Promise<void> => undefined);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "기존 맞춤 트렌드",
+          summary: "첫 페이지 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEXT_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: true,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: new Error("추가 페이지 조회 실패"),
+      fetchNextPage: fetchNextPageMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 첫 페이지 목록은 유지한다.
+    expect(screen.getByText("기존 맞춤 트렌드")).toBeTruthy();
+
+    const list = screen.getByTestId("personalized-trend-list");
+
+    // 2. 스크롤 끝 이벤트가 다시 발생해도
+    //    자동으로 추가 페이지를 재요청하지 않는다.
+    await fireEvent(list, "endReached");
+
+    expect(fetchNextPageMock).not.toHaveBeenCalled();
+
+    // 3. 전체 화면 오류 대신 Footer 오류를 표시한다.
+    expect(screen.getByText("다음 트렌드를 불러오지 못했습니다.")).toBeTruthy();
+
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeNull();
+
+    // 4. 사용자에게 수동 Retry를 제공한다.
+    const retryButton = screen.getByRole("button", {
+      name: "다시 시도",
+    });
+
+    await fireEvent.press(retryButton);
+
+    expect(fetchNextPageMock).toHaveBeenCalledTimes(1);
+
+    // 5. 화면 이동은 발생하지 않는다.
     expect(navigationMock.navigate).not.toHaveBeenCalled();
   });
 });

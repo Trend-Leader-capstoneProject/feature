@@ -52,6 +52,10 @@ export function MainPlaceholderScreen({
     isFetching,
     error,
     refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
     hasCursorRecoveryFailed,
   } = usePersonalizedTrends();
 
@@ -62,6 +66,8 @@ export function MainPlaceholderScreen({
   >("checking");
 
   const handledNotInitializedErrorRef = useRef<unknown>(null);
+
+  const nextPageRequestCursorRef = useRef<string | null>(null);
 
   // HTTP 상태와 machine-readable reason을 함께 확인한다.
   const isInterestsNotInitializedError =
@@ -112,6 +118,11 @@ export function MainPlaceholderScreen({
   // 여러 페이지의 Trend를 하나의 목록으로 변환한다.
   const trends = trendData?.pages.flatMap((page) => page.items) ?? [];
 
+  // 마지막 페이지에서 다음 요청에 사용할 Cursor를 확인한다.
+  const lastPage = trendData?.pages[trendData.pages.length - 1];
+
+  const nextCursor = lastPage?.next_cursor ?? null;
+
   const userName =
     authState.status === "AUTHENTICATED" ? authState.session.user.name : null;
 
@@ -140,6 +151,77 @@ export function MainPlaceholderScreen({
 
   function renderTrend({ item }: ListRenderItemInfo<TrendListItem>) {
     return <TrendCard onOpenSource={handleOpenSource} trend={item} />;
+  }
+
+  function requestNextPage(): void {
+    // 다음 페이지나 Cursor가 없으면 요청하지 않는다.
+    if (!hasNextPage || nextCursor === null) {
+      return;
+    }
+
+    // 이미 다음 페이지를 요청 중이면 중단한다.
+    if (isFetchingNextPage) {
+      return;
+    }
+
+    // 동일 Cursor의 진행 중인 요청을 중복 실행하지 않는다.
+    if (nextPageRequestCursorRef.current === nextCursor) {
+      return;
+    }
+
+    const requestCursor = nextCursor;
+
+    // React의 다음 렌더링을 기다리지 않고 잠금을 설정한다.
+    nextPageRequestCursorRef.current = requestCursor;
+
+    void fetchNextPage()
+      .catch(() => undefined)
+      .finally(() => {
+        if (nextPageRequestCursorRef.current === requestCursor) {
+          nextPageRequestCursorRef.current = null;
+        }
+      });
+  }
+
+  function handleEndReached(): void {
+    // 추가 페이지 오류 이후 스크롤 이벤트가 발생해도
+    // 사용자의 명시적 요청 없이 자동 재시도하지 않는다.
+    if (isFetchNextPageError) {
+      return;
+    }
+
+    requestNextPage();
+  }
+
+  function handleRetryNextPage(): void {
+    // 사용자가 직접 누른 Retry이므로
+    // 이전 추가 페이지 오류 상태에서도 다시 요청할 수 있다.
+    requestNextPage();
+  }
+
+  function renderListFooter() {
+    // 1. 추가 페이지 요청 중
+    if (isFetchingNextPage) {
+      return (
+        <LoadingView accessibilityLabel="다음 트렌드를 불러오는 중입니다." />
+      );
+    }
+
+    // 2. 추가 페이지 요청 실패
+    if (isFetchNextPageError) {
+      return (
+        <ErrorView
+          title="다음 트렌드를 불러오지 못했습니다."
+          message="잠시 후 다시 시도해 주세요."
+          retryLabel="다시 시도"
+          onRetry={handleRetryNextPage}
+          retrying={isFetchingNextPage}
+        />
+      );
+    }
+
+    // 3. 정상 상태에서는 Footer 표시하지 않음
+    return null;
   }
 
   function renderContent() {
@@ -219,6 +301,9 @@ export function MainPlaceholderScreen({
           contentContainerStyle={styles.trendList}
           data={trends}
           keyExtractor={(item) => item.trend_id.toString()}
+          ListFooterComponent={renderListFooter}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
           renderItem={renderTrend}
           showsVerticalScrollIndicator={false}
           testID="personalized-trend-list"
