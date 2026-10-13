@@ -1228,4 +1228,235 @@ describe("Personalized Main", () => {
     // 5. 화면 이동은 발생하지 않는다.
     expect(navigationMock.navigate).not.toHaveBeenCalled();
   });
+
+  test("Personalized Pull-to-refresh 시 refetch 대신 restart를 호출한다", async () => {
+    const restartMock = jest.fn(async (): Promise<void> => undefined);
+
+    const refetchMock = jest.fn(async (): Promise<void> => undefined);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "새로고침 전 맞춤 트렌드",
+          summary: "기존 관심사 조회 결과입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: null,
+      refetch: refetchMock,
+      restart: restartMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 기존 목록이 표시된다.
+    expect(screen.getByText("새로고침 전 맞춤 트렌드")).toBeTruthy();
+
+    const list = screen.getByTestId("personalized-trend-list");
+
+    // 2. 사용자가 목록을 아래로 당겨 새로고침한다.
+    await fireEvent(list, "refresh");
+
+    // 3. Cursor Chain을 폐기하는 restart를 호출한다.
+    expect(restartMock).toHaveBeenCalledTimes(1);
+
+    // 4. 일반 refetch를 사용하면 안 된다.
+    expect(refetchMock).not.toHaveBeenCalled();
+
+    // 5. 직접 Navigation하지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("Pull-to-refresh 중 기존 TrendCard를 유지하고 Refresh 상태를 표시한다", async () => {
+    // restart()의 완료 시점을 테스트에서 직접 제어한다.
+    let resolveRestart!: () => void;
+
+    const pendingRestart = new Promise<void>((resolve) => {
+      resolveRestart = resolve;
+    });
+
+    const restartMock = jest.fn(() => pendingRestart);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "기존 맞춤 트렌드",
+          summary: "새로고침 이전에 조회된 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: false,
+      hasCursorRecoveryFailed: false,
+      error: null,
+      restart: restartMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 새로고침 전 기존 목록과 Refresh 상태를 확인한다.
+    expect(screen.getByText("기존 맞춤 트렌드")).toBeTruthy();
+
+    expect(screen.getByTestId("personalized-trend-list")).toHaveProp(
+      "refreshing",
+      false,
+    );
+
+    // 2. 사용자가 Pull-to-refresh를 실행한다.
+    await fireEvent(screen.getByTestId("personalized-trend-list"), "refresh");
+
+    expect(restartMock).toHaveBeenCalledTimes(1);
+
+    // 3. restart()가 완료되지 않은 동안
+    //    기존 TrendCard를 그대로 유지한다.
+    expect(screen.getByText("기존 맞춤 트렌드")).toBeTruthy();
+
+    // 4. 새로고침 진행 중임을 표시한다.
+    expect(screen.getByTestId("personalized-trend-list")).toHaveProp(
+      "refreshing",
+      true,
+    );
+
+    // 5. 전체 화면 Loading으로 바뀌지 않는다.
+    expect(
+      screen.queryByText("관심사에 맞는 트렌드를 불러오고 있습니다."),
+    ).toBeNull();
+
+    // 6. 대기 중이던 restart()를 완료한다.
+    await act(async () => {
+      resolveRestart();
+      await pendingRestart;
+    });
+
+    // 7. 완료 후 Refresh Indicator를 해제한다.
+    await waitFor(() => {
+      expect(screen.getByTestId("personalized-trend-list")).toHaveProp(
+        "refreshing",
+        false,
+      );
+    });
+
+    // 8. 기존 Navigation에는 영향을 주지 않는다.
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("같은 렌더링 구간에서 연속 Refresh가 발생해도 restart를 한 번만 호출한다", async () => {
+    let resolveRestart!: () => void;
+
+    const pendingRestart = new Promise<void>((resolve) => {
+      resolveRestart = resolve;
+    });
+
+    const restartMock = jest.fn(() => pendingRestart);
+
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "기존 맞춤 트렌드",
+          summary: "첫 페이지 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: "NEXT_CURSOR",
+      has_next: true,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasNextPage: true,
+      hasCursorRecoveryFailed: false,
+      error: null,
+      restart: restartMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    const list = screen.getByTestId("personalized-trend-list");
+
+    expect(list).toHaveProp("refreshing", false);
+
+    // 동일한 React 렌더링 구간에서 이벤트가
+    // 연속 발생하는 상황을 재현한다.
+    const onRefresh = list.props.onRefresh as () => void;
+
+    await act(async () => {
+      onRefresh();
+      onRefresh();
+    });
+
+    try {
+      // 아직 restart가 완료되지 않았다.
+      expect(restartMock).toHaveBeenCalledTimes(1);
+
+      // 화면은 Refresh 진행 중 상태여야 한다.
+      expect(screen.getByTestId("personalized-trend-list")).toHaveProp(
+        "refreshing",
+        true,
+      );
+
+      // 기존 카드도 유지되어야 한다.
+      expect(screen.getByText("기존 맞춤 트렌드")).toBeTruthy();
+    } finally {
+      // RED가 발생하더라도 대기 중인 요청을 정리한다.
+      await act(async () => {
+        resolveRestart();
+        await pendingRestart;
+      });
+    }
+  });
 });

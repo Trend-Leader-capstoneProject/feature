@@ -52,6 +52,7 @@ export function MainPlaceholderScreen({
     isFetching,
     error,
     refetch,
+    restart,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -60,6 +61,10 @@ export function MainPlaceholderScreen({
   } = usePersonalizedTrends();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshInFlightRef = useRef(false);
 
   const [sessionRevalidationStatus, setSessionRevalidationStatus] = useState<
     "checking" | "failed" | "mismatch"
@@ -199,6 +204,30 @@ export function MainPlaceholderScreen({
     requestNextPage();
   }
 
+  function handleRefresh(): void {
+    // React의 상태 갱신을 기다리지 않고
+    // 같은 시점의 중복 Refresh 요청을 차단한다.
+    if (refreshInFlightRef.current) {
+      return;
+    }
+
+    // 비동기 요청을 시작하기 전에 즉시 잠근다.
+    refreshInFlightRef.current = true;
+
+    // 사용자에게 Refresh 진행 상태를 표시한다.
+    setIsRefreshing(true);
+
+    // 기존 Pages와 Cursor를 폐기하고
+    // 현재 관심사 기준 첫 페이지부터 재조회한다.
+    void restart()
+      .catch(() => undefined)
+      .finally(() => {
+        // 성공과 실패 모두 잠금을 해제한다.
+        refreshInFlightRef.current = false;
+        setIsRefreshing(false);
+      });
+  }
+
   function renderListFooter() {
     // 1. 추가 페이지 요청 중
     if (isFetchingNextPage) {
@@ -304,6 +333,8 @@ export function MainPlaceholderScreen({
           ListFooterComponent={renderListFooter}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
+          onRefresh={handleRefresh}
+          refreshing={isRefreshing}
           renderItem={renderTrend}
           showsVerticalScrollIndicator={false}
           testID="personalized-trend-list"
