@@ -70,6 +70,12 @@ export function MainPlaceholderScreen({
     error.response?.status === 409 &&
     error.response.data?.data?.reason === "INTERESTS_NOT_INITIALIZED";
 
+  const isInterestsNotAvailableError =
+    isError &&
+    isAxiosError<CommonErrorResponse<TrendListErrorData, 409>>(error) &&
+    error.response?.status === 409 &&
+    error.response.data?.data?.reason === "INTERESTS_NOT_AVAILABLE";
+
   const handleSessionRevalidation = useCallback((): void => {
     setSessionRevalidationStatus("checking");
 
@@ -163,6 +169,25 @@ export function MainPlaceholderScreen({
       }
 
       return <LoadingView message="관심사 설정 상태를 확인하고 있습니다." />;
+    }
+
+    // Phase 5-3B: 저장된 관심사의 유효 조회 범위가 없는 경우
+    if (isInterestsNotAvailableError) {
+      return (
+        <View style={styles.interestsNotAvailable}>
+          <ErrorView
+            title="현재 관심사로 맞춤 트렌드를 조회할 수 없습니다."
+            message="관심사 설정을 수정한 후 다시 확인해 주세요."
+          />
+
+          <PrimaryButton
+            label="관심사 수정하기"
+            onPress={() => {
+              navigation.navigate("InterestEdit");
+            }}
+          />
+        </View>
+      );
     }
 
     // Phase 5-2A: 최초 Loading
@@ -270,6 +295,10 @@ const styles = StyleSheet.create({
 
   contentRegion: {
     flex: 1,
+  },
+
+  interestsNotAvailable: {
+    gap: spacing.contentGap,
   },
 
   trendList: {

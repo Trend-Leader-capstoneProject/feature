@@ -1,8 +1,8 @@
 import {
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
 } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
@@ -760,6 +760,159 @@ describe("Personalized Main", () => {
 
     // 5. 자동 재검증 반복 및 직접 Navigation 방지
     expect(revalidateSessionMock).toHaveBeenCalledTimes(1);
+
+    expect(navigationMock.navigate).not.toHaveBeenCalled();
+  });
+
+  test("INTERESTS_NOT_AVAILABLE 발생 시 Cache 대신 관심사 수정 안내와 이동 경로를 제공한다", async () => {
+    const cachedPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "이전 관심사 트렌드",
+          summary: "이전에 조회된 데이터입니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const notAvailableError = Object.assign(
+      new Error("현재 관심사로 조회할 수 없습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "현재 관심사로 조회할 수 없습니다.",
+            data: {
+              reason: "INTERESTS_NOT_AVAILABLE",
+            },
+          },
+        },
+      },
+    );
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [cachedPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: notAvailableError,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 관심사 수정 안내를 표시한다.
+    expect(
+      screen.getByText("현재 관심사로 맞춤 트렌드를 조회할 수 없습니다."),
+    ).toBeTruthy();
+
+    // 2. 이전 Cache를 정상 목록처럼 보여주지 않는다.
+    expect(screen.queryByText("이전 관심사 트렌드")).toBeNull();
+
+    expect(screen.queryByTestId("personalized-trend-list")).toBeNull();
+
+    // 3. 관심사 수정 CTA가 있어야 한다.
+    const editButton = screen.getByRole("button", {
+      name: "관심사 수정하기",
+    });
+
+    expect(editButton).toBeTruthy();
+
+    // 4. 전체 최신 목록 진입점도 유지한다.
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+
+    // 5. Session 재검증을 실행하지 않는다.
+    expect(revalidateSessionMock).not.toHaveBeenCalled();
+
+    // 6. 사용자가 관심사 수정 화면으로 이동한다.
+    await fireEvent.press(editButton);
+
+    expect(navigationMock.navigate).toHaveBeenCalledWith("InterestEdit");
+
+    expect(navigationMock.navigate).toHaveBeenCalledTimes(1);
+  });
+
+  test("다른 409 reason은 INTERESTS_NOT_AVAILABLE로 처리하지 않는다", async () => {
+    const refetchMock = jest.fn();
+
+    const otherConflictError = Object.assign(
+      new Error("다른 종류의 Conflict가 발생했습니다."),
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            statusCode: 409,
+            message: "다른 종류의 Conflict가 발생했습니다.",
+            data: {
+              reason: "CATEGORY_NOT_AVAILABLE",
+            },
+          },
+        },
+      },
+    );
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      hasCursorRecoveryFailed: false,
+      error: otherConflictError,
+      refetch: refetchMock,
+    } as unknown as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <MainPlaceholderScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 관심사 조회 불가로 잘못 분류하지 않는다.
+    expect(
+      screen.queryByText("현재 관심사로 맞춤 트렌드를 조회할 수 없습니다."),
+    ).toBeNull();
+
+    expect(
+      screen.queryByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toBeNull();
+
+    // 관심사 미초기화로도 잘못 분류하지 않는다.
+    expect(revalidateSessionMock).not.toHaveBeenCalled();
+
+    // 알려지지 않은 Conflict는 일반 오류 UI로 처리한다.
+    expect(
+      screen.getByText("관심사에 맞는 트렌드를 불러오지 못했습니다."),
+    ).toBeTruthy();
+
+    // 사용자의 명시적인 재시도 경로를 제공한다.
+    expect(
+      screen.getByRole("button", {
+        name: "다시 시도",
+      }),
+    ).toBeTruthy();
+
+    // 자동 조회 반복이나 직접 Navigation은 발생하지 않는다.
+    expect(refetchMock).not.toHaveBeenCalled();
 
     expect(navigationMock.navigate).not.toHaveBeenCalled();
   });
