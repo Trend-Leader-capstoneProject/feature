@@ -126,6 +126,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shouldHighlightFields, setShouldHighlightFields] = useState(false);
@@ -247,29 +248,50 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>비밀번호</Text>
 
-              <TextInput
-                ref={passwordInputRef}
-                accessibilityLabel="비밀번호"
-                autoCapitalize="none"
-                autoComplete="current-password"
-                autoCorrect={false}
-                editable={!loginMutation.isPending}
-                onBlur={() => setFocusedField(null)}
-                onChangeText={handlePasswordChange}
-                onFocus={() => setFocusedField("password")}
-                onSubmitEditing={handleLogin}
-                placeholder="비밀번호를 입력하세요"
-                placeholderTextColor={colors.textDisabled}
-                returnKeyType="done"
-                secureTextEntry
-                style={[
-                  styles.input,
-                  focusedField === "password" && styles.inputFocused,
-                  shouldHighlightFields && styles.inputError,
-                ]}
-                textContentType="password"
-                value={password}
-              />
+              <View style={styles.passwordInputWrapper}>
+                <TextInput
+                  ref={passwordInputRef}
+                  accessibilityLabel="비밀번호"
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  autoCorrect={false}
+                  editable={!loginMutation.isPending}
+                  onBlur={() => setFocusedField(null)}
+                  onChangeText={handlePasswordChange}
+                  onFocus={() => setFocusedField("password")}
+                  onSubmitEditing={handleLogin}
+                  placeholder="비밀번호를 입력하세요"
+                  placeholderTextColor={colors.textDisabled}
+                  returnKeyType="done"
+                  secureTextEntry={!isPasswordVisible}
+                  style={[
+                    styles.input,
+                    styles.passwordInput,
+                    focusedField === "password" && styles.inputFocused,
+                    shouldHighlightFields && styles.inputError,
+                  ]}
+                  textContentType="password"
+                  value={password}
+                />
+
+                <Pressable
+                  accessibilityLabel={
+                    isPasswordVisible ? "비밀번호 숨기기" : "비밀번호 보기"
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    disabled: loginMutation.isPending,
+                  }}
+                  disabled={loginMutation.isPending}
+                  hitSlop={8}
+                  onPress={() => setIsPasswordVisible((current) => !current)}
+                  style={styles.passwordVisibilityButton}
+                >
+                  <Text style={styles.passwordVisibilityText}>
+                    {isPasswordVisible ? "숨기기" : "보기"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             {errorMessage !== null && (
@@ -365,6 +387,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSurface,
     ...typography.input,
     color: colors.textPrimary,
+  },
+  passwordInputWrapper: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: spacing.space12,
+  },
+  passwordVisibilityButton: {
+    position: "absolute",
+    top: 0,
+    right: spacing.space3,
+    bottom: 0,
+    justifyContent: "center",
+  },
+  passwordVisibilityText: {
+    ...typography.label,
+    color: colors.textLink,
   },
   inputFocused: {
     borderWidth: borders.borderWidthStrong,
