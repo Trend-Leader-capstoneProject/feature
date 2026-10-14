@@ -127,9 +127,9 @@ function validateSignupForm({
     errors.loginId = loginIdError;
   }
 
-  if (password.length < 15) {
+  if (password.length < 8) {
     errors.password =
-      "비밀번호는 15자 이상이어야 합니다.";
+      "비밀번호는 8자 이상이어야 합니다.";
   } else if (password.length > 128) {
     errors.password =
       "비밀번호는 128자 이하여야 합니다.";
@@ -204,7 +204,7 @@ function getBackendValidationMessage(
       return "아이디 형식을 확인해 주세요.";
 
     case "password":
-      return "비밀번호는 15자 이상 128자 이하여야 합니다.";
+      return "비밀번호는 8자 이상 128자 이하여야 합니다.";
 
     case "passwordConfirm":
       return "비밀번호 확인이 일치하지 않습니다.";
@@ -876,7 +876,7 @@ export function SignupScreen({
               </View>
 
               <Text style={styles.helperText}>
-                15자 이상 128자 이하로 입력해 주세요.
+                8자 이상 128자 이하로 입력해 주세요.
               </Text>
 
               {fieldErrors.password && (
