@@ -77,14 +77,14 @@ def test_signup_request_rejects_invalid_login_id(
 @pytest.mark.parametrize(
     "password",
     [
-        "a" * 15,
+        "a" * 8,
         "a" * 128,
     ],
 )
 def test_signup_request_accepts_password_length_boundaries(
     password: str,
 ) -> None:
-    """15~128자의 비밀번호를 허용한다."""
+    """8~128자의 비밀번호를 허용한다."""
 
     request = SignupRequest.model_validate(
         make_signup_request(
@@ -102,14 +102,14 @@ def test_signup_request_accepts_password_length_boundaries(
 @pytest.mark.parametrize(
     "password",
     [
-        "a" * 14,
+        "a" * 7,
         "a" * 129,
     ],
 )
 def test_signup_request_rejects_invalid_password_length(
     password: str,
 ) -> None:
-    """15~128자를 벗어난 비밀번호를 거부한다."""
+    """8~128자를 벗어난 비밀번호를 거부한다."""
 
     with pytest.raises(ValidationError):
         SignupRequest.model_validate(

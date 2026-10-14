@@ -78,8 +78,8 @@ class SignupRequest(BaseModel):
 
         password = value.get_secret_value()
 
-        if not 15 <= len(password) <= 128:
-            raise ValueError("비밀번호는 15자 이상 128자 이하여야 합니다.")
+        if not 8 <= len(password) <= 128:
+            raise ValueError("비밀번호는 8자 이상 128자 이하여야 합니다.")
 
         return value
 
