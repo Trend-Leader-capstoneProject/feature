@@ -40,7 +40,7 @@ type PersonalizedMainScreenProps = NativeStackScreenProps<
   "Main"
 >;
 
-export function PersonalizedMainScreen ({
+export function PersonalizedMainScreen({
   navigation,
 }: PersonalizedMainScreenProps) {
   const { authState, logout, revalidateSession } = useAuth();
@@ -86,6 +86,12 @@ export function PersonalizedMainScreen ({
     isAxiosError<CommonErrorResponse<TrendListErrorData, 409>>(error) &&
     error.response?.status === 409 &&
     error.response.data?.data?.reason === "INTERESTS_NOT_AVAILABLE";
+
+  // 일반 홈 진입점은 초기 Loading 및 409 도메인 오류에서는 숨긴다.
+  // INTERESTS_NOT_AVAILABLE은 기존 복구용 CTA를 사용한다.
+  const showStandardInterestEditAction =
+    !isPending &&
+    !(isError && isAxiosError(error) && error.response?.status === 409);
 
   const handleSessionRevalidation = useCallback((): void => {
     setSessionRevalidationStatus("checking");
@@ -365,6 +371,15 @@ export function PersonalizedMainScreen ({
           관심사에 맞는 트렌드를 확인해 보세요.
         </Text>
       </View>
+
+      {showStandardInterestEditAction && (
+        <PrimaryButton
+          label="관심사 수정하기"
+          onPress={() => {
+            navigation.navigate("InterestEdit");
+          }}
+        />
+      )}
 
       <View style={styles.actions}>
         <PrimaryButton

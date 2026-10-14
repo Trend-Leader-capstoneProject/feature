@@ -167,6 +167,72 @@ describe("Personalized Main", () => {
     ).toBeTruthy();
   });
 
+  test("정상 맞춤 트렌드 목록에서 관심사 수정 화면으로 이동할 수 있다", async () => {
+    const firstPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "관심사 맞춤 테스트 트렌드",
+          summary: "정상 상태에서 관심사 수정 진입을 확인합니다.",
+          thumbnail_url: null,
+          last_collected_at: "2026-10-01T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: {
+        pages: [firstPage],
+        pageParams: [undefined],
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      hasCursorRecoveryFailed: false,
+      error: null,
+    } as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    // 1. 기존 맞춤 트렌드 목록을 정상적으로 표시한다.
+    expect(screen.getByText("관심사 맞춤 테스트 트렌드")).toBeTruthy();
+
+    // 2. 정상 상태에도 관심사 수정 진입점이 존재한다.
+    const interestEditButton = screen.getByRole("button", {
+      name: "관심사 수정하기",
+    });
+
+    expect(interestEditButton).toBeTruthy();
+
+    // 3. 관심사 수정 진입점은 한 개여야 한다.
+    expect(
+      screen.getAllByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toHaveLength(1);
+
+    // 4. 사용자가 누르면 기존 InterestEdit Route로 이동한다.
+    await fireEvent.press(interestEditButton);
+
+    expect(navigationMock.navigate).toHaveBeenCalledWith("InterestEdit");
+
+    // 5. 기존 전체 최신 트렌드 진입점도 유지한다.
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+  });
+
   test("정상 조회 결과가 비어 있으면 Personalized Empty 안내를 표시한다", async () => {
     const emptyPage: TrendListData = {
       items: [],
@@ -594,7 +660,10 @@ describe("Personalized Main", () => {
 
     try {
       await render(
-        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
+        <PersonalizedMainScreen
+          navigation={navigationMock}
+          route={routeMock}
+        />,
       );
 
       // 1. Session 재검증이 실행된다.
@@ -831,6 +900,13 @@ describe("Personalized Main", () => {
     });
 
     expect(editButton).toBeTruthy();
+
+    // 정상 상태 CTA와 복구용 CTA가 중복 표시되지 않는다.
+    expect(
+      screen.getAllByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toHaveLength(1);
 
     // 4. 전체 최신 목록 진입점도 유지한다.
     expect(
@@ -1085,7 +1161,10 @@ describe("Personalized Main", () => {
       } as unknown as ReturnType<typeof usePersonalizedTrends>);
 
       await render(
-        <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
+        <PersonalizedMainScreen
+          navigation={navigationMock}
+          route={routeMock}
+        />,
       );
 
       // 기존 데이터는 정상 표시된다.
