@@ -3,8 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -27,7 +29,13 @@ import {
   ScreenContainer,
 } from "../../shared/components";
 
-import { colors, spacing, typography } from "../../shared/constants";
+import {
+  colors,
+  radius,
+  sizes,
+  spacing,
+  typography,
+} from "../../shared/constants";
 
 import type { AppStackParamList } from "../navigation/AppNavigator";
 
@@ -137,6 +145,14 @@ export function PersonalizedMainScreen({
   const userName =
     authState.status === "AUTHENTICATED" ? authState.session.user.name : null;
 
+  // 실제 맞춤 목록을 표시하는 상태에서만
+  // 홈 헤더를 FlatList 내부에 배치한다.
+  const isScrollableHome =
+    trends.length > 0 &&
+    !isInterestsNotInitializedError &&
+    !isInterestsNotAvailableError &&
+    !isPending &&
+    !(isError && (trendData === undefined || hasCursorRecoveryFailed));
   async function handleLogout(): Promise<void> {
     if (isLoggingOut) {
       return;
@@ -259,6 +275,80 @@ export function PersonalizedMainScreen({
     return null;
   }
 
+  function renderHomeHeader() {
+    return (
+      <>
+        <View style={styles.header}>
+          <Text accessibilityRole="header" style={styles.title}>
+            Trend Leader
+          </Text>
+
+          <Text style={styles.description}>
+            {userName
+              ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
+              : "관심 분야의 최신 흐름을 확인해 보세요."}
+          </Text>
+        </View>
+
+        <View style={styles.actions} testID="home-quick-actions">
+          {showStandardInterestEditAction && (
+            <PrimaryButton
+              label="관심사 수정하기"
+              onPress={() => {
+                navigation.navigate("InterestEdit");
+              }}
+            />
+          )}
+
+          <PrimaryButton
+            label="최신 트렌드 보기"
+            onPress={() => {
+              navigation.navigate("LatestTrend");
+            }}
+          />
+        </View>
+
+        <View style={styles.accountActions}>
+          <View style={styles.accountActions}>
+            <Pressable
+              accessibilityLabel="로그아웃"
+              accessibilityRole="button"
+              accessibilityState={{
+                busy: isLoggingOut,
+                disabled: isLoggingOut,
+              }}
+              disabled={isLoggingOut}
+              onPress={() => {
+                void handleLogout();
+              }}
+              style={({ pressed }) => [
+                styles.logoutButton,
+                pressed && !isLoggingOut && styles.logoutButtonPressed,
+              ]}
+            >
+              {isLoggingOut && (
+                <ActivityIndicator
+                  color={colors.actionSecondaryText}
+                  size="small"
+                />
+              )}
+
+              <Text style={styles.logoutButtonText}>로그아웃</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {isScrollableHome && (
+          <Text
+            accessibilityRole="header"
+            style={styles.personalizedSectionTitle}
+          >
+            관심사 맞춤 트렌드
+          </Text>
+        )}
+      </>
+    );
+  }
   function renderContent() {
     // Phase 5-3A: 관심사 미초기화 시 Session 재검증 우선
 
@@ -330,12 +420,14 @@ export function PersonalizedMainScreen({
     }
 
     // Phase 5-2B: 정상 조회된 목록
-    if (trends.length > 0) {
+    // Phase 5-2B: 정상 조회된 목록
+    if (isScrollableHome) {
       return (
         <FlatList
           contentContainerStyle={styles.trendList}
           data={trends}
           keyExtractor={(item) => item.trend_id.toString()}
+          ListHeaderComponent={renderHomeHeader()}
           ListFooterComponent={renderListFooter}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
@@ -358,45 +450,7 @@ export function PersonalizedMainScreen({
 
   return (
     <ScreenContainer>
-      <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Trend Leader
-        </Text>
-
-        <Text style={styles.description}>
-          {userName
-            ? `${userName}님, 로그인되어 있습니다.`
-            : "로그인 세션이 정상적으로 복원되었습니다."}
-          {"\n"}
-          관심사에 맞는 트렌드를 확인해 보세요.
-        </Text>
-      </View>
-
-      {showStandardInterestEditAction && (
-        <PrimaryButton
-          label="관심사 수정하기"
-          onPress={() => {
-            navigation.navigate("InterestEdit");
-          }}
-        />
-      )}
-
-      <View style={styles.actions}>
-        <PrimaryButton
-          label="최신 트렌드 보기"
-          onPress={() => {
-            navigation.navigate("LatestTrend");
-          }}
-        />
-
-        <PrimaryButton
-          label="로그아웃"
-          loading={isLoggingOut}
-          onPress={() => {
-            void handleLogout();
-          }}
-        />
-      </View>
+      {!isScrollableHome && renderHomeHeader()}
 
       <View style={styles.contentRegion}>{renderContent()}</View>
     </ScreenContainer>
@@ -411,6 +465,10 @@ const styles = StyleSheet.create({
 
   actions: {
     gap: spacing.contentGap,
+    marginBottom: spacing.contentGap,
+  },
+
+  accountActions: {
     marginBottom: spacing.sectionGap,
   },
 
@@ -435,5 +493,32 @@ const styles = StyleSheet.create({
   trendList: {
     gap: spacing.itemGap,
     paddingBottom: spacing.screenBottomSpacing,
+  },
+
+  personalizedSectionTitle: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+    marginBottom: spacing.itemGap,
+  },
+
+  logoutButton: {
+    alignSelf: "flex-end",
+    minHeight: sizes.buttonHeight,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.inlineGap,
+    paddingHorizontal: spacing.space5,
+    borderRadius: radius.radiusMedium,
+    backgroundColor: colors.actionSecondary,
+  },
+
+  logoutButtonPressed: {
+    backgroundColor: colors.backgroundSubtle,
+  },
+
+  logoutButtonText: {
+    ...typography.button,
+    color: colors.actionSecondaryText,
   },
 });

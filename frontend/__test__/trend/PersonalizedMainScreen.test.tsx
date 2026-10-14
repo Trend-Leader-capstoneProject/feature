@@ -3,6 +3,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react-native";
 import { act, type ComponentProps } from "react";
 
@@ -11,6 +12,7 @@ import { useAuth } from "../../src/app/providers/AuthProvider";
 import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
 import { TrendListData } from "../../src/features/trend/types/trend";
+import { colors } from "../../src/shared/constants";
 
 jest.mock("../../src/app/providers/AuthProvider", () => ({
   useAuth: jest.fn(),
@@ -141,9 +143,87 @@ describe("Personalized Main", () => {
       <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
 
+    // Home-H3D: 로그인 안내 대신 개인화 홈 문구를 표시한다.
+    expect(
+      screen.getByText(
+        "테스트 사용자님, 관심 분야의 최신 흐름을 확인해 보세요.",
+      ),
+    ).toBeTruthy();
+
+    expect(screen.queryByText(/로그인되어 있습니다/)).toBeNull();
+
+    expect(
+      screen.queryByText(/로그인 세션이 정상적으로 복원되었습니다/),
+    ).toBeNull();
+
+    // Home-H3: 헤더와 주요 기능이 FlatList 내부에 존재한다.
+    const list = screen.getByTestId("personalized-trend-list");
+
+    expect(within(list).getByText("Trend Leader")).toBeTruthy();
+
+    expect(
+      within(list).getByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      within(list).getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+
+    // Home-H3C: 개인화 트렌드 섹션 제목이 존재한다.
+    expect(
+      within(list).getByRole("header", {
+        name: "관심사 맞춤 트렌드",
+      }),
+    ).toBeTruthy();
+
+    // Home-H3E: 빠른 탐색과 로그아웃을 분리한다.
+    const quickActions = within(list).getByTestId("home-quick-actions");
+
+    expect(
+      within(quickActions).getByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      within(quickActions).getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+
+    // 로그아웃은 빠른 탐색 영역에 포함하지 않는다.
+    expect(
+      within(quickActions).queryByRole("button", {
+        name: "로그아웃",
+      }),
+    ).toBeNull();
+
+    // 로그아웃 기능 자체는 유지한다.
+    expect(
+      within(list).getByRole("button", {
+        name: "로그아웃",
+      }),
+    ).toBeTruthy();
+
+    // Home-H3F: 로그아웃은 보조 액션 스타일을 사용한다.
+    const logoutButton = within(list).getByRole("button", {
+      name: "로그아웃",
+    });
+
+    expect(logoutButton).toHaveStyle({
+      backgroundColor: colors.actionSecondary,
+    });
+
+    expect(screen.getByText("로그아웃")).toHaveStyle({
+      color: colors.actionSecondaryText,
+    });
+
     // 1. 서로 다른 페이지의 Trend가 모두 표시된다.
     expect(screen.getByText("AI 기술 트렌드")).toBeTruthy();
-
     expect(screen.getByText("게임 산업 트렌드")).toBeTruthy();
 
     // 2. TrendCard의 Summary도 정상 표시한다.
@@ -1537,5 +1617,74 @@ describe("Personalized Main", () => {
         await pendingRestart;
       });
     }
+  });
+
+  test("로그아웃 진행 중에는 버튼을 비활성화하고 중복 요청을 차단한다", async () => {
+    let resolveLogout!: () => void;
+
+    const pendingLogout = new Promise<void>((resolve) => {
+      resolveLogout = resolve;
+    });
+
+    const logoutMock = jest.fn(() => pendingLogout);
+
+    // 기존 Auth Mock의 세션 상태를 유지하면서 logout만 교체한다.
+    mockedUseAuth.mockReturnValue({
+      ...mockedUseAuth(),
+      logout: logoutMock,
+    });
+
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: true,
+      isError: false,
+      isFetching: true,
+    } as ReturnType<typeof usePersonalizedTrends>);
+
+    await render(
+      <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
+    );
+
+    const logoutButton = screen.getByRole("button", {
+      name: "로그아웃",
+    });
+
+    // 최초에는 누를 수 있다.
+    expect(logoutButton).toHaveProp(
+      "accessibilityState",
+      expect.objectContaining({
+        disabled: false,
+        busy: false,
+      }),
+    );
+
+    // 로그아웃 실행
+    await fireEvent.press(logoutButton);
+
+    expect(logoutMock).toHaveBeenCalledTimes(1);
+
+    // 요청이 완료되지 않은 동안 버튼을 비활성화한다.
+    const pendingButton = screen.getByRole("button", {
+      name: "로그아웃",
+    });
+
+    expect(pendingButton).toHaveProp(
+      "accessibilityState",
+      expect.objectContaining({
+        disabled: true,
+        busy: true,
+      }),
+    );
+
+    // 중복 요청을 허용하지 않는다.
+    await fireEvent.press(pendingButton);
+
+    expect(logoutMock).toHaveBeenCalledTimes(1);
+
+    // 테스트 종료 전 대기 중인 요청을 정리한다.
+    await act(async () => {
+      resolveLogout();
+      await pendingLogout;
+    });
   });
 });
