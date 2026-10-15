@@ -309,33 +309,31 @@ export function PersonalizedMainScreen({
         </View>
 
         <View style={styles.accountActions}>
-          <View style={styles.accountActions}>
-            <Pressable
-              accessibilityLabel="로그아웃"
-              accessibilityRole="button"
-              accessibilityState={{
-                busy: isLoggingOut,
-                disabled: isLoggingOut,
-              }}
-              disabled={isLoggingOut}
-              onPress={() => {
-                void handleLogout();
-              }}
-              style={({ pressed }) => [
-                styles.logoutButton,
-                pressed && !isLoggingOut && styles.logoutButtonPressed,
-              ]}
-            >
-              {isLoggingOut && (
-                <ActivityIndicator
-                  color={colors.actionSecondaryText}
-                  size="small"
-                />
-              )}
+          <Pressable
+            accessibilityLabel="로그아웃"
+            accessibilityRole="button"
+            accessibilityState={{
+              busy: isLoggingOut,
+              disabled: isLoggingOut,
+            }}
+            disabled={isLoggingOut}
+            onPress={() => {
+              void handleLogout();
+            }}
+            style={({ pressed }) => [
+              styles.logoutButton,
+              pressed && !isLoggingOut && styles.logoutButtonPressed,
+            ]}
+          >
+            {isLoggingOut && (
+              <ActivityIndicator
+                color={colors.actionSecondaryText}
+                size="small"
+              />
+            )}
 
-              <Text style={styles.logoutButtonText}>로그아웃</Text>
-            </Pressable>
-          </View>
+            <Text style={styles.logoutButtonText}>로그아웃</Text>
+          </Pressable>
         </View>
 
         {isScrollableHome && (
