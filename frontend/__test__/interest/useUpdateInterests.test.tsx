@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  InfiniteQueryObserver,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { AxiosError } from "axios";
 import type { PropsWithChildren } from "react";
@@ -247,6 +251,7 @@ describe("useUpdateInterests", () => {
     const cancelSpy = jest.spyOn(queryClient, "cancelQueries");
 
     const removeSpy = jest.spyOn(queryClient, "removeQueries");
+    const resetSpy = jest.spyOn(queryClient, "resetQueries");
 
     mockedUpdateUserInterests.mockResolvedValueOnce(UPDATED_INTERESTS);
 
@@ -285,18 +290,31 @@ describe("useUpdateInterests", () => {
       CATEGORY_DATA,
     );
 
-    // Personalized Namespace만 취소하고 제거
+    // Personalized Namespace만 취소하고,
+    // 비활성 Query 제거 및 활성 Query 초기화
     expect(cancelSpy).toHaveBeenCalledWith({
       queryKey: trendQueryKeys.personalizedAll,
     });
 
+    // 비활성 Personalized Query만 제거
     expect(removeSpy).toHaveBeenCalledWith({
       queryKey: trendQueryKeys.personalizedAll,
+      type: "inactive",
     });
 
-    // 반드시 취소 요청 후 Cache 제거
+    // 활성 Personalized Query는 초기화 및 재조회
+    expect(resetSpy).toHaveBeenCalledWith({
+      queryKey: trendQueryKeys.personalizedAll,
+      type: "active",
+    });
+
+    // 실행 순서: 취소 → 비활성 제거 → 활성 초기화
     expect(cancelSpy.mock.invocationCallOrder[0]).toBeLessThan(
       removeSpy.mock.invocationCallOrder[0],
+    );
+
+    expect(removeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      resetSpy.mock.invocationCallOrder[0],
     );
   });
 
@@ -566,5 +584,177 @@ describe("useUpdateInterests", () => {
     });
 
     expect(freshView.result.current.data?.pages).toEqual([freshPage]);
+  });
+
+  test("관심사 PUT 성공 시 이미 마운트된 맞춤 목록을 새 관심사로 재조회한다", async () => {
+    const queryClient = createTestQueryClient();
+
+    const oldPage: TrendListData = {
+      items: [
+        {
+          trend_id: 101,
+          title: "기존 관심사 트렌드",
+          summary: null,
+          thumbnail_url: null,
+          last_collected_at: "2026-10-09T09:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const newPage: TrendListData = {
+      items: [
+        {
+          trend_id: 202,
+          title: "변경된 관심사 트렌드",
+          summary: null,
+          thumbnail_url: null,
+          last_collected_at: "2026-10-09T10:00:00Z",
+          categories: [],
+          latest_source: null,
+        },
+      ],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    queryClient.setQueryData(userInterestQueryKeys.me, CURRENT_INTERESTS);
+
+    let interestsUpdated = false;
+
+    mockedGetPersonalizedTrends.mockReset();
+    mockedUpdateUserInterests.mockReset();
+
+    // PUT 이전에는 기존 데이터, 이후에는 변경된 데이터를 반환한다.
+    mockedGetPersonalizedTrends.mockImplementation(async () => {
+      return interestsUpdated ? newPage : oldPage;
+    });
+
+    mockedUpdateUserInterests.mockImplementation(async () => {
+      interestsUpdated = true;
+      return UPDATED_INTERESTS;
+    });
+
+    // 기존 Main 화면이 계속 마운트되어 있는 상황을 재현한다.
+    const { result } = await renderHook(
+      () => ({
+        personalized: usePersonalizedTrends(),
+        update: useUpdateInterests(),
+      }),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    // 1. 최초 관심사 기준 목록이 표시된다.
+    await waitFor(() => {
+      expect(
+        result.current.personalized.data?.pages[0]?.items[0]?.trend_id,
+      ).toBe(101);
+    });
+
+    const requestCountBeforeUpdate =
+      mockedGetPersonalizedTrends.mock.calls.length;
+
+    // 2. 관심사를 변경하고 PUT 요청에 성공한다.
+    await act(async () => {
+      await result.current.update.mutateAsync({
+        category_ids: [1, 3],
+      });
+    });
+
+    // 3. 기존 Hook을 다시 마운트하지 않고 자동 재조회해야 한다.
+    await waitFor(() => {
+      expect(mockedGetPersonalizedTrends.mock.calls.length).toBeGreaterThan(
+        requestCountBeforeUpdate,
+      );
+
+      expect(
+        result.current.personalized.data?.pages[0]?.items[0]?.trend_id,
+      ).toBe(202);
+    });
+  });
+
+  test("관심사 PUT 성공 시 활성 개인화 Query를 유지하고 첫 페이지를 재조회한다", async () => {
+    const queryClient = createTestQueryClient();
+
+    const oldPage: TrendListData = {
+      items: [],
+      next_cursor: "OLD_CURSOR",
+      has_next: true,
+    };
+
+    const newPage: TrendListData = {
+      items: [],
+      next_cursor: null,
+      has_next: false,
+    };
+
+    const queryKey = trendQueryKeys.personalizedList(20);
+
+    // 이전 관심사 기준의 기존 페이지를 구성한다.
+    queryClient.setQueryData(queryKey, {
+      pages: [oldPage],
+      pageParams: [undefined],
+    });
+
+    mockedGetPersonalizedTrends.mockReset();
+    mockedUpdateUserInterests.mockReset();
+
+    mockedGetPersonalizedTrends.mockResolvedValue(newPage);
+    mockedUpdateUserInterests.mockResolvedValue(UPDATED_INTERESTS);
+
+    // React Navigation에서 Main이 마운트된 상태를
+    // 활성 Infinite Query Observer로 재현한다.
+    const observer = new InfiniteQueryObserver(queryClient, {
+      queryKey,
+      queryFn: ({ pageParam, signal }) =>
+        getPersonalizedTrends({ cursor: pageParam, limit: 20 }, signal),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: (lastPage) =>
+        lastPage.has_next ? (lastPage.next_cursor ?? undefined) : undefined,
+      staleTime: Infinity,
+    });
+
+    const unsubscribe = observer.subscribe(() => undefined);
+
+    try {
+      expect(
+        queryClient
+          .getQueryCache()
+          .find({ queryKey, exact: true })
+          ?.getObserversCount(),
+      ).toBe(1);
+
+      const { result } = await renderHook(() => useUpdateInterests(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({
+          category_ids: [1, 3],
+        });
+      });
+
+      // 기존 활성 Observer가 유지되는 상황에서
+      // Cursor 없는 첫 페이지가 자동 재조회되어야 한다.
+      await waitFor(() => {
+        expect(mockedGetPersonalizedTrends).toHaveBeenCalledWith(
+          { cursor: undefined, limit: 20 },
+          expect.any(AbortSignal),
+        );
+
+        expect(queryClient.getQueryData(queryKey)).toMatchObject({
+          pages: [newPage],
+          pageParams: [undefined],
+        });
+      });
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
   });
 });

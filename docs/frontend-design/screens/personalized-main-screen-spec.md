@@ -1,14 +1,14 @@
 # Trend Leader PersonalizedMainScreen — Screen Specification v0.1
 
-> 문서 유형: Frontend Screen Specification  
-> 상태: **Candidate** — B안 화면 역할·동작 요구는 사용자 승인, 시각 배치는 구현/대표 화면 검증 후 확정  
-> 작성 기준일: 2026-10-13 (Asia/Seoul)  
-> 대상 플랫폼: Expo / React Native, Android 우선  
-> 기준 브랜치/원격 HEAD: `feat-personalized-trend-list` / `ff35b89160fd18a683adf14022725088bbef99a4`  
-> 현재 구현: `frontend/src/app/screens/MainPlaceholderScreen.tsx` (명칭 변경 전)  
-> 예정 구현: `frontend/src/app/screens/PersonalizedMainScreen.tsx`  
-> 상위 계약: `Trend_Leader_관심사_기반_맞춤_트렌드_목록_조회_설계_확정안_v1.0.md` 및 v1.1 FROZEN (화면 역할 변경만 v1.1 우선)  
-> 관련 UI 기준: `docs/frontend-design/design-system/design-system-snapshot.md` v0.1 **Candidate**  
+> 문서 유형: Frontend Screen Specification
+> 상태: **Candidate** — B안 화면 역할·동작 요구는 사용자 승인, 시각 배치는 구현/대표 화면 검증 후 확정
+> 작성 기준일: 2026-10-13 (Asia/Seoul)
+> 대상 플랫폼: Expo / React Native, Android 우선
+> 기준 브랜치/원격 HEAD: `feat-personalized-trend-list` / `ff35b89160fd18a683adf14022725088bbef99a4`
+> 현재 구현: `frontend/src/app/screens/MainPlaceholderScreen.tsx` (명칭 변경 전)
+> 예정 구현: `frontend/src/app/screens/PersonalizedMainScreen.tsx`
+> 상위 계약: `Trend_Leader_관심사_기반_맞춤_트렌드_목록_조회_설계_확정안_v1.0.md` 및 v1.1 FROZEN (화면 역할 변경만 v1.1 우선)
+> 관련 UI 기준: `docs/frontend-design/design-system/design-system-snapshot.md` v0.1 **Candidate**
 > 구현 상태: Phase 5-5 체크포인트까지 구현·자동 검증; B안 UI 리팩터링 미시작
 
 ## 1. 화면 목적
@@ -159,3 +159,36 @@
 **현재 확정된 것:** B안 제품 역할, 맞춤 추천 우선, 실제 InterestEdit/LatestTrend 연결, 로그아웃 강조 하향, 스크롤 구조 우선 보존, 북마크 구현 뒤 연결, Bottom Tab 보류.
 
 **문서 상태 주의:** 기능별 설계 확정안 v1.1은 FROZEN이다. 본 화면 명세서는 `docs/frontend-design/README.md`의 상태 규칙에 따라 Candidate로 유지한다. 이 화면 명세의 동작 요구는 승인됐지만, Home-H1~H4 구현과 Android 실기기 Acceptance 및 시각 배치 동결은 아직 완료되지 않았다.
+
+## 11. Home-H4B 구현 및 Acceptance 추적 (2026-10-15)
+
+### 확인된 사항
+
+- 관심사 PUT 성공 후 Main의 활성 Personalized Query 자동 재조회
+- 비활성 Personalized Query Cache 제거
+- 기존 Cursor 및 Pagination 상태 폐기
+- Public 최신 목록 Cache 보존
+- 관련 Hook 테스트 7개 및 전체 Frontend 테스트 150개 PASS
+- TypeScript PASS
+- Android 실기기 PUT 이후 Personalized GET 자동 발생 확인
+- 수동 Refresh 없이 변경된 개인화 목록 표시 확인
+
+### 추가 관찰
+
+전체 테스트 실행 중
+`PersonalizedMainCursorRecovery.test.tsx`에서
+Jest 5초 Timeout이 1회 발생하였다.
+
+동일 테스트 단독 재실행 3회 PASS,
+이후 전체 테스트 재실행 PASS를 확인하였다.
+
+원인은 미확정이며, 재발 시 비동기 테스트 안정성을
+별도 점검한다. 기능 결함으로 단정하지 않는다.
+
+### 후속 작업
+
+- 홈 상단 영역 및 빠른 탐색 CTA의 시각적 밀도 개선
+- 중복 여백 및 버튼 배치 재검토
+- 기타 Home-H4 Acceptance 미검증 항목 별도 추적
+
+시각 배치는 계속 Candidate 상태로 유지한다.

@@ -30,9 +30,16 @@ export function useUpdateInterests() {
         queryKey: trendQueryKeys.personalizedAll,
       });
 
-      // 3. 이전 Pages 및 Cursor 제거
+      // 3. 비활성 Personalized Query만 Cache에서 제거
       queryClient.removeQueries({
         queryKey: trendQueryKeys.personalizedAll,
+        type: "inactive",
+      });
+
+      // 4. 활성 Personalized Query 초기화 및 첫 페이지 재조회
+      await queryClient.resetQueries({
+        queryKey: trendQueryKeys.personalizedAll,
+        type: "active",
       });
     },
   });

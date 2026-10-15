@@ -1,12 +1,12 @@
 # Trend Leader 관심사 기반 맞춤 트렌드 목록 조회 설계 확정안 v1.1
 
-> 문서 상태: **FROZEN — B안 개인화 홈 역할·기능 정책 확정** (화면의 구체적인 시각 배치는 별도 Candidate)  
-> 작성 기준일: 2026-10-13 (Asia/Seoul)  
-> 기준 Repository: `Trend-Leader-capstoneProject/feature`  
-> 기준 브랜치: `feat-personalized-trend-list`  
-> 원격 기준 HEAD: `ff35b89160fd18a683adf14022725088bbef99a4` (Phase 5-5 체크포인트)  
-> 선행 문서: 같은 폴더의 `Trend_Leader_관심사_기반_맞춤_트렌드_목록_조회_설계_확정안_v1.0.md` (FROZEN)  
-> 관련 문서: `docs/frontend-design/screens/personalized-main-screen-spec.md` (화면 동작 요구 승인, 구체 시각 디자인 Candidate)  
+> 문서 상태: **FROZEN — B안 개인화 홈 역할·기능 정책 확정** (화면의 구체적인 시각 배치는 별도 Candidate)
+> 작성 기준일: 2026-10-13 (Asia/Seoul)
+> 기준 Repository: `Trend-Leader-capstoneProject/feature`
+> 기준 브랜치: `feat-personalized-trend-list`
+> 원격 기준 HEAD: `ff35b89160fd18a683adf14022725088bbef99a4` (Phase 5-5 체크포인트)
+> 선행 문서: 같은 폴더의 `Trend_Leader_관심사_기반_맞춤_트렌드_목록_조회_설계_확정안_v1.0.md` (FROZEN)
+> 관련 문서: `docs/frontend-design/screens/personalized-main-screen-spec.md` (화면 동작 요구 승인, 구체 시각 디자인 Candidate)
 > 구현 상태: Phase 5-5 자동 테스트 142개 PASS 및 TypeScript PASS는 사용자 실행 결과. **B안 홈 리팩터링 자체는 미구현·미검증.** 실기기 Acceptance는 별도.
 
 ## 0. 본 문서의 효력과 승계 방식
@@ -153,5 +153,55 @@
 | --- | --- | --- |
 | v1.0 | 2026-10-06 | 맞춤 목록 조회 및 Main 기본 콘텐츠 설계 FROZEN |
 | v1.1 (FROZEN) | 2026-10-13 | B안 개인화 홈 역할·명칭·진입점·로그아웃/스크롤/북마크 연결 정책 확정, 오류-캐시 상태 구분 보완. 기존 API·도메인·Cursor 계약 승계 |
+| v1.1 구현 보강 | 2026-10-15 | Home-H4B 활성·비활성 Personalized Query 분리 정책 확정 및 RED→GREEN·Android 검증 기록. 기존 API·Cursor 계약 변경 없음 |
 
-**다음 작업:** 본 확정안과 Screen Specification을 기존 기능 코드와 분리해 문서만 커밋한다. 이후 Home-H1 순수 이름 변경으로 착수한다. 실제 Home 구현·Backend/실기기 검증 상태는 별도로 추적한다.
+**2026-10-13 설계 당시 다음 작업:** 본 확정안과 Screen Specification을 기존 기능 코드와 분리해 문서만 커밋한다. 이후 Home-H1 순수 이름 변경으로 착수한다. 실제 Home 구현·Backend/실기기 검증 상태는 별도로 추적한다.
+
+## 10. Home-H4B — 관심사 변경 후 자동 갱신 구현 정책
+
+> 확정 및 검증일: 2026-10-15
+> 상태: 구현 및 자동·Android 실기기 검증 완료
+> 성격: v1.0 §8.1에서 보류한 TanStack Query 처리 방식 구체화
+
+### 10.1 발생한 문제
+
+관심사 PUT 성공 후 기존 Personalized Query 전체에
+`removeQueries()`를 적용하면, Main 화면의 활성 Observer가
+존재하더라도 자동 재조회가 발생하지 않는 현상이 확인되었다.
+
+실기기에서는 수동 Pull-to-refresh 이후에만
+변경된 관심사 기준 목록이 표시되었다.
+
+### 10.2 확정된 구현 정책
+
+관심사 PUT 성공 시 다음 순서로 처리한다.
+
+1. PUT 응답으로 사용자 관심사 Cache 갱신
+2. Personalized Namespace의 진행 중인 요청 취소
+3. 비활성 Personalized Query는 `removeQueries()`로 제거
+4. 활성 Personalized Query는 `resetQueries()`로 초기화 및 재조회
+
+이전 pages, pageParams, Cursor는 재사용하지 않는다.
+활성 Query의 Observer는 유지하며, 최신 관심사 기준
+Cursor 없는 첫 페이지부터 조회한다.
+
+Public 최신 목록 및 Category Master Cache는 변경하지 않는다.
+PUT 실패 시 위 초기화·제거 처리를 수행하지 않는다.
+
+### 10.3 검증 결과
+
+- 기존 활성 Observer 유지 상황의 RED 재현 성공
+- 구현 변경 후 관심사 Hook 테스트 7개 PASS
+- 전체 Frontend 테스트 150개 PASS
+- TypeScript `tsc --noEmit` PASS
+- Android 실기기에서 PUT 200 이후
+  GET /api/trends/personalized?limit=20 200 발생 확인
+- 수동 Refresh 없이 변경된 관심사 목록 반영 확인
+
+### 10.4 범위와 주의사항
+
+본 결정은 Query Lifecycle의 구현 방식 구체화이며,
+Backend API, Cursor Fingerprint, 인증 및 정렬 계약을 변경하지 않는다.
+
+Android에서 확인한 관심사 수정 흐름 외의
+전체 Home-H4 Acceptance를 일괄 완료 처리하지 않는다.
