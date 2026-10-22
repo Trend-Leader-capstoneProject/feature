@@ -159,6 +159,50 @@ describe("Personalized Main", () => {
     // Home-H3: 헤더와 주요 기능이 FlatList 내부에 존재한다.
     const list = screen.getByTestId("personalized-trend-list");
 
+    // Home-H4C-2A: 개선형 B안의 헤더·섹션 구조 검증
+    const topBar = within(list).getByTestId("home-top-bar");
+
+    expect(
+      within(topBar).getByRole("header", {
+        name: "Trend Leader",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      within(topBar).getByRole("button", {
+        name: "로그아웃",
+      }),
+    ).toBeTruthy();
+
+    const personalizedSection = within(list).getByTestId(
+      "home-personalized-section",
+    );
+
+    expect(
+      within(personalizedSection).getByRole("header", {
+        name: "관심사 맞춤 트렌드",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      within(personalizedSection).getByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      within(personalizedSection).getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
+
+    // 로그아웃은 콘텐츠 탐색 영역과 분리한다.
+    expect(
+      within(personalizedSection).queryByRole("button", {
+        name: "로그아웃",
+      }),
+    ).toBeNull();
+
     expect(within(list).getByText("Trend Leader")).toBeTruthy();
 
     expect(
@@ -215,11 +259,11 @@ describe("Personalized Main", () => {
     });
 
     expect(logoutButton).toHaveStyle({
-      backgroundColor: colors.actionSecondary,
+      backgroundColor: "transparent",
     });
 
     expect(screen.getByText("로그아웃")).toHaveStyle({
-      color: colors.actionSecondaryText,
+      color: colors.textSecondary,
     });
 
     // 1. 서로 다른 페이지의 Trend가 모두 표시된다.
@@ -336,6 +380,25 @@ describe("Personalized Main", () => {
     await render(
       <PersonalizedMainScreen navigation={navigationMock} route={routeMock} />,
     );
+
+    // Home-H4C-2A: 정상 Empty에도 개인화 섹션은 유지한다.
+    expect(
+      screen.getByRole("header", {
+        name: "관심사 맞춤 트렌드",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      screen.getByRole("button", {
+        name: "관심사 수정하기",
+      }),
+    ).toBeTruthy();
+
+    expect(
+      screen.getByRole("button", {
+        name: "최신 트렌드 보기",
+      }),
+    ).toBeTruthy();
 
     // 1. 정상 Empty 안내 표시
     expect(

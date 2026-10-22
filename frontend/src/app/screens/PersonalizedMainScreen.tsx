@@ -275,40 +275,16 @@ export function PersonalizedMainScreen({
     return null;
   }
 
-  function renderHomeHeader() {
-    return (
-      <>
-        <View style={styles.header}>
+
+function renderHomeHeader() {
+  return (
+    <>
+      <View style={styles.header}>
+        <View style={styles.topBar} testID="home-top-bar">
           <Text accessibilityRole="header" style={styles.title}>
             Trend Leader
           </Text>
 
-          <Text style={styles.description}>
-            {userName
-              ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
-              : "관심 분야의 최신 흐름을 확인해 보세요."}
-          </Text>
-        </View>
-
-        <View style={styles.actions} testID="home-quick-actions">
-          {showStandardInterestEditAction && (
-            <PrimaryButton
-              label="관심사 수정하기"
-              onPress={() => {
-                navigation.navigate("InterestEdit");
-              }}
-            />
-          )}
-
-          <PrimaryButton
-            label="최신 트렌드 보기"
-            onPress={() => {
-              navigation.navigate("LatestTrend");
-            }}
-          />
-        </View>
-
-        <View style={styles.accountActions}>
           <Pressable
             accessibilityLabel="로그아웃"
             accessibilityRole="button"
@@ -322,31 +298,86 @@ export function PersonalizedMainScreen({
             }}
             style={({ pressed }) => [
               styles.logoutButton,
-              pressed && !isLoggingOut && styles.logoutButtonPressed,
+              pressed && !isLoggingOut && styles.secondaryPressed,
             ]}
           >
             {isLoggingOut && (
               <ActivityIndicator
-                color={colors.actionSecondaryText}
+                color={colors.textSecondary}
                 size="small"
               />
             )}
-
-            <Text style={styles.logoutButtonText}>로그아웃</Text>
+            <Text style={styles.logoutButtonText}>
+              로그아웃
+            </Text>
           </Pressable>
         </View>
 
-        {isScrollableHome && (
-          <Text
-            accessibilityRole="header"
-            style={styles.personalizedSectionTitle}
-          >
-            관심사 맞춤 트렌드
-          </Text>
-        )}
-      </>
-    );
-  }
+        <Text style={styles.description}>
+          {userName
+            ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
+            : "관심 분야의 최신 흐름을 확인해 보세요."}
+        </Text>
+      </View>
+
+      <View
+        style={styles.personalizedSection}
+        testID="home-personalized-section"
+      >
+        <View
+          style={styles.actions}
+          testID="home-quick-actions"
+        >
+          {showStandardInterestEditAction && (
+            <View style={styles.sectionHeadingRow}>
+              <Text
+                accessibilityRole="header"
+                style={styles.personalizedSectionTitle}
+              >
+                관심사 맞춤 트렌드
+              </Text>
+
+              <Pressable
+                accessibilityLabel="관심사 수정하기"
+                accessibilityRole="button"
+                onPress={() => {
+                  navigation.navigate("InterestEdit");
+                }}
+                style={({ pressed }) => [
+                  styles.interestEditButton,
+                  pressed && styles.secondaryPressed,
+                ]}
+              >
+                <Text style={styles.interestEditText}>
+                  관심사 수정
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          <View style={styles.latestActionRow}>
+            <Pressable
+              accessibilityLabel="최신 트렌드 보기"
+              accessibilityRole="button"
+              onPress={() => {
+                navigation.navigate("LatestTrend");
+              }}
+              style={({ pressed }) => [
+                styles.latestTrendButton,
+                pressed && styles.secondaryPressed,
+              ]}
+            >
+              <Text style={styles.latestTrendText}>
+                전체 최신 보기 ↗
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </>
+  );
+}
+
   function renderContent() {
     // Phase 5-3A: 관심사 미초기화 시 Session 재검증 우선
 
@@ -455,24 +486,26 @@ export function PersonalizedMainScreen({
   );
 }
 
+
 const styles = StyleSheet.create({
+  // 1. 홈 상단 헤더
   header: {
-    gap: spacing.contentGap,
-    marginBottom: spacing.sectionGap,
+    gap: spacing.space2,
+    marginBottom: spacing.space6,
   },
 
-  actions: {
-    gap: spacing.contentGap,
-    marginBottom: spacing.contentGap,
-  },
-
-  accountActions: {
-    marginBottom: spacing.sectionGap,
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.space2,
   },
 
   title: {
     ...typography.screenTitle,
     color: colors.textPrimary,
+    flexShrink: 1,
   },
 
   description: {
@@ -480,6 +513,86 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 
+  // 2. 개인화 트렌드 섹션
+  personalizedSection: {
+    marginBottom: spacing.space2,
+  },
+
+  actions: {
+    gap: spacing.space2,
+  },
+
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.inlineGap,
+  },
+
+  personalizedSectionTitle: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
+
+  // 3. 관심사 수정 보조 버튼
+  interestEditButton: {
+    minHeight: sizes.touchTarget,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.space3,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.radiusMedium,
+    backgroundColor: colors.backgroundSurface,
+  },
+
+  interestEditText: {
+    ...typography.label,
+    color: colors.textStrongSecondary,
+  },
+
+  // 4. 전체 최신 트렌드 이동 링크
+  latestActionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+
+  latestTrendButton: {
+    minHeight: sizes.touchTarget,
+    justifyContent: "center",
+    paddingHorizontal: spacing.space2,
+    borderRadius: radius.radiusMedium,
+  },
+
+  latestTrendText: {
+    ...typography.label,
+    color: colors.textLink,
+  },
+
+  // 5. 로그아웃 보조 액션
+  logoutButton: {
+    minHeight: sizes.touchTarget,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.inlineGap,
+    paddingHorizontal: spacing.space2,
+    borderRadius: radius.radiusMedium,
+    backgroundColor: "transparent",
+  },
+
+  logoutButtonText: {
+    ...typography.label,
+    color: colors.textSecondary,
+  },
+
+  secondaryPressed: {
+    backgroundColor: colors.backgroundSubtle,
+  },
+
+  // 6. 기존 콘텐츠 및 목록 레이아웃 유지
   contentRegion: {
     flex: 1,
   },
@@ -491,32 +604,5 @@ const styles = StyleSheet.create({
   trendList: {
     gap: spacing.itemGap,
     paddingBottom: spacing.screenBottomSpacing,
-  },
-
-  personalizedSectionTitle: {
-    ...typography.sectionTitle,
-    color: colors.textPrimary,
-    marginBottom: spacing.itemGap,
-  },
-
-  logoutButton: {
-    alignSelf: "flex-end",
-    minHeight: sizes.buttonHeight,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.inlineGap,
-    paddingHorizontal: spacing.space5,
-    borderRadius: radius.radiusMedium,
-    backgroundColor: colors.actionSecondary,
-  },
-
-  logoutButtonPressed: {
-    backgroundColor: colors.backgroundSubtle,
-  },
-
-  logoutButtonText: {
-    ...typography.button,
-    color: colors.actionSecondaryText,
   },
 });
