@@ -3,8 +3,8 @@ import {
 } from "@react-navigation/native-stack";
 
 import {
-  MainPlaceholderScreen,
-} from "../screens/MainPlaceholderScreen";
+  PersonalizedMainScreen,
+} from "../screens/PersonalizedMainScreen";
 
 import {
   InterestEditScreen,
@@ -29,7 +29,7 @@ export function AppNavigator() {
     >
       <Stack.Screen
         name="Main"
-        component={MainPlaceholderScreen}
+        component={PersonalizedMainScreen}
       />
 
       <Stack.Screen

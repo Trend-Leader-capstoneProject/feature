@@ -418,6 +418,68 @@ describe(
     });
 
     test(
+      "8자 비밀번호는 정상 회원가입 요청에 포함한다",
+      async () => {
+        await prepareValidSignupForm();
+
+        const view = getRendered();
+        const password = "pass1234";
+
+        await fireEvent.changeText(
+          view.getByLabelText("비밀번호"),
+          password,
+        );
+        await fireEvent.changeText(
+          view.getByLabelText("비밀번호 확인"),
+          password,
+        );
+
+        signupMutateAsyncMock.mockResolvedValueOnce(SIGNUP_RESPONSE);
+
+        await fireEvent.press(
+          view.getByRole("button", { name: "회원가입" }),
+        );
+
+        await waitFor(() => {
+          expect(signupMutateAsyncMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+              password,
+              password_confirm: password,
+            }),
+          );
+        });
+      },
+    );
+
+    test(
+      "7자 비밀번호는 회원가입 요청 전에 거부한다",
+      async () => {
+        await prepareValidSignupForm();
+
+        const view = getRendered();
+        const password = "pass123";
+
+        await fireEvent.changeText(
+          view.getByLabelText("비밀번호"),
+          password,
+        );
+        await fireEvent.changeText(
+          view.getByLabelText("비밀번호 확인"),
+          password,
+        );
+
+        await fireEvent.press(
+          view.getByRole("button", { name: "회원가입" }),
+        );
+
+        expect(
+          view.getByText("비밀번호는 8자 이상이어야 합니다."),
+        ).toBeTruthy();
+        expect(signupMutateAsyncMock).not.toHaveBeenCalled();
+      },
+    );
+
+    test(
       "사용 가능 확인 후 아이디를 변경하면 기존 확인 상태를 무효화한다",
       async () => {
         const view =

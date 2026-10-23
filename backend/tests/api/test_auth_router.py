@@ -434,8 +434,8 @@ def test_signup_returns_409_for_duplicate_conflict(
         },
         {
             "login_id": "signup_user",
-            "password": "a" * 14,
-            "password_confirm": "a" * 14,
+            "password": "a" * 7,
+            "password_confirm": "a" * 7,
             "name": "회원가입 사용자",
         },
         {
