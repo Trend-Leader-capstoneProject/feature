@@ -9,6 +9,9 @@ import type {
   LoginResponse,
   SessionResponse,
 } from "../../src/features/auth/types/auth";
+import { getPersonalizedTrends } from "../../src/features/trend/api/getPersonalizedTrends";
+import { trendQueryKeys } from "../../src/features/trend/queryKeys";
+import { TrendListData } from "../../src/features/trend/types/trend";
 import {
   registerAuthFailureHandler,
   type AuthFailureHandler,
@@ -41,6 +44,12 @@ jest.mock("../../src/shared/handler/authRequestGate", () => ({
   allowAuthenticatedRequests: jest.fn(),
   blockAuthenticatedRequests: jest.fn(),
 }));
+
+jest.mock("../../src/features/trend/api/getPersonalizedTrends", () => ({
+  getPersonalizedTrends: jest.fn(),
+}));
+
+const mockedGetPersonalizedTrends = jest.mocked(getPersonalizedTrends);
 
 const mockedGetAuthSession = jest.mocked(getAuthSession);
 
@@ -400,5 +409,216 @@ describe("AuthProvider session termination", () => {
         next_step: "MAIN",
       },
     });
+  });
+
+  test("사용자 A 로그아웃 후 사용자 B 로그인 시 Personalized Cache가 남지 않는다", async () => {
+    const queryClient = createTestQueryClient();
+
+    const key20 = trendQueryKeys.personalizedList(20);
+    const key5 = trendQueryKeys.personalizedList(5);
+
+    // 1. 사용자 A의 기존 Personalized Cache
+    const userACache = {
+      pages: [
+        {
+          items: [],
+          next_cursor: "USER_A_CURSOR",
+          has_next: true,
+        },
+      ],
+      pageParams: [undefined],
+    };
+
+    // 서로 다른 limit을 가진 Cache를 준비한다.
+    queryClient.setQueryData(key20, userACache);
+    queryClient.setQueryData(key5, userACache);
+
+    // 2. 사용자 A 인증 Session 복원
+    const { result } = await renderAuthenticatedProvider(queryClient);
+
+    expect(result.current.authState).toEqual({
+      status: "AUTHENTICATED",
+      session: MAIN_SESSION,
+    });
+
+    expect(queryClient.getQueryData(key20)).toEqual(userACache);
+
+    expect(queryClient.getQueryData(key5)).toEqual(userACache);
+
+    // 3. 사용자 A 로그아웃
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+
+    // 기존 Personalized Cache 전체 삭제
+    expect(queryClient.getQueryData(key20)).toBeUndefined();
+    expect(queryClient.getQueryData(key5)).toBeUndefined();
+
+    expect(
+      queryClient.getQueryCache().findAll({
+        queryKey: trendQueryKeys.personalizedAll,
+      }),
+    ).toHaveLength(0);
+
+    // 4. 같은 Provider에서 사용자 B 로그인
+    await act(async () => {
+      await result.current.establishSession(LOGIN_B_RESPONSE);
+    });
+
+    expect(result.current.authState).toEqual({
+      status: "AUTHENTICATED",
+      session: {
+        user: LOGIN_B_RESPONSE.user,
+        has_selected_interests: true,
+        next_step: "MAIN",
+      },
+    });
+
+    // 5. B 로그인 직후 A의 Cache가 복원되지 않아야 한다.
+    expect(queryClient.getQueryData(key20)).toBeUndefined();
+    expect(queryClient.getQueryData(key5)).toBeUndefined();
+
+    expect(
+      queryClient.getQueryCache().findAll({
+        queryKey: trendQueryKeys.personalizedAll,
+      }),
+    ).toHaveLength(0);
+
+    // B의 Main 조회는 새 요청으로 시작해야 한다.
+  });
+
+  test("사용자 A의 늦은 Personalized 응답이 사용자 B의 Cache를 오염시키지 않는다", async () => {
+    const queryClient = createTestQueryClient();
+
+    const personalizedKey = trendQueryKeys.personalizedList(20);
+
+    const userAPage: TrendListData = {
+      items: [],
+      next_cursor: "USER_A_CURSOR",
+      has_next: true,
+    };
+
+    const userBPage: TrendListData = {
+      items: [],
+      next_cursor: "USER_B_CURSOR",
+      has_next: true,
+    };
+
+    // 사용자 A의 지연된 응답
+    let resolveUserAResponse!: (value: TrendListData) => void;
+
+    const userAResponse = new Promise<TrendListData>((resolve) => {
+      resolveUserAResponse = resolve;
+    });
+
+    let userARequestSignal: AbortSignal | undefined;
+
+    mockedGetPersonalizedTrends.mockReset();
+
+    mockedGetPersonalizedTrends
+      .mockImplementationOnce((_params, signal) => {
+        userARequestSignal = signal;
+
+        // 취소 신호를 무시하는 늦은 응답 재현
+        return userAResponse;
+      })
+      .mockResolvedValueOnce(userBPage);
+
+    // 실제 QueryClient의 Infinite Query를 사용한다.
+    function fetchPersonalized() {
+      return queryClient.fetchInfiniteQuery({
+        queryKey: personalizedKey,
+
+        queryFn: ({ pageParam, signal }) =>
+          getPersonalizedTrends(
+            {
+              cursor: pageParam,
+              limit: 20,
+            },
+            signal,
+          ),
+
+        initialPageParam: undefined as string | undefined,
+
+        getNextPageParam: (lastPage: TrendListData) =>
+          lastPage.has_next ? (lastPage.next_cursor ?? undefined) : undefined,
+
+        retry: false,
+      });
+    }
+
+    // 1. 사용자 A Session 활성화
+    const { result } = await renderAuthenticatedProvider(queryClient);
+
+    expect(result.current.authState.status).toBe("AUTHENTICATED");
+
+    // 2. 사용자 A의 Personalized 조회 시작
+    // 취소로 인한 Promise rejection은 처리해 둔다.
+    const userAQueryPromise = fetchPersonalized().catch(() => undefined);
+
+    await waitFor(() => {
+      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(1);
+    });
+
+    expect(userARequestSignal?.aborted).toBe(false);
+
+    // 3. A의 요청이 진행 중인 상태에서 로그아웃
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(userARequestSignal?.aborted).toBe(true);
+
+    expect(queryClient.getQueryData(personalizedKey)).toBeUndefined();
+
+    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+
+    // 4. 사용자 B의 새 Session 수립
+    await act(async () => {
+      await result.current.establishSession(LOGIN_B_RESPONSE);
+    });
+
+    expect(result.current.authState).toEqual({
+      status: "AUTHENTICATED",
+      session: {
+        user: LOGIN_B_RESPONSE.user,
+        has_selected_interests: true,
+        next_step: "MAIN",
+      },
+    });
+
+    // 5. 동일한 Query Key로 B의 첫 페이지 조회
+    const userBData = await fetchPersonalized();
+
+    expect(userBData.pages).toEqual([userBPage]);
+
+    expect(userBData.pageParams).toEqual([undefined]);
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
+      2,
+      {
+        cursor: undefined,
+        limit: 20,
+      },
+      expect.any(AbortSignal),
+    );
+
+    // 6. 사용자 A의 취소된 응답이 뒤늦게 도착
+    await act(async () => {
+      resolveUserAResponse(userAPage);
+
+      await userAResponse;
+      await userAQueryPromise;
+    });
+
+    // 7. 사용자 B의 Cache가 유지되어야 한다.
+    expect(queryClient.getQueryData(personalizedKey)).toMatchObject({
+      pages: [userBPage],
+      pageParams: [undefined],
+    });
+
+    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
   });
 });

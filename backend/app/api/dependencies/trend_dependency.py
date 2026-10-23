@@ -6,7 +6,13 @@ from app.api.dependencies.category_dependency import (
     CategoryRepositoryDep,
 )
 from app.api.dependencies.db_dependency import DbSessionDep
+from app.api.dependencies.interest_dependency import (
+    InterestRepositoryDep,
+)
 from app.repositories.trend_repository import TrendRepository
+from app.services.personalized_trend_service import (
+    PersonalizedTrendService,
+)
 from app.services.trend_service import TrendService
 
 
@@ -41,4 +47,24 @@ def get_trend_service(
 TrendServiceDep = Annotated[
     TrendService,
     Depends(get_trend_service),
+]
+
+
+def get_personalized_trend_service(
+    category_repository: CategoryRepositoryDep,
+    interest_repository: InterestRepositoryDep,
+    trend_repository: TrendRepositoryDep,
+) -> PersonalizedTrendService:
+    """맞춤 Trend 목록 조회에 필요한 의존성을 조립한다."""
+
+    return PersonalizedTrendService(
+        category_repository=category_repository,
+        interest_repository=interest_repository,
+        trend_repository=trend_repository,
+    )
+
+
+PersonalizedTrendServiceDep = Annotated[
+    PersonalizedTrendService,
+    Depends(get_personalized_trend_service),
 ]

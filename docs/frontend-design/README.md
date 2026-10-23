@@ -24,7 +24,8 @@ docs/frontend-design/
 │   └── design-system-snapshot.md
 │
 ├── screens/
-│   └── interest-select-screen-spec.md
+│   ├── interest-select-screen-spec.md
+│   └── personalized-main-screen-spec.md
 │
 └── archive/
     ├── front-feature-prompt-v1.md
