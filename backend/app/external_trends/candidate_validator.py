@@ -501,3 +501,104 @@ def evaluate_relevance_unclear_gate(
         warnings=candidate.warnings,
         source_issues=screening.source_issues,
     )
+
+
+# ---------------------------------------------------------------------
+# V-11: 기타 Category 선택 근거 및 Category 불명확 판정
+# ---------------------------------------------------------------------
+
+
+class OtherCategoryEvidence(StrEnum):
+    NO_SPECIFIC_CHILD_APPLIES = "NO_SPECIFIC_CHILD_APPLIES"
+    SPECIFIC_CHILD_APPLIES = "SPECIFIC_CHILD_APPLIES"
+    UNDETERMINED = "UNDETERMINED"
+
+
+
+def resolve_other_category_ids(
+    catalog: CategoryCatalog,
+    root_id: int | None,
+    evidence: OtherCategoryEvidence,
+) -> tuple[int, ...] | None:
+    """명확한 Root와 세부분류 배제 근거가 있을 때만 기타를 선택한다."""
+    if not isinstance(evidence, OtherCategoryEvidence):
+        raise ValidationExecutionError(
+            "invalid other category evidence"
+        )
+
+    if (
+        root_id is None
+        or evidence is not OtherCategoryEvidence.NO_SPECIFIC_CHILD_APPLIES
+    ):
+        return None
+
+    root = next(
+        (
+            item
+            for item in catalog.roots
+            if item.category_id == root_id
+        ),
+        None,
+    )
+
+    if root is None or not root.is_active:
+        return None
+
+    other_ids = tuple(
+        child.category_id
+        for child in catalog.children
+        if child.parent_id == root_id
+        and child.name == "기타"
+    )
+
+    if len(other_ids) > 1:
+        raise ValidationExecutionError(
+            "duplicate other category for root"
+        )
+
+    return catalog.select_active_child_ids(other_ids)
+
+
+def evaluate_category_unclear_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+    event_consistency: EventConsistency,
+    catalog: CategoryCatalog,
+    proposed_child_ids: tuple[int, ...] | None,
+) -> CandidateEvaluation | None:
+    """Source·사건이 확인됐지만 활성 Child가 불명확하면 보류한다."""
+    if not screening.valid_sources:
+        return None
+
+    if not isinstance(event_consistency, EventConsistency):
+        raise ValidationExecutionError(
+            "invalid event consistency policy result"
+        )
+
+    if event_consistency is not EventConsistency.CONSISTENT:
+        return None
+
+    selected_ids = catalog.select_active_child_ids(
+        proposed_child_ids or ()
+    )
+
+    if selected_ids is not None:
+        # Category 검증 통과. 아직 WOULD_ACCEPT 판정은 아니다.
+        return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        raise ValidationExecutionError(
+            "eligible source exists with invalid candidate title"
+        )
+
+    return CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )
