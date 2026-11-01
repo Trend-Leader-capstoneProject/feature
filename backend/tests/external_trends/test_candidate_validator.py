@@ -26,6 +26,7 @@ from app.external_trends.candidate_validator import (
     evaluate_missing_or_invalid_source_gate,
     evaluate_relevance_unclear_gate,
     evaluate_topic_gate,
+    evaluate_unknown_blocked_domain_gate,
     evaluate_unknown_domain_gate,
     resolve_other_category_ids,
     screen_candidate_sources,
@@ -2805,3 +2806,519 @@ def test_v14_poc_pipeline_works_with_io_blocked(
             )
             assert result.valid_sources == ()
             assert result.category_ids == ()
+
+
+
+# ---------------------------------------------------------------------
+# V-15: 승인 관련 1건 + 미확인·차단·무관 Source 혼합
+# ---------------------------------------------------------------------
+
+
+def make_v15_candidate(
+    source_order: tuple[str, ...],
+    *,
+    warnings: tuple[WarningCode, ...] = (),
+) -> ParsedCandidate:
+    """출처별 정책 상태를 고정한 합성 후보를 생성한다."""
+    source_specs = {
+        "approved": (
+            "가상 행사 공식 발표",
+            (
+                "HTTPS://NEWS.Example.TEST:443/a"
+                "?utm_source=rss&id=42"
+            ),
+            "가상 신문 A",
+        ),
+        "unknown": (
+            "가상 행사 소식",
+            "https://unknown.example.test/b",
+            "news.example.test",
+        ),
+        "blocked": (
+            "가상 행사 관련 소식",
+            "https://blocked.example.test/c",
+            "가상 신문 C",
+        ),
+        "unrelated": (
+            "가상 행사 별개 공연",
+            "https://news.example.test/d",
+            "가상 신문 D",
+        ),
+    }
+
+    return make_candidate(
+        "가상 행사",
+        warnings=warnings,
+        sources=tuple(
+            ParsedSource(
+                item_news_index=index,
+                raw_title=source_specs[kind][0],
+                raw_url=source_specs[kind][1],
+                publisher_name=source_specs[kind][2],
+            )
+            for index, kind in enumerate(source_order)
+        ),
+    )
+
+
+def screen_v15_candidate(
+    candidate: ParsedCandidate,
+) -> SourceScreeningResult:
+    return screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset({"blocked.example.test"}),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 행사", "가상 행사 공식 발표"),
+                ("가상 행사", "가상 행사 소식"),
+                ("가상 행사", "가상 행사 관련 소식"),
+            }),
+            unrelated=frozenset({
+                ("가상 행사", "가상 행사 별개 공연"),
+            }),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "source_order",
+    [
+        pytest.param(
+            ("approved", "unknown", "blocked", "unrelated"),
+            id="approved-first",
+        ),
+        pytest.param(
+            ("unknown", "approved", "blocked", "unrelated"),
+            id="approved-second",
+        ),
+        pytest.param(
+            ("unknown", "blocked", "approved", "unrelated"),
+            id="approved-third",
+        ),
+        pytest.param(
+            ("unrelated", "blocked", "unknown", "approved"),
+            id="approved-last",
+        ),
+    ],
+)
+def test_v15_keeps_only_approved_related_source(
+    source_order: tuple[str, ...],
+) -> None:
+    candidate = make_v15_candidate(source_order)
+    screening = screen_v15_candidate(candidate)
+
+    expected_url = "https://news.example.test/a?id=42"
+
+    assert screening.valid_sources == (
+        NormalizedSource(
+            source_title="가상 행사 공식 발표",
+            canonical_url=expected_url,
+            source_key=sha256(
+                expected_url.encode("utf-8")
+            ).hexdigest(),
+            publisher_name="가상 신문 A",
+        ),
+    )
+
+    issue_by_kind = {
+        "unknown": SourceIssueCode.UNKNOWN_SOURCE_DOMAIN,
+        "blocked": SourceIssueCode.BLOCKED_SOURCE_DOMAIN,
+        "unrelated": SourceIssueCode.SOURCE_UNRELATED,
+    }
+
+    expected_issues = tuple(
+        SourceIssue(
+            item_news_index=index,
+            code=issue_by_kind[kind],
+        )
+        for index, kind in enumerate(source_order)
+        if kind != "approved"
+    )
+
+    assert screening.source_issues == expected_issues
+
+    assert len(screening.valid_sources) == 1
+    assert len(screening.source_issues) == 3
+
+
+def test_v15_eligible_source_prevents_premature_source_defer() -> None:
+    candidate = make_v15_candidate(
+        ("unknown", "blocked", "approved", "unrelated"),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    original_sources = candidate.source_candidates
+
+    screening = screen_v15_candidate(candidate)
+
+    assert len(screening.valid_sources) == 1
+    assert candidate.warnings == (WarningCode.INVALID_PUB_DATE,)
+    assert candidate.source_candidates == original_sources
+
+    assert screening.source_issues == (
+        SourceIssue(0, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(1, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+        SourceIssue(3, SourceIssueCode.SOURCE_UNRELATED),
+    )
+
+    # 적합한 Source가 있으므로 Source 부족을 이유로
+    # 후보 전체를 조기 보류해서는 안 된다.
+    assert evaluate_unknown_domain_gate(candidate, screening) is None
+
+    assert (
+        evaluate_missing_or_invalid_source_gate(candidate, screening)
+        is None
+    )
+
+    assert (
+        evaluate_relevance_unclear_gate(candidate, screening)
+        is None
+    )
+
+
+def test_v15_one_eligible_source_does_not_prove_event_consistency() -> None:
+    candidate = make_v15_candidate(
+        ("unknown", "approved", "blocked", "unrelated")
+    )
+    screening = screen_v15_candidate(candidate)
+
+    assert len(screening.valid_sources) == 1
+
+    # 승인된 관련 기사에 대해서만 사건 근거를 제공한다.
+    # 다른 기사들의 사건 일관성까지 증명한 것은 아니다.
+    event_rules = FixtureEventRules({
+        "가상 행사 공식 발표": "event-main",
+    })
+
+    result = evaluate_event_consistency_gate(
+        candidate,
+        screening,
+        event_rules,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(),
+        source_issues=(
+            SourceIssue(0, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+            SourceIssue(2, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+            SourceIssue(3, SourceIssueCode.SOURCE_UNRELATED),
+        ),
+    )
+
+
+
+# ---------------------------------------------------------------------
+# V-16: 미확인 + 차단 Source 혼합은 DEFERRED
+# ---------------------------------------------------------------------
+
+
+def make_v16_candidate(
+    kinds: tuple[str, ...],
+    *,
+    warnings: tuple[WarningCode, ...] = (),
+) -> ParsedCandidate:
+    specs = {
+        "unknown": (
+            "가상 행사 기사",
+            "https://unknown.example.test/article",
+        ),
+        "blocked": (
+            "가상 행사 기사",
+            "https://blocked.example.test/article",
+        ),
+        "approved": (
+            "가상 행사 기사",
+            "https://news.example.test/article",
+        ),
+        "invalid": (
+            "가상 행사 기사",
+            "javascript:alert(1)",
+        ),
+        "unrelated": (
+            "다른 분야 소식",
+            "https://news.example.test/different",
+        ),
+    }
+
+    return make_candidate(
+        "가상 행사",
+        warnings=warnings,
+        sources=tuple(
+            ParsedSource(
+                item_news_index=index,
+                raw_title=specs[kind][0],
+                raw_url=specs[kind][1],
+                publisher_name="news.example.test",
+            )
+            for index, kind in enumerate(kinds)
+        ),
+    )
+
+
+def screen_v16_candidate(
+    candidate: ParsedCandidate,
+) -> SourceScreeningResult:
+    return screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset({"blocked.example.test"}),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 행사", "가상 행사 기사"),
+            }),
+            unrelated=frozenset({
+                ("가상 행사", "다른 분야 소식"),
+            }),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        ("unknown", "blocked"),
+        ("blocked", "unknown"),
+        ("blocked", "unknown", "blocked"),
+    ],
+)
+def test_v16_mixed_unknown_blocked_returns_deferred(
+    kinds: tuple[str, ...],
+) -> None:
+    candidate = make_v16_candidate(
+        kinds,
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v16_candidate(candidate)
+
+    expected_issues = tuple(
+        SourceIssue(
+            item_news_index=index,
+            code=(
+                SourceIssueCode.UNKNOWN_SOURCE_DOMAIN
+                if kind == "unknown"
+                else SourceIssueCode.BLOCKED_SOURCE_DOMAIN
+            ),
+        )
+        for index, kind in enumerate(kinds)
+    )
+
+    assert screening.valid_sources == ()
+    assert screening.source_issues == expected_issues
+
+    result = evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(
+            ReasonCode.NO_ELIGIBLE_SOURCE,
+            ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+        ),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=expected_issues,
+    )
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        ("blocked",),
+        ("blocked", "blocked"),
+    ],
+)
+def test_v16_all_blocked_returns_skipped(
+    kinds: tuple[str, ...],
+) -> None:
+    candidate = make_v16_candidate(kinds)
+    screening = screen_v16_candidate(candidate)
+
+    assert screening.valid_sources == ()
+    assert all(
+        issue.code == SourceIssueCode.BLOCKED_SOURCE_DOMAIN
+        for issue in screening.source_issues
+    )
+    assert len(screening.source_issues) == len(kinds)
+
+    result = evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.SKIPPED,
+        reason_codes=(ReasonCode.BLOCKED_SOURCES_ONLY,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(),
+        source_issues=screening.source_issues,
+    )
+
+
+def test_v16_unknown_only_remains_v04_responsibility() -> None:
+    candidate = make_v16_candidate(("unknown",))
+    screening = screen_v16_candidate(candidate)
+
+    assert evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    ) is None
+
+    result = evaluate_unknown_domain_gate(candidate, screening)
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+    )
+
+
+def test_v16_approved_source_prevents_domain_only_decision() -> None:
+    candidate = make_v16_candidate(
+        ("unknown", "approved", "blocked")
+    )
+    screening = screen_v16_candidate(candidate)
+
+    assert len(screening.valid_sources) == 1
+    assert screening.source_issues == (
+        SourceIssue(0, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(2, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+    )
+
+    assert evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        ("blocked", "invalid"),
+        ("unknown", "unrelated"),
+    ],
+)
+def test_v16_other_issues_are_not_misclassified(
+    kinds: tuple[str, ...],
+) -> None:
+    candidate = make_v16_candidate(kinds)
+    screening = screen_v16_candidate(candidate)
+
+    assert screening.valid_sources == ()
+    assert len(screening.source_issues) == len(kinds)
+
+    # 혼합 정보 오류·관련성 오류의 종합 판정은
+    # 후속 통합 Validator 책임이다.
+    assert evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    ) is None
+
+
+def test_v16_zero_sources_remains_v05_responsibility() -> None:
+    candidate = make_v16_candidate(())
+    screening = screen_v16_candidate(candidate)
+
+    assert evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    ) is None
+
+    result = evaluate_missing_or_invalid_source_gate(
+        candidate, screening
+    )
+
+    assert result is not None
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+    )
+
+
+@pytest.mark.parametrize(
+    "issues",
+    [
+        (
+            SourceIssue(
+                0, SourceIssueCode.BLOCKED_SOURCE_DOMAIN
+            ),
+        ),
+        (
+            SourceIssue(
+                9, SourceIssueCode.BLOCKED_SOURCE_DOMAIN
+            ),
+            SourceIssue(
+                1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN
+            ),
+        ),
+    ],
+)
+def test_v16_incomplete_or_misaligned_screening_does_not_decide(
+    issues: tuple[SourceIssue, ...],
+) -> None:
+    candidate = make_v16_candidate(("blocked", "unknown"))
+    screening = SourceScreeningResult(
+        valid_sources=(),
+        source_issues=issues,
+    )
+
+    assert evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    ) is None
+
+
+def test_v16_explicit_out_of_scope_takes_priority() -> None:
+    candidate = make_v16_candidate(("unknown", "blocked"))
+
+    def forbidden_second_stage(
+        current: ParsedCandidate,
+    ) -> CandidateEvaluation:
+        pytest.fail("명백한 범위 밖이면 2차 판정을 호출하면 안 됩니다.")
+
+    result = evaluate_candidate(
+        candidate,
+        FixtureTopicRules({
+            "가상 행사": TopicScope.CLEAR_OUT_OF_SCOPE,
+        }),
+        forbidden_second_stage,
+    )
+
+    assert result.decision == CandidateDecision.SKIPPED
+    assert result.reason_codes == (ReasonCode.OUT_OF_SCOPE,)
+    assert result.source_issues == ()
+
+
+def test_v16_source_shortage_precedes_event_and_category() -> None:
+    candidate = make_v16_candidate(("blocked", "unknown"))
+    screening = screen_v16_candidate(candidate)
+
+    result = evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    )
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+
+    # 적합 Source가 0건이므로 두 후속 게이트는
+    # 현재 단계에서 최종 판정을 하지 않는다.
+    assert evaluate_event_consistency_gate(
+        candidate,
+        screening,
+        FixtureEventRules({}),
+    ) is None
+
+    assert evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        make_v11_catalog(),
+        proposed_child_ids=None,
+    ) is None

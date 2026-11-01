@@ -602,3 +602,88 @@ def evaluate_category_unclear_gate(
         warnings=candidate.warnings,
         source_issues=screening.source_issues,
     )
+
+# ---------------------------------------------------------------------
+# V-16: 미확인·차단 도메인 혼합 및 전체 차단 판정
+# ---------------------------------------------------------------------
+
+
+_DOMAIN_RESTRICTION_ISSUES = frozenset({
+    SourceIssueCode.UNKNOWN_SOURCE_DOMAIN,
+    SourceIssueCode.BLOCKED_SOURCE_DOMAIN,
+})
+
+
+def evaluate_unknown_blocked_domain_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+) -> CandidateEvaluation | None:
+    """미확인+차단 혼합 또는 전체 차단 Source를 판정한다."""
+    if screening.valid_sources:
+        return None
+
+    if not candidate.source_candidates:
+        return None
+
+    # 모든 원본 Source가 각자의 Domain Issue로 설명되어야 한다.
+    if len(screening.source_issues) != len(candidate.source_candidates):
+        return None
+
+    if tuple(
+        issue.item_news_index
+        for issue in screening.source_issues
+    ) != tuple(
+        source.item_news_index
+        for source in candidate.source_candidates
+    ):
+        return None
+
+    issue_codes = tuple(
+        issue.code
+        for issue in screening.source_issues
+    )
+
+    if any(
+        code not in _DOMAIN_RESTRICTION_ISSUES
+        for code in issue_codes
+    ):
+        return None
+
+    has_unknown = (
+        SourceIssueCode.UNKNOWN_SOURCE_DOMAIN in issue_codes
+    )
+    has_blocked = (
+        SourceIssueCode.BLOCKED_SOURCE_DOMAIN in issue_codes
+    )
+
+    # 미확인 출처만 존재하는 경우는 V-04의 책임이다.
+    if has_unknown and not has_blocked:
+        return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        return None
+
+    if has_unknown:
+        decision = CandidateDecision.DEFERRED
+        reason_codes = (
+            ReasonCode.NO_ELIGIBLE_SOURCE,
+            ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+        )
+    else:
+        # 여기서는 모든 Source가 명백한 차단 도메인이다.
+        decision = CandidateDecision.SKIPPED
+        reason_codes = (
+            ReasonCode.BLOCKED_SOURCES_ONLY,
+        )
+
+    return CandidateEvaluation(
+        decision=decision,
+        reason_codes=reason_codes,
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )
