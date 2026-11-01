@@ -205,3 +205,98 @@ def screen_candidate_sources(
         valid_sources=tuple(valid_sources),
         source_issues=tuple(source_issues),
     )
+
+
+
+# ---------------------------------------------------------------------
+# V-04: 미확인 도메인만 존재하는 후보 보류
+# ---------------------------------------------------------------------
+
+
+def evaluate_unknown_domain_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+) -> CandidateEvaluation | None:
+    """미확인 도메인만 존재할 때 최종 DEFERRED 결과를 생성한다."""
+    if screening.valid_sources:
+        return None
+
+    if not screening.source_issues:
+        return None
+
+    if any(
+        issue.code != SourceIssueCode.UNKNOWN_SOURCE_DOMAIN
+        for issue in screening.source_issues
+    ):
+        return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        return None
+
+    return CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(
+            ReasonCode.NO_ELIGIBLE_SOURCE,
+            ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+        ),
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )
+
+
+# ---------------------------------------------------------------------
+# V-05: Source 부재·필수 정보 오류에 따른 DEFERRED
+# ---------------------------------------------------------------------
+
+
+_METADATA_INVALID_SOURCE_CODES = frozenset(
+    {
+        SourceIssueCode.SOURCE_TITLE_MISSING,
+        SourceIssueCode.SOURCE_TITLE_INVALID,
+        SourceIssueCode.SOURCE_URL_INVALID,
+    }
+)
+
+
+def evaluate_missing_or_invalid_source_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+) -> CandidateEvaluation | None:
+    """Source가 없거나 필수 정보 오류만 있을 때 보류한다."""
+    if screening.valid_sources:
+        return None
+
+    if not candidate.source_candidates:
+        # Source가 없으므로 SourceIssue도 없어야 한다.
+        if screening.source_issues:
+            return None
+    else:
+        # 모든 Source가 개별 오류로 설명되는지 확인한다.
+        if len(screening.source_issues) != len(candidate.source_candidates):
+            return None
+
+        if any(
+            issue.code not in _METADATA_INVALID_SOURCE_CODES
+            for issue in screening.source_issues
+        ):
+            return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        return None
+
+    return CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.NO_ELIGIBLE_SOURCE,),
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )

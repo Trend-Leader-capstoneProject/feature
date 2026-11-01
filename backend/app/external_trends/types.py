@@ -57,6 +57,7 @@ class CandidateDecision(StrEnum):
 class ReasonCode(StrEnum):
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
     NO_ELIGIBLE_SOURCE = "NO_ELIGIBLE_SOURCE"
+    UNKNOWN_SOURCE_DOMAIN = "UNKNOWN_SOURCE_DOMAIN"
 
 
 class SourceIssueCode(StrEnum):
