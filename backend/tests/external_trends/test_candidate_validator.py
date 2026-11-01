@@ -1,8 +1,11 @@
 
 """P3 V-01 — 명백한 범위 밖 검색어만 1차에서 제외한다."""
 
+import ast
 from dataclasses import dataclass
 from hashlib import sha256
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -27,6 +30,7 @@ from app.external_trends.candidate_validator import (
     resolve_other_category_ids,
     screen_candidate_sources,
 )
+from app.external_trends.rss_parser import parse_rss_feed
 from app.external_trends.types import (
     CandidateDecision,
     CandidateEvaluation,
@@ -2143,3 +2147,661 @@ def test_v11_invalid_child_selection_is_deferred(
     assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
     assert result.category_ids == ()
     assert result.valid_sources == ()
+
+
+
+# ---------------------------------------------------------------------
+# V-12: 동일 Fixture 및 정책의 반복 실행 결정성 검증
+# ---------------------------------------------------------------------
+
+
+def test_v12_source_screening_order_is_deterministic() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(
+            ParsedSource(
+                0,
+                "가상 행사 기사 0",
+                "https://news.example.test/a?utm_source=rss&id=0",
+                None,
+            ),
+            ParsedSource(
+                1,
+                "가상 행사 기사 1",
+                "https://unknown.example.test/b",
+                None,
+            ),
+            ParsedSource(
+                2,
+                "가상 행사 기사 2",
+                "https://blocked.example.test/c",
+                None,
+            ),
+            ParsedSource(
+                3,
+                "가상 행사 기사 3",
+                "https://news.example.test/d?utm_source=rss&id=3",
+                None,
+            ),
+        ),
+    )
+    policy = DomainPolicy(
+        approved_hosts=frozenset({"news.example.test"}),
+        blocked_hosts=frozenset({"blocked.example.test"}),
+    )
+    rules = FixtureSourceRelevanceRules(
+        related=frozenset({
+            ("가상 행사", f"가상 행사 기사 {index}")
+            for index in range(4)
+        }),
+    )
+
+    snapshots = tuple(
+        screen_candidate_sources(candidate, policy, rules)
+        for _ in range(10)
+    )
+
+    assert all(result == snapshots[0] for result in snapshots)
+
+    assert tuple(
+        source.canonical_url
+        for source in snapshots[0].valid_sources
+    ) == (
+        "https://news.example.test/a?id=0",
+        "https://news.example.test/d?id=3",
+    )
+
+    assert snapshots[0].source_issues == (
+        SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(2, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+    )
+
+
+def test_v12_unknown_domain_deferred_result_is_deterministic() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        sources=(
+            ParsedSource(
+                0,
+                "첫 번째 기사",
+                "https://unknown-one.example.test/a",
+                None,
+            ),
+            ParsedSource(
+                1,
+                "두 번째 기사",
+                "https://unknown-two.example.test/b",
+                None,
+            ),
+        ),
+    )
+    policy = DomainPolicy(
+        approved_hosts=frozenset(),
+        blocked_hosts=frozenset(),
+    )
+    rules = FixtureSourceRelevanceRules()
+
+    results: list[CandidateEvaluation] = []
+
+    for _ in range(10):
+        screening = screen_candidate_sources(
+            candidate, policy, rules
+        )
+        result = evaluate_unknown_domain_gate(candidate, screening)
+
+        assert result is not None
+        results.append(result)
+
+    assert all(result == results[0] for result in results)
+
+    assert results[0].decision == CandidateDecision.DEFERRED
+    assert results[0].reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+    )
+    assert results[0].source_issues == (
+        SourceIssue(0, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+    )
+    assert results[0].warnings == (WarningCode.INVALID_PUB_DATE,)
+
+
+def test_v12_event_ambiguity_result_is_deterministic() -> None:
+    candidate = make_v07_candidate(
+        "news.example.test",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    topic_rules = FixtureTopicRules({})
+    event_rules = FixtureEventRules({
+        "가상 축제 A 개막": "event-a",
+        "가상 축제 B 일정": "event-b",
+    })
+
+    def second_stage(
+        current: ParsedCandidate,
+    ) -> CandidateEvaluation:
+        screening = screen_v07_candidate(current)
+
+        assert len(screening.valid_sources) == 2
+
+        result = evaluate_event_consistency_gate(
+            current, screening, event_rules
+        )
+
+        assert result is not None
+        return result
+
+    results = tuple(
+        evaluate_candidate(candidate, topic_rules, second_stage)
+        for _ in range(10)
+    )
+
+    assert all(result == results[0] for result in results)
+    assert results[0].decision == CandidateDecision.DEFERRED
+    assert results[0].reason_codes == (
+        ReasonCode.EVENT_AMBIGUOUS,
+    )
+    assert results[0].valid_sources == ()
+    assert results[0].category_ids == ()
+
+
+def test_v12_category_unclear_result_is_deterministic() -> None:
+    results: list[CandidateEvaluation] = []
+
+    for _ in range(10):
+        candidate, screening = make_v11_screening()
+        catalog = make_v11_catalog()
+
+        selected = resolve_other_category_ids(
+            catalog,
+            10,
+            OtherCategoryEvidence.UNDETERMINED,
+        )
+
+        result = evaluate_category_unclear_gate(
+            candidate,
+            screening,
+            EventConsistency.CONSISTENT,
+            catalog,
+            selected,
+        )
+
+        assert result is not None
+        results.append(result)
+
+    assert all(result == results[0] for result in results)
+    assert results[0].reason_codes == (
+        ReasonCode.CATEGORY_UNCLEAR,
+    )
+    assert results[0].source_issues == (
+        SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+    )
+    assert results[0].valid_sources == ()
+    assert results[0].category_ids == ()
+
+
+def test_v12_active_child_order_is_deterministic() -> None:
+    results = tuple(
+        make_v06_catalog().select_active_child_ids(
+            (201, 101, 201, 102)
+        )
+        for _ in range(10)
+    )
+
+    assert results == ((101, 102, 201),) * 10
+
+
+def test_v12_explicit_other_selection_is_deterministic() -> None:
+    results = tuple(
+        resolve_other_category_ids(
+            make_v11_catalog(),
+            10,
+            OtherCategoryEvidence.NO_SPECIFIC_CHILD_APPLIES,
+        )
+        for _ in range(10)
+    )
+
+    assert results == ((199,),) * 10
+
+
+
+# ---------------------------------------------------------------------
+# V-13: 미반영 스포츠 및 비활성 Child Category 보류
+# ---------------------------------------------------------------------
+
+
+def make_v13_sports_case() -> tuple[
+    ParsedCandidate,
+    SourceScreeningResult,
+]:
+    """스포츠 관련 합성 후보. Source는 승인 및 관련성 검증 통과."""
+    candidate = make_candidate(
+        "가상 농구 경기",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        sources=(
+            ParsedSource(
+                0,
+                "가상 농구 경기 결과",
+                "https://news.example.test/sports/1",
+                None,
+            ),
+        ),
+    )
+    screening = screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 농구 경기", "가상 농구 경기 결과"),
+            }),
+        ),
+    )
+    return candidate, screening
+
+
+def test_v13_unrepresented_sports_is_deferred() -> None:
+    candidate, screening = make_v13_sports_case()
+    catalog = make_v11_catalog()
+
+    assert len(screening.valid_sources) == 1
+    assert screening.source_issues == ()
+    assert all(child.name != "스포츠" for child in catalog.children)
+
+    # 스포츠 검색어라는 이유만으로 1차 조기 제외하지 않는다.
+    assert evaluate_topic_gate(
+        candidate, FixtureTopicRules({})
+    ) is None
+
+    def second_stage(current: ParsedCandidate) -> CandidateEvaluation:
+        result = evaluate_category_unclear_gate(
+            current,
+            screening,
+            EventConsistency.CONSISTENT,
+            catalog,
+            proposed_child_ids=None,
+        )
+        assert result is not None
+        return result
+
+    result = evaluate_candidate(
+        candidate,
+        FixtureTopicRules({}),
+        second_stage,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+        normalized_title="가상 농구 경기",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(),
+    )
+
+
+def test_v13_sports_does_not_automatically_use_other() -> None:
+    catalog = make_v11_catalog()
+
+    assert all(root.code != "SPORTS" for root in catalog.roots)
+
+    # 식별 가능한 Root 자체가 없으면 기타를 선택할 수 없다.
+    assert resolve_other_category_ids(
+        catalog,
+        root_id=None,
+        evidence=OtherCategoryEvidence.NO_SPECIFIC_CHILD_APPLIES,
+    ) is None
+
+    # 다른 Root가 존재하더라도 배제 근거가 없다면 기타로 우회 금지.
+    assert resolve_other_category_ids(
+        catalog,
+        root_id=10,
+        evidence=OtherCategoryEvidence.UNDETERMINED,
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "proposed_ids",
+    [
+        pytest.param((999,), id="unknown-child"),
+        pytest.param((10,), id="root-id-instead-of-child"),
+        pytest.param((401, 999), id="active-plus-unknown"),
+    ],
+)
+def test_v13_unsupported_category_ids_are_deferred(
+    proposed_ids: tuple[int, ...],
+) -> None:
+    candidate, screening = make_v13_sports_case()
+
+    result = evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        make_v11_catalog(),
+        proposed_ids,
+    )
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+@pytest.mark.parametrize(
+    "proposed_ids",
+    [
+        pytest.param((299,), id="inactive-child"),
+        pytest.param((399,), id="inactive-parent-root"),
+    ],
+)
+def test_v13_inactive_child_or_parent_is_deferred(
+    proposed_ids: tuple[int, ...],
+) -> None:
+    candidate, screening = make_v13_sports_case()
+
+    result = evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        make_v11_catalog(),
+        proposed_ids,
+    )
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.category_ids == ()
+    assert result.valid_sources == ()
+
+
+def test_v13_active_and_inactive_children_cannot_be_partially_accepted() -> None:
+    candidate, screening = make_v13_sports_case()
+    catalog = make_v11_catalog()
+
+    # 활성 Child가 하나 포함되어도 비활성 Child를 무시하고
+    # 부분 채택하는 방식으로 처리하지 않는다.
+    assert catalog.select_active_child_ids((401, 299)) is None
+
+    result = evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        catalog,
+        (401, 299),
+    )
+
+    assert result is not None
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.category_ids == ()
+
+
+def test_v13_supported_active_child_proceeds_to_later_validation() -> None:
+    candidate = make_candidate(
+        "가상 PC 게임",
+        sources=(
+            ParsedSource(
+                0,
+                "가상 PC 게임 업데이트",
+                "https://news.example.test/game",
+                None,
+            ),
+        ),
+    )
+    screening = screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 pc 게임", "가상 pc 게임 업데이트"),
+            }),
+        ),
+    )
+    catalog = make_v11_catalog()
+
+    assert len(screening.valid_sources) == 1
+    assert catalog.select_active_child_ids((401,)) == (401,)
+
+    assert evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        catalog,
+        (401,),
+    ) is None
+
+
+def test_v13_category_catalog_is_not_mutated() -> None:
+    candidate, screening = make_v13_sports_case()
+    catalog = make_v11_catalog()
+
+    before = (catalog.roots, catalog.children)
+
+    for _ in range(3):
+        result = evaluate_category_unclear_gate(
+            candidate,
+            screening,
+            EventConsistency.CONSISTENT,
+            catalog,
+            proposed_child_ids=(999,),
+        )
+        assert result is not None
+        assert result.decision == CandidateDecision.DEFERRED
+
+    assert (catalog.roots, catalog.children) == before
+    assert all(child.category_id != 999 for child in catalog.children)
+
+
+
+# ---------------------------------------------------------------------
+# V-14: P0~P3 외부 I/O 및 자동 게시 안전 경계
+# ---------------------------------------------------------------------
+
+
+_V14_ALLOWED_IMPORTS = frozenset({
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "datetime",
+    "email.utils",
+    "enum",
+    "hashlib",
+    "ipaddress",
+    "re",
+    "typing",
+    "unicodedata",
+    "urllib.parse",
+    "xml.etree.ElementTree",
+    "defusedxml",
+    "defusedxml.ElementTree",
+    "app.external_trends.errors",
+    "app.external_trends.types",
+})
+
+_V14_ALLOWED_RELATIVE_IMPORTS = frozenset({
+    "errors",
+    "normalizer",
+    "types",
+})
+
+
+def test_v14_poc_modules_do_not_import_io_dependencies() -> None:
+    """PoC 모듈의 정적 의존성을 안전한 범위로 제한한다."""
+    package_dir = (
+        Path(__file__).resolve().parents[2]
+        / "app"
+        / "external_trends"
+    )
+
+    source_files = sorted(package_dir.rglob("*.py"))
+    assert source_files
+
+    for source_file in source_files:
+        tree = ast.parse(
+            source_file.read_text(encoding="utf-8"),
+            filename=str(source_file),
+        )
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert alias.name in _V14_ALLOWED_IMPORTS, (
+                        f"unexpected import: {source_file}: "
+                        f"{alias.name}"
+                    )
+
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    assert (
+                        node.level == 1
+                        and node.module in _V14_ALLOWED_RELATIVE_IMPORTS
+                    ), (
+                        f"unexpected relative import: "
+                        f"{source_file}: {node.module}"
+                    )
+                else:
+                    assert node.module in _V14_ALLOWED_IMPORTS, (
+                        f"unexpected import: "
+                        f"{source_file}: {node.module}"
+                    )
+
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    assert node.func.id not in {
+                        "__import__",
+                        "eval",
+                        "exec",
+                    }, (
+                        f"unexpected dynamic execution: "
+                        f"{source_file}: {node.func.id}"
+                    )
+
+
+@pytest.mark.parametrize(
+    ("source_url", "is_approved"),
+    [
+        pytest.param(
+            "https://news.example.test/a",
+            True,
+            id="approved-source",
+        ),
+        pytest.param(
+            "https://unknown.example.test/a",
+            False,
+            id="unknown-source",
+        ),
+    ],
+)
+def test_v14_poc_pipeline_works_with_io_blocked(
+    source_url: str,
+    is_approved: bool,
+) -> None:
+    """외부 파일·네트워크·DB 접근을 차단한 상태에서 검증한다."""
+    xml_bytes = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <rss
+        version="2.0"
+        xmlns:ht="https://trends.google.com/trending/rss"
+    >
+      <channel>
+        <item>
+          <title>가상 행사</title>
+          <ht:news_item>
+            <ht:news_item_title>가상 행사 기사</ht:news_item_title>
+            <ht:news_item_url>{source_url}</ht:news_item_url>
+          </ht:news_item>
+        </item>
+      </channel>
+    </rss>""".encode("utf-8")
+
+    policy = DomainPolicy(
+        approved_hosts=frozenset({"news.example.test"}),
+        blocked_hosts=frozenset(),
+    )
+    relevance_rules = FixtureSourceRelevanceRules(
+        related=frozenset({
+            ("가상 행사", "가상 행사 기사"),
+        }),
+    )
+    topic_rules = FixtureTopicRules({})
+
+    # 모든 입력은 위에서 작성한 합성 XML bytes와 정책 값이다.
+    # 검증 중 파일·네트워크·SQLite 호출을 허용하지 않는다.
+    with (
+        patch(
+            "builtins.open",
+            side_effect=AssertionError("file I/O is forbidden"),
+        ),
+        patch(
+            "socket.create_connection",
+            side_effect=AssertionError("network I/O is forbidden"),
+        ),
+        patch(
+            "socket.socket.connect",
+            side_effect=AssertionError("network I/O is forbidden"),
+        ),
+        patch(
+            "sqlite3.connect",
+            side_effect=AssertionError("DB I/O is forbidden"),
+        ),
+    ):
+        parsed = parse_rss_feed(xml_bytes)
+
+        assert len(parsed.candidates) == 1
+        candidate = parsed.candidates[0]
+
+        assert evaluate_topic_gate(candidate, topic_rules) is None
+
+        screening = screen_candidate_sources(
+            candidate,
+            policy,
+            relevance_rules,
+        )
+
+        if is_approved:
+            assert len(screening.valid_sources) == 1
+
+            event_result = evaluate_event_consistency_gate(
+                candidate,
+                screening,
+                FixtureEventRules({
+                    "가상 행사 기사": "event-a",
+                }),
+            )
+
+            assert event_result is None
+
+            category_result = evaluate_category_unclear_gate(
+                candidate,
+                screening,
+                EventConsistency.CONSISTENT,
+                make_v11_catalog(),
+                proposed_child_ids=(101,),
+            )
+
+            # Source·사건·Category 단계 통과.
+            # 아직 최종 WOULD_ACCEPT 생성 경로는 구현하지 않았다.
+            assert category_result is None
+
+        else:
+            assert screening.valid_sources == ()
+
+            result = evaluate_unknown_domain_gate(
+                candidate,
+                screening,
+            )
+
+            assert result is not None
+            assert result.decision == CandidateDecision.DEFERRED
+            assert result.reason_codes == (
+                ReasonCode.NO_ELIGIBLE_SOURCE,
+                ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+            )
+            assert result.valid_sources == ()
+            assert result.category_ids == ()
