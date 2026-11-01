@@ -300,3 +300,204 @@ def evaluate_missing_or_invalid_source_gate(
         warnings=candidate.warnings,
         source_issues=screening.source_issues,
     )
+
+
+# ---------------------------------------------------------------------
+# V-06: CategoryCatalog 및 활성 Child 선택 검증
+# ---------------------------------------------------------------------
+
+
+class ValidationExecutionError(ValueError):
+    """주입된 검증 정책이나 CategoryCatalog의 설정 오류."""
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryRoot:
+    category_id: int
+    code: str
+    is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryChild:
+    category_id: int
+    parent_id: int
+    name: str
+    is_active: bool
+
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryCatalog:
+    """DB 접근 없는 Root/Child Category 정책 값 객체."""
+
+    roots: tuple[CategoryRoot, ...]
+    children: tuple[CategoryChild, ...]
+
+    def __post_init__(self) -> None:
+        """중복 ID·Root 코드 및 잘못된 부모 참조를 거부한다."""
+        root_ids = [root.category_id for root in self.roots]
+        root_codes = [root.code for root in self.roots]
+        child_ids = [child.category_id for child in self.children]
+
+        if (
+            len(root_ids) != len(set(root_ids))
+            or len(root_codes) != len(set(root_codes))
+            or len(child_ids) != len(set(child_ids))
+            or set(root_ids).intersection(child_ids)
+        ):
+            raise ValidationExecutionError(
+                "duplicate category identifier or root code"
+            )
+
+        known_root_ids = set(root_ids)
+
+        if any(
+            child.parent_id not in known_root_ids
+            for child in self.children
+        ):
+            raise ValidationExecutionError(
+                "child references unknown parent root"
+            )
+
+    def select_active_child_ids(
+        self,
+        evidence_child_ids: tuple[int, ...],
+    ) -> tuple[int, ...] | None:
+        """근거로 제시된 활성 Child만 중복 없이 오름차순 반환한다."""
+        if not evidence_child_ids:
+            return None
+
+        roots_by_id = {
+            root.category_id: root
+            for root in self.roots
+        }
+        children_by_id = {
+            child.category_id: child
+            for child in self.children
+        }
+
+        selected_ids: set[int] = set()
+
+        for child_id in evidence_child_ids:
+            child = children_by_id.get(child_id)
+
+            if child is None or not child.is_active:
+                return None
+
+            parent = roots_by_id[child.parent_id]
+
+            if not parent.is_active:
+                return None
+
+            selected_ids.add(child_id)
+
+        return tuple(sorted(selected_ids))
+
+
+# ---------------------------------------------------------------------
+# V-07: 사건 일관성 검증 및 모호한 사건 보류
+# ---------------------------------------------------------------------
+
+
+class EventConsistency(StrEnum):
+    CONSISTENT = "CONSISTENT"
+    AMBIGUOUS = "AMBIGUOUS"
+    UNDETERMINED = "UNDETERMINED"
+
+
+class EventConsistencyRules(Protocol):
+    def assess(
+        self,
+        candidate: ParsedCandidate,
+        screening: SourceScreeningResult,
+    ) -> EventConsistency: ...
+
+
+
+
+def evaluate_event_consistency_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+    event_rules: EventConsistencyRules,
+) -> CandidateEvaluation | None:
+    """적합 Source가 존재해도 사건 일관성이 불명확하면 보류한다."""
+    # Source가 없거나 모두 부적합한 경우는 V-04·V-05 등에서 판정한다.
+    if not screening.valid_sources:
+        return None
+
+    assessment = event_rules.assess(candidate, screening)
+
+    if assessment == EventConsistency.CONSISTENT:
+        # 아직 WOULD_ACCEPT가 아니다. Category 등 후속 검증이 필요하다.
+        return None
+
+    if assessment not in (
+        EventConsistency.AMBIGUOUS,
+        EventConsistency.UNDETERMINED,
+    ):
+        raise ValidationExecutionError(
+            "invalid event consistency policy result"
+        )
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        raise ValidationExecutionError(
+            "eligible source exists with invalid candidate title"
+        )
+
+    return CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )
+
+
+# ---------------------------------------------------------------------
+# V-08: 관련성 근거 부족에 따른 DEFERRED
+# ---------------------------------------------------------------------
+
+
+
+def evaluate_relevance_unclear_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+) -> CandidateEvaluation | None:
+    """모든 Source의 관련성 근거가 부족한 경우에만 보류한다."""
+    if screening.valid_sources:
+        return None
+
+    if not candidate.source_candidates:
+        return None
+
+    if len(screening.source_issues) != len(candidate.source_candidates):
+        return None
+
+    if any(
+        issue.code != SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR
+        for issue in screening.source_issues
+    ):
+        return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        return None
+
+    return CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(
+            ReasonCode.NO_ELIGIBLE_SOURCE,
+            ReasonCode.RELEVANCE_UNCLEAR,
+        ),
+        normalized_title=title.normalized_title,
+        valid_sources=(),
+        category_ids=(),
+        warnings=candidate.warnings,
+        source_issues=screening.source_issues,
+    )

@@ -7,12 +7,19 @@ from hashlib import sha256
 import pytest
 
 from app.external_trends.candidate_validator import (
+    CategoryCatalog,
+    CategoryChild,
+    CategoryRoot,
     DomainPolicy,
+    EventConsistency,
     SourceRelevance,
     SourceScreeningResult,
     TopicScope,
+    ValidationExecutionError,
     evaluate_candidate,
+    evaluate_event_consistency_gate,
     evaluate_missing_or_invalid_source_gate,
+    evaluate_relevance_unclear_gate,
     evaluate_topic_gate,
     evaluate_unknown_domain_gate,
     screen_candidate_sources,
@@ -918,3 +925,583 @@ def test_v05_does_not_defer_when_eligible_source_exists() -> None:
         )
         is None
     )
+
+
+
+# ---------------------------------------------------------------------
+# V-06: 활성 Child ID 검증·중복 제거·오름차순 정렬
+# ---------------------------------------------------------------------
+
+
+def make_v06_catalog() -> CategoryCatalog:
+    """Frozen 분류명을 사용한 합성 카탈로그. ID는 테스트 전용이다."""
+    return CategoryCatalog(
+        roots=(
+            CategoryRoot(10, "ENTERTAINMENT", True),
+            CategoryRoot(20, "IT_DIGITAL", True),
+            CategoryRoot(30, "FASHION", False),
+        ),
+        children=(
+            CategoryChild(101, 10, "음악", True),
+            CategoryChild(102, 10, "영화", True),
+            CategoryChild(201, 20, "인공지능", True),
+            CategoryChild(202, 20, "소프트웨어·앱", False),
+            CategoryChild(301, 30, "의류", True),
+        ),
+    )
+
+
+def test_v06_selects_single_active_child() -> None:
+    catalog = make_v06_catalog()
+
+    assert catalog.select_active_child_ids((101,)) == (101,)
+
+
+def test_v06_sorts_and_deduplicates_multiple_children() -> None:
+    catalog = make_v06_catalog()
+
+    assert catalog.select_active_child_ids(
+        (201, 101, 201, 102)
+    ) == (101, 102, 201)
+
+
+@pytest.mark.parametrize(
+    "evidence_child_ids",
+    [
+        pytest.param((), id="no-evidence"),
+        pytest.param((10,), id="root-id-directly"),
+        pytest.param((999,), id="unknown-child"),
+        pytest.param((202,), id="inactive-child"),
+        pytest.param((301,), id="inactive-parent-root"),
+    ],
+)
+def test_v06_does_not_select_unavailable_children(
+    evidence_child_ids: tuple[int, ...],
+) -> None:
+    catalog = make_v06_catalog()
+
+    assert catalog.select_active_child_ids(evidence_child_ids) is None
+
+
+@pytest.mark.parametrize(
+    ("roots", "children"),
+    [
+        pytest.param(
+            (
+                CategoryRoot(10, "ENTERTAINMENT", True),
+                CategoryRoot(10, "IT_DIGITAL", True),
+            ),
+            (),
+            id="duplicate-root-id",
+        ),
+        pytest.param(
+            (
+                CategoryRoot(10, "ENTERTAINMENT", True),
+                CategoryRoot(20, "ENTERTAINMENT", True),
+            ),
+            (),
+            id="duplicate-root-code",
+        ),
+        pytest.param(
+            (CategoryRoot(10, "ENTERTAINMENT", True),),
+            (
+                CategoryChild(101, 10, "음악", True),
+                CategoryChild(101, 10, "영화", True),
+            ),
+            id="duplicate-child-id",
+        ),
+        pytest.param(
+            (CategoryRoot(10, "ENTERTAINMENT", True),),
+            (CategoryChild(10, 10, "음악", True),),
+            id="root-child-id-collision",
+        ),
+        pytest.param(
+            (CategoryRoot(10, "ENTERTAINMENT", True),),
+            (CategoryChild(101, 999, "음악", True),),
+            id="missing-parent-root",
+        ),
+    ],
+)
+def test_v06_invalid_catalog_is_execution_error(
+    roots: tuple[CategoryRoot, ...],
+    children: tuple[CategoryChild, ...],
+) -> None:
+    """오염된 정책 데이터는 정상 DEFERRED 판정으로 바꾸지 않는다."""
+    with pytest.raises(ValidationExecutionError):
+        CategoryCatalog(roots=roots, children=children)
+
+
+
+# ---------------------------------------------------------------------
+# V-07: 서로 다른 사건 및 사건 근거 부족에 따른 DEFERRED
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FixtureEventRules:
+    """합성 기사 제목에 명시적으로 부여한 사건 ID만 사용한다."""
+
+    event_by_title: dict[str, str]
+
+    def assess(
+        self,
+        candidate: ParsedCandidate,
+        screening: SourceScreeningResult,
+    ) -> EventConsistency:
+        event_ids: list[str] = []
+
+        for source in candidate.source_candidates:
+            event_id = self.event_by_title.get(source.raw_title or "")
+
+            if event_id is None:
+                return EventConsistency.UNDETERMINED
+
+            event_ids.append(event_id)
+
+        if not event_ids:
+            return EventConsistency.UNDETERMINED
+
+        if len(set(event_ids)) > 1:
+            return EventConsistency.AMBIGUOUS
+
+        return EventConsistency.CONSISTENT
+
+
+def make_v07_candidate(
+    second_domain: str,
+    *,
+    warnings: tuple[WarningCode, ...] = (),
+) -> ParsedCandidate:
+    return make_candidate(
+        "가상 축제",
+        warnings=warnings,
+        sources=(
+            ParsedSource(
+                0,
+                "가상 축제 A 개막",
+                "https://news.example.test/a",
+                None,
+            ),
+            ParsedSource(
+                1,
+                "가상 축제 B 일정",
+                f"https://{second_domain}/b",
+                None,
+            ),
+        ),
+    )
+
+
+def screen_v07_candidate(
+    candidate: ParsedCandidate,
+) -> SourceScreeningResult:
+    return screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 축제", "가상 축제 a 개막"),
+                ("가상 축제", "가상 축제 b 일정"),
+            }),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "second_domain",
+    [
+        "news.example.test",
+        "unknown.example.test",
+    ],
+)
+def test_v07_different_events_are_deferred(
+    second_domain: str,
+) -> None:
+    candidate = make_v07_candidate(
+        second_domain,
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v07_candidate(candidate)
+
+    rules = FixtureEventRules({
+        "가상 축제 A 개막": "event-a",
+        "가상 축제 B 일정": "event-b",
+    })
+
+    result = evaluate_event_consistency_gate(
+        candidate, screening, rules
+    )
+
+    assert len(screening.valid_sources) >= 1
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 축제",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=screening.source_issues,
+    )
+
+
+@pytest.mark.parametrize(
+    "second_domain",
+    [
+        "news.example.test",
+        "unknown.example.test",
+    ],
+)
+def test_v07_confirmed_same_event_proceeds(
+    second_domain: str,
+) -> None:
+    candidate = make_v07_candidate(second_domain)
+    screening = screen_v07_candidate(candidate)
+
+    expected_count = (
+        2 if second_domain == "news.example.test" else 1
+    )
+    assert len(screening.valid_sources) == expected_count
+
+    rules = FixtureEventRules({
+        "가상 축제 A 개막": "event-a",
+        "가상 축제 B 일정": "event-a",
+    })
+
+    assert (
+        evaluate_event_consistency_gate(
+            candidate, screening, rules
+        )
+        is None
+    )
+
+
+def test_v07_insufficient_event_evidence_is_deferred() -> None:
+    candidate = make_v07_candidate("news.example.test")
+    screening = screen_v07_candidate(candidate)
+
+    # 두 번째 기사에 대한 사건 근거는 제공되지 않았다.
+    rules = FixtureEventRules({
+        "가상 축제 A 개막": "event-a",
+    })
+
+    result = evaluate_event_consistency_gate(
+        candidate, screening, rules
+    )
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.EVENT_AMBIGUOUS,
+    )
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [
+        (),
+        (
+            ParsedSource(
+                0,
+                "가상 축제 A 개막",
+                "https://unknown.example.test/a",
+                None,
+            ),
+        ),
+    ],
+)
+def test_v07_does_not_override_source_shortage(
+    sources: tuple[ParsedSource, ...],
+) -> None:
+    candidate = make_candidate("가상 축제", sources=sources)
+    screening = screen_v07_candidate(candidate)
+
+    class ForbiddenEventRules:
+        def assess(
+            self,
+            candidate: ParsedCandidate,
+            screening: SourceScreeningResult,
+        ) -> EventConsistency:
+            pytest.fail("유효 Source가 없으면 사건 판정을 호출하지 않습니다.")
+
+    assert screening.valid_sources == ()
+    assert (
+        evaluate_event_consistency_gate(
+            candidate, screening, ForbiddenEventRules()
+        )
+        is None
+    )
+
+
+def test_v07_policy_receives_candidate_and_screening() -> None:
+    candidate = make_v07_candidate("unknown.example.test")
+    screening = screen_v07_candidate(candidate)
+    received: list[
+        tuple[ParsedCandidate, SourceScreeningResult]
+    ] = []
+
+    class SpyEventRules:
+        def assess(
+            self,
+            candidate: ParsedCandidate,
+            screening: SourceScreeningResult,
+        ) -> EventConsistency:
+            received.append((candidate, screening))
+            return EventConsistency.AMBIGUOUS
+
+    result = evaluate_event_consistency_gate(
+        candidate, screening, SpyEventRules()
+    )
+
+    assert len(received) == 1
+    assert received[0][0] is candidate
+    assert received[0][1] is screening
+    assert result is not None
+    assert result.source_issues == screening.source_issues
+
+
+
+# ---------------------------------------------------------------------
+# V-08: 미등록 검색어와 관련성 근거 부족의 보류 판정
+# ---------------------------------------------------------------------
+
+
+def screen_v08_candidate(
+    candidate: ParsedCandidate,
+    rules: FixtureSourceRelevanceRules | None = None,
+) -> SourceScreeningResult:
+    """V-08 합성 Fixture의 Source Screening을 수행한다."""
+    return screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        ),
+        rules if rules is not None else FixtureSourceRelevanceRules(),
+    )
+
+
+def test_v08_unregistered_topic_reaches_deferred_decision() -> None:
+    candidate = make_candidate(
+        "가상 AI 행사",
+        sources=(
+            ParsedSource(
+                0,
+                "가상 AI 행사 발표",
+                "https://news.example.test/a",
+                None,
+            ),
+        ),
+    )
+    received: list[ParsedCandidate] = []
+
+    def second_stage(
+        current: ParsedCandidate,
+    ) -> CandidateEvaluation:
+        received.append(current)
+        screening = screen_v08_candidate(current)
+
+        assert screening.source_issues == (
+            SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+        )
+
+        result = evaluate_relevance_unclear_gate(current, screening)
+        assert result is not None
+        return result
+
+    # 미등록 검색어는 기본적으로 AMBIGUOUS이며 조기 제외하지 않는다.
+    result = evaluate_candidate(
+        candidate,
+        FixtureTopicRules({}),
+        second_stage,
+    )
+
+    assert received == [candidate]
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(
+            ReasonCode.NO_ELIGIBLE_SOURCE,
+            ReasonCode.RELEVANCE_UNCLEAR,
+        ),
+        normalized_title="가상 ai 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(),
+        source_issues=(
+            SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("topic", "article"),
+    [
+        ("가상 게임", "가상 게임 업데이트"),
+        ("AI 행사", "AI 행사 일정"),
+    ],
+)
+def test_v08_substring_does_not_prove_relevance(
+    topic: str,
+    article: str,
+) -> None:
+    candidate = make_candidate(
+        topic,
+        sources=(
+            ParsedSource(
+                0,
+                article,
+                "https://news.example.test/a",
+                None,
+            ),
+        ),
+    )
+    screening = screen_v08_candidate(candidate)
+
+    assert screening.valid_sources == ()
+    assert screening.source_issues == (
+        SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+    )
+
+    result = evaluate_relevance_unclear_gate(candidate, screening)
+
+    assert result is not None
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.RELEVANCE_UNCLEAR,
+    )
+
+
+def test_v08_preserves_multiple_source_issues_and_warnings() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        sources=(
+            ParsedSource(
+                0,
+                "첫 번째 가상 행사 기사",
+                "https://news.example.test/a",
+                None,
+            ),
+            ParsedSource(
+                1,
+                "두 번째 가상 행사 기사",
+                "https://news.example.test/b",
+                None,
+            ),
+        ),
+    )
+    screening = screen_v08_candidate(candidate)
+
+    result = evaluate_relevance_unclear_gate(candidate, screening)
+
+    assert result is not None
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.RELEVANCE_UNCLEAR,
+    )
+    assert result.source_issues == (
+        SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+        SourceIssue(1, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+    )
+    assert result.warnings == (WarningCode.INVALID_PUB_DATE,)
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+def test_v08_explicitly_related_source_proceeds() -> None:
+    candidate = make_candidate(
+        "가상 AI 행사",
+        sources=(
+            ParsedSource(
+                0,
+                "가상 AI 행사 발표",
+                "https://news.example.test/a",
+                None,
+            ),
+        ),
+    )
+    rules = FixtureSourceRelevanceRules(
+        related=frozenset({
+            ("가상 ai 행사", "가상 ai 행사 발표"),
+        }),
+    )
+    screening = screen_v08_candidate(candidate, rules)
+
+    assert len(screening.valid_sources) == 1
+    assert screening.source_issues == ()
+    assert evaluate_relevance_unclear_gate(candidate, screening) is None
+
+
+def test_v08_no_sources_remains_v05_responsibility() -> None:
+    candidate = make_candidate("가상 행사")
+    screening = screen_v08_candidate(candidate)
+
+    assert screening.valid_sources == ()
+    assert screening.source_issues == ()
+    assert evaluate_relevance_unclear_gate(candidate, screening) is None
+
+
+@pytest.mark.parametrize(
+    "issue_code",
+    [
+        SourceIssueCode.UNKNOWN_SOURCE_DOMAIN,
+        SourceIssueCode.BLOCKED_SOURCE_DOMAIN,
+        SourceIssueCode.SOURCE_TITLE_MISSING,
+        SourceIssueCode.SOURCE_UNRELATED,
+    ],
+)
+def test_v08_does_not_take_over_other_issue_codes(
+    issue_code: SourceIssueCode,
+) -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(ParsedSource(0, "가상 행사 기사", None, None),),
+    )
+    screening = SourceScreeningResult(
+        valid_sources=(),
+        source_issues=(SourceIssue(0, issue_code),),
+    )
+
+    assert evaluate_relevance_unclear_gate(candidate, screening) is None
+
+
+def test_v08_mixed_issues_require_later_combined_decision() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(
+            ParsedSource(0, "첫 번째 기사", None, None),
+            ParsedSource(1, "두 번째 기사", None, None),
+        ),
+    )
+    screening = SourceScreeningResult(
+        valid_sources=(),
+        source_issues=(
+            SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+            SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        ),
+    )
+
+    assert evaluate_relevance_unclear_gate(candidate, screening) is None
+
+
+def test_v08_incomplete_screening_does_not_decide() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(
+            ParsedSource(0, "첫 번째 기사", None, None),
+            ParsedSource(1, "두 번째 기사", None, None),
+        ),
+    )
+    screening = SourceScreeningResult(
+        valid_sources=(),
+        source_issues=(
+            SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+        ),
+    )
+
+    assert evaluate_relevance_unclear_gate(candidate, screening) is None
