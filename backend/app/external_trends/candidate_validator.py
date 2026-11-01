@@ -129,6 +129,7 @@ def screen_candidate_sources(
 
     valid_sources: list[NormalizedSource] = []
     source_issues: list[SourceIssue] = []
+    seen_source_keys: set[str] = set()
 
     for source in candidate.source_candidates:
         article_title = (
@@ -191,6 +192,19 @@ def screen_candidate_sources(
                 SourceIssue(source.item_news_index, code)
             )
             continue
+
+        # 제목·URL·도메인·관련성 검증을 모두 통과한 Source만
+        # 중복 제거 대상에 포함한다.
+        if url.source_key in seen_source_keys:
+            source_issues.append(
+                SourceIssue(
+                    source.item_news_index,
+                    SourceIssueCode.DUPLICATE_SOURCE,
+                )
+            )
+            continue
+
+        seen_source_keys.add(url.source_key)
 
         valid_sources.append(
             NormalizedSource(
@@ -686,4 +700,44 @@ def evaluate_unknown_blocked_domain_gate(
         category_ids=(),
         warnings=candidate.warnings,
         source_issues=screening.source_issues,
+    )
+
+
+# ---------------------------------------------------------------------
+# V-17: 사건 일관성 -> 활성 Child Category 판정 연결
+# ---------------------------------------------------------------------
+
+
+def evaluate_event_and_category_gates(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+    event_rules: EventConsistencyRules,
+    catalog: CategoryCatalog,
+    proposed_child_ids: tuple[int, ...] | None,
+) -> CandidateEvaluation | None:
+    """적합 Source가 있는 후보의 사건 및 Category 보류 검증을 연결한다."""
+
+    # Source 부족은 앞선 Source 판정 단계의 책임이다.
+    if not screening.valid_sources:
+        return None
+
+    # 1. 사건 일관성 검증
+    event_result = evaluate_event_consistency_gate(
+        candidate,
+        screening,
+        event_rules,
+    )
+
+    if event_result is not None:
+        return event_result
+
+    # 적합 Source가 존재하고 사건 Gate를 통과했으므로
+    # 이 지점에서는 사건 일관성이 CONSISTENT이다.
+    # 2. 활성 Child Category 검증
+    return evaluate_category_unclear_gate(
+        candidate,
+        screening,
+        EventConsistency.CONSISTENT,
+        catalog,
+        proposed_child_ids,
     )

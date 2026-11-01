@@ -22,6 +22,7 @@ from app.external_trends.candidate_validator import (
     ValidationExecutionError,
     evaluate_candidate,
     evaluate_category_unclear_gate,
+    evaluate_event_and_category_gates,
     evaluate_event_consistency_gate,
     evaluate_missing_or_invalid_source_gate,
     evaluate_relevance_unclear_gate,
@@ -3322,3 +3323,590 @@ def test_v16_source_shortage_precedes_event_and_category() -> None:
         make_v11_catalog(),
         proposed_child_ids=None,
     ) is None
+
+
+
+# ---------------------------------------------------------------------
+# V-17: 사건·Category 불명확 시 DEFERRED 및 출력 배열 비움
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("event_ids", "expected_assessment"),
+    [
+        pytest.param(
+            {
+                "가상 축제 A 개막": "event-a",
+                "가상 축제 B 일정": "event-b",
+            },
+            EventConsistency.AMBIGUOUS,
+            id="different-events",
+        ),
+        pytest.param(
+            {
+                "가상 축제 A 개막": "event-a",
+            },
+            EventConsistency.UNDETERMINED,
+            id="unconfirmed-event",
+        ),
+    ],
+)
+def test_v17_event_ambiguity_precedes_category(
+    event_ids: dict[str, str],
+    expected_assessment: EventConsistency,
+) -> None:
+    candidate = make_v07_candidate(
+        "news.example.test",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v07_candidate(candidate)
+    event_rules = FixtureEventRules(event_ids)
+
+    assert len(screening.valid_sources) == 2
+    assert screening.source_issues == ()
+    assert event_rules.assess(
+        candidate, screening
+    ) == expected_assessment
+
+    # Category까지 불명확하지만 사건 보류가 우선한다.
+    result = evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        event_rules,
+        make_v11_catalog(),
+        proposed_child_ids=(999,),
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 축제",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(),
+    )
+
+
+def test_v17_event_deferred_preserves_mixed_source_issues() -> None:
+    candidate = make_v15_candidate(
+        ("unknown", "approved", "blocked", "unrelated"),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v15_candidate(candidate)
+    event_rules = FixtureEventRules({
+        "가상 행사 공식 발표": "event-main",
+    })
+
+    assert len(screening.valid_sources) == 1
+    assert event_rules.assess(
+        candidate, screening
+    ) == EventConsistency.UNDETERMINED
+
+    result = evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        event_rules,
+        make_v11_catalog(),
+        proposed_child_ids=(101,),
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(
+            SourceIssue(0, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+            SourceIssue(2, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+            SourceIssue(3, SourceIssueCode.SOURCE_UNRELATED),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "proposed_child_ids",
+    [
+        pytest.param(None, id="missing-evidence"),
+        pytest.param((), id="empty-evidence"),
+        pytest.param((999,), id="unknown-child"),
+        pytest.param((299,), id="inactive-child"),
+        pytest.param((399,), id="inactive-parent"),
+    ],
+)
+def test_v17_consistent_event_with_unclear_category_is_deferred(
+    proposed_child_ids: tuple[int, ...] | None,
+) -> None:
+    candidate, screening = make_v11_screening()
+    event_rules = FixtureEventRules({
+        "가상 행사 기사": "event-main",
+        "가상 행사 추가 기사": "event-main",
+    })
+
+    assert len(screening.valid_sources) == 1
+    assert screening.source_issues == (
+        SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+    )
+    assert event_rules.assess(
+        candidate, screening
+    ) == EventConsistency.CONSISTENT
+
+    result = evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        event_rules,
+        make_v11_catalog(),
+        proposed_child_ids,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(
+            SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        ),
+    )
+
+
+def test_v17_consistent_event_and_active_child_proceed() -> None:
+    candidate, screening = make_v11_screening()
+    event_rules = FixtureEventRules({
+        "가상 행사 기사": "event-main",
+        "가상 행사 추가 기사": "event-main",
+    })
+    catalog = make_v11_catalog()
+
+    assert len(screening.valid_sources) == 1
+    assert catalog.select_active_child_ids((101,)) == (101,)
+
+    result = evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        event_rules,
+        catalog,
+        proposed_child_ids=(101,),
+    )
+
+    # 후속 최종 판정 단계로 진행할 수 있다는 뜻이다.
+    # 아직 WOULD_ACCEPT를 생성한 것이 아니다.
+    assert result is None
+
+
+def test_v17_no_eligible_source_does_not_assess_event() -> None:
+    candidate = make_v16_candidate(("unknown", "blocked"))
+    screening = screen_v16_candidate(candidate)
+
+    class ForbiddenEventRules:
+        def assess(
+            self,
+            candidate: ParsedCandidate,
+            screening: SourceScreeningResult,
+        ) -> EventConsistency:
+            pytest.fail(
+                "적합 Source가 없으면 사건 검사를 호출하면 안 됩니다."
+            )
+
+    assert screening.valid_sources == ()
+
+    # Source 부족 판정이 먼저 수행되어야 한다.
+    source_result = evaluate_unknown_blocked_domain_gate(
+        candidate, screening
+    )
+
+    assert source_result is not None
+    assert source_result.decision == CandidateDecision.DEFERRED
+
+    # 이 연결 함수 자체에서는 별도 판정을 하지 않는다.
+    assert evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        ForbiddenEventRules(),
+        make_v11_catalog(),
+        proposed_child_ids=None,
+    ) is None
+
+
+def test_v17_unregistered_topic_reaches_integrated_gates() -> None:
+    candidate, screening = make_v11_screening()
+    received: list[ParsedCandidate] = []
+
+    def second_stage(
+        current: ParsedCandidate,
+    ) -> CandidateEvaluation:
+        received.append(current)
+
+        result = evaluate_event_and_category_gates(
+            current,
+            screening,
+            FixtureEventRules({
+                "가상 행사 기사": "event-main",
+                "가상 행사 추가 기사": "event-main",
+            }),
+            make_v11_catalog(),
+            proposed_child_ids=None,
+        )
+
+        assert result is not None
+        return result
+
+    result = evaluate_candidate(
+        candidate,
+        FixtureTopicRules({}),
+        second_stage,
+    )
+
+    assert received == [candidate]
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.CATEGORY_UNCLEAR,
+    )
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+
+# ---------------------------------------------------------------------
+# V-18: 동일 source_key 중복 제거 및 최초 적합 Source 유지
+# ---------------------------------------------------------------------
+
+
+def make_v18_candidate(
+    items: tuple[tuple[str | None, str | None], ...],
+    *,
+    warnings: tuple[WarningCode, ...] = (),
+) -> ParsedCandidate:
+    return make_candidate(
+        "가상 행사",
+        warnings=warnings,
+        sources=tuple(
+            ParsedSource(
+                item_news_index=index,
+                raw_title=title,
+                raw_url=url,
+                publisher_name=f"합성 매체 {index}",
+            )
+            for index, (title, url) in enumerate(items)
+        ),
+    )
+
+
+def screen_v18_candidate(
+    candidate: ParsedCandidate,
+) -> SourceScreeningResult:
+    return screen_candidate_sources(
+        candidate,
+        DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset({"blocked.example.test"}),
+        ),
+        FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 행사", "가상 행사 첫 기사"),
+                ("가상 행사", "가상 행사 다른 기사"),
+                ("가상 행사", "가상 행사 추가 기사"),
+                ("가상 행사", "가상 행사 관련 기사"),
+            }),
+            unrelated=frozenset({
+                ("가상 행사", "완전히 다른 소식"),
+            }),
+        ),
+    )
+
+
+def test_v18_same_url_different_titles_keeps_first() -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a?id=42",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/a?id=42",
+        ),
+        (
+            "가상 행사 추가 기사",
+            "https://news.example.test/b",
+        ),
+    ))
+
+    screening = screen_v18_candidate(candidate)
+    first_url = "https://news.example.test/a?id=42"
+    third_url = "https://news.example.test/b"
+
+    assert screening.valid_sources == (
+        NormalizedSource(
+            source_title="가상 행사 첫 기사",
+            canonical_url=first_url,
+            source_key=sha256(
+                first_url.encode("utf-8")
+            ).hexdigest(),
+            publisher_name="합성 매체 0",
+        ),
+        NormalizedSource(
+            source_title="가상 행사 추가 기사",
+            canonical_url=third_url,
+            source_key=sha256(
+                third_url.encode("utf-8")
+            ).hexdigest(),
+            publisher_name="합성 매체 2",
+        ),
+    )
+    assert screening.source_issues == (
+        SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+    )
+
+
+@pytest.mark.parametrize(
+    "duplicate_url",
+    [
+        pytest.param(
+            (
+                "HTTPS://NEWS.Example.TEST:443/a"
+                "?id=42&utm_source=rss"
+            ),
+            id="host-case-and-tracking",
+        ),
+        pytest.param(
+            (
+                "https://news.example.test/a"
+                "?utm_medium=feed&id=42"
+            ),
+            id="tracking-parameter-order",
+        ),
+        pytest.param(
+            "https://news.example.test/a?id=42",
+            id="exact-canonical-url",
+        ),
+    ],
+)
+def test_v18_canonical_equivalent_urls_are_duplicates(
+    duplicate_url: str,
+) -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a?id=42",
+        ),
+        (
+            "가상 행사 다른 기사",
+            duplicate_url,
+        ),
+    ))
+
+    screening = screen_v18_candidate(candidate)
+
+    assert len(screening.valid_sources) == 1
+    assert screening.valid_sources[0].source_title == (
+        "가상 행사 첫 기사"
+    )
+    assert screening.valid_sources[0].canonical_url == (
+        "https://news.example.test/a?id=42"
+    )
+    assert screening.source_issues == (
+        SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+    )
+
+
+@pytest.mark.parametrize(
+    "second_url",
+    [
+        pytest.param(
+            "https://news.example.test/a?id=43",
+            id="different-meaningful-query",
+        ),
+        pytest.param(
+            "https://news.example.test/a?id=42#part-two",
+            id="different-fragment",
+        ),
+    ],
+)
+def test_v18_meaningful_url_differences_remain_distinct(
+    second_url: str,
+) -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a?id=42",
+        ),
+        (
+            "가상 행사 다른 기사",
+            second_url,
+        ),
+    ))
+
+    screening = screen_v18_candidate(candidate)
+
+    assert len(screening.valid_sources) == 2
+    assert screening.source_issues == ()
+    assert (
+        screening.valid_sources[0].source_key
+        != screening.valid_sources[1].source_key
+    )
+
+
+@pytest.mark.parametrize(
+    ("first_title", "expected_issue"),
+    [
+        pytest.param(
+            None,
+            SourceIssueCode.SOURCE_TITLE_MISSING,
+            id="missing-title",
+        ),
+        pytest.param(
+            "완전히 다른 소식",
+            SourceIssueCode.SOURCE_UNRELATED,
+            id="explicitly-unrelated",
+        ),
+    ],
+)
+def test_v18_ineligible_first_source_does_not_consume_key(
+    first_title: str | None,
+    expected_issue: SourceIssueCode,
+) -> None:
+    url = "https://news.example.test/a?id=42"
+    candidate = make_v18_candidate((
+        (first_title, url),
+        ("가상 행사 첫 기사", url),
+    ))
+
+    screening = screen_v18_candidate(candidate)
+
+    assert len(screening.valid_sources) == 1
+    assert screening.valid_sources[0].source_title == (
+        "가상 행사 첫 기사"
+    )
+    assert screening.valid_sources[0].publisher_name == (
+        "합성 매체 1"
+    )
+    assert screening.source_issues == (
+        SourceIssue(0, expected_issue),
+    )
+
+
+def test_v18_mixed_issues_preserve_original_positions() -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a?id=42",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/a?utm_source=rss&id=42",
+        ),
+        (
+            "가상 행사 관련 기사",
+            "https://unknown.example.test/c",
+        ),
+        (
+            "가상 행사 관련 기사",
+            "https://blocked.example.test/d",
+        ),
+        (
+            "완전히 다른 소식",
+            "https://news.example.test/e",
+        ),
+        (
+            "가상 행사 추가 기사",
+            "https://news.example.test/a?id=43",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/a?id=43",
+        ),
+    ))
+
+    screening = screen_v18_candidate(candidate)
+
+    assert tuple(
+        source.canonical_url
+        for source in screening.valid_sources
+    ) == (
+        "https://news.example.test/a?id=42",
+        "https://news.example.test/a?id=43",
+    )
+
+    assert screening.source_issues == (
+        SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+        SourceIssue(2, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(3, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+        SourceIssue(4, SourceIssueCode.SOURCE_UNRELATED),
+        SourceIssue(6, SourceIssueCode.DUPLICATE_SOURCE),
+    )
+
+
+def test_v18_duplicate_issue_survives_deferred_result() -> None:
+    candidate = make_v18_candidate(
+        (
+            (
+                "가상 행사 첫 기사",
+                "https://news.example.test/a",
+            ),
+            (
+                "가상 행사 다른 기사",
+                "https://news.example.test/a",
+            ),
+            (
+                "가상 행사 관련 기사",
+                "https://unknown.example.test/b",
+            ),
+        ),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+
+    screening = screen_v18_candidate(candidate)
+
+    # 사건은 명시적인 Fixture 규칙상 일관된 것으로 둔다.
+    result = evaluate_event_and_category_gates(
+        candidate,
+        screening,
+        FixtureEventRules({
+            "가상 행사 첫 기사": "event-main",
+            "가상 행사 다른 기사": "event-main",
+            "가상 행사 관련 기사": "event-main",
+        }),
+        make_v11_catalog(),
+        proposed_child_ids=None,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(
+            SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+            SourceIssue(2, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        ),
+    )
+
+
+def test_v18_deduplication_state_is_per_candidate_call() -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/a",
+        ),
+    ))
+
+    results = tuple(
+        screen_v18_candidate(candidate)
+        for _ in range(3)
+    )
+
+    assert all(result == results[0] for result in results)
+    assert len(results[0].valid_sources) == 1
+    assert results[0].source_issues == (
+        SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+    )
