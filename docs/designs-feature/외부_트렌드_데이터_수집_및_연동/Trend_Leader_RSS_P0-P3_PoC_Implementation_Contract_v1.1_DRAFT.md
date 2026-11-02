@@ -191,8 +191,10 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 - **사용자 로컬 관측:** `pyexpat.EXPAT_VERSION` 결과가 `expat_2.7.3`이다. Python 자체의 정확한 패치 버전, OS·아키텍처 및 보안 패치 적용 수준은 이 값만으로 확인할 수 없다.
 - **실제 구현:** `rss_parser.py`는 `defusedxml.ElementTree.fromstring`에 `forbid_dtd=True`, `forbid_entities=True`, `forbid_external=True`를 전달한다. `defusedxml==0.7.1` 사용과 XML 입력·깊이·개수 제한은 기존 P1 계약대로 유지한다.
 - **공식 보안 근거:** Python XML 보안 문서는 Expat **2.7.2 미만**에서의 특정 XML DoS 취약점을 설명한다. 이는 **2.7.2 이상이 모든 보안 수정에 적합하다는 보증이 아니다**. Expat 프로젝트는 2026-10-05 기준 보안 수정이 포함된 **2.9.0**을 공개했고, 2.7.3 이후에도 보안 릴리스가 있었다. 따라서 `expat_2.7.3`만으로 현재 보안 적합성을 승인하지 않는다.
-- **환경 경계:** `backend/Dockerfile`은 `python:3.12-slim` 태그를 사용한다. 실제 컨테이너의 Python·Expat 버전 및 패치 적용 상태는 **미확인**이며, 로컬 버전을 컨테이너 버전으로 간주하지 않는다. 배포 시 재검증하고 보안 패치가 포함된 Python/이미지로 업데이트하는 방안을 검토한다. 단순 버전 문자열뿐 아니라 배포판의 보안 패치 백포트 여부도 확인한다.
-- **판정:** P-08 XML 방어 설정 테스트와 P-11 비정상 입력 타입·빈 bytes 테스트는 기존 코드에서 확인됐다. F-03은 **로컬 버전 관측 및 위험 식별까지만 완료**, **배포 환경 보안 적합성 미승인** 상태다. 특정 Expat 버전을 pytest 최소값으로 무조건 고정하거나 새 기능을 추가하지 않는다.
+- **컨테이너 실행 환경 관측(사용자 제공):** 실행 중인 `trend-leader-api`에 `docker exec`로 직접 확인한 결과 Python `3.12.16`(빌드 표기 2026-10-28), Linux WSL2 `x86_64`/64bit, `pyexpat.EXPAT_VERSION=expat_2.9.0`이었다. 이는 로컬 Windows의 `expat_2.7.3`과 **서로 다른 런타임**이며, 이 실행 컨테이너가 Expat upstream 2.9.0을 보고한다는 사실까지만 증명한다.
+- **환경 경계:** `backend/Dockerfile`은 `python:3.12-slim`이라는 변동 태그를 사용한다. 현재 실행 컨테이너의 버전 관측은 완료했지만, 재빌드한 미래 이미지의 버전·패치 수준이나 이미지 전체 취약점·배포 환경의 보안 적합성은 별도 검증 대상이다. 운영 투입 시 이미지 갱신·취약점 점검·필요시 이미지 digest 고정을 검토한다. 배포판 보안 패치 백포트 여부도 단순 버전 문자열과 구분한다.
+- **별도 Compose 설정 이슈:** `docker compose --env-file ./backend/.env config --quiet`는 `DB_ROOT_PASSWORD`, `DB_EXTERNAL_PORT`가 없어 실패했고 `BACKEND_EXTERNAL_PORT` 누락 경고가 발생했다. 이는 Compose **변수 치환 설정** 문제이지 `docker exec`로 확인한 파서 버전의 무효 증거가 아니다. 비밀값·실제 포트를 추측하거나 기존 DB를 재초기화하지 않는다.
+- **판정:** P-08 XML 방어 설정 테스트와 P-11 비정상 입력 타입·빈 bytes 테스트는 기존 코드에서 확인됐다. F-03은 **로컬 및 실행 컨테이너 버전 관측 완료**, **배포 환경 전체 보안 적합성 미승인** 상태다. 특정 Expat 버전을 pytest 최소값으로 무조건 고정하거나 새 기능을 추가하지 않는다.
 
 실행 중인 Docker Compose 서비스의 버전 확인 예시(실제 실행 기록 아님):
 
@@ -404,7 +406,7 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 | 전체 자동 테스트 | F-02 통합 테스트 5개 추가 후 사용자가 로컬에서 `411 passed` 보고 (기존 406개 → 411개) |
 | 정적 검사 | 사용자가 로컬에서 Ruff `All checks passed!` 보고 |
 | F-03 로컬 Expat | 사용자가 `pyexpat.EXPAT_VERSION = expat_2.7.3` 보고. 버전 관측 확인, 최신 upstream 보안 적합성 승인 아님 |
-| F-03 Docker Expat | `python:3.12-slim` 기반이나 실행 컨테이너의 실제 버전·보안 패치 적용 여부 미확인 |
+| F-03 Docker Expat | 사용자 실행 중 컨테이너 확인: Python `3.12.16`, Expat `2.9.0`, Linux WSL2/64bit. 이미지 전체 보안 패치·배포 적합성은 별도 검증 대상 |
 | 원격 CI / 통합 배포 검증 | **미확인**. 이 초안은 PASS를 새로 실행한 결과가 아니다 |
 | `ambiguous_feed.xml` | F-02 체크포인트 `b3abc2d8`로 원격 추가 확인. 합성 XML Item 4개, Parser → Validator 테스트 5개 존재 확인 |
 | 실제 수집·저장·게시 | P0~P3 계약에서 제외, 실행·승인 완료 아님 |
@@ -486,7 +488,8 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 - [x] 사용자 보고 F-02 추가 후 로컬 `411 passed`·Ruff PASS 구분 표기
 - [x] `ambiguous_feed.xml` 4개 Item 및 Parser → Validator 통합 테스트 5개 원격 반영 확인 (`b3abc2d8`)
 - [x] F-03 로컬 `expat_2.7.3` 관측과 최신 보안 릴리스 격차·실제 방어 옵션 기록
-- [ ] F-03 실행 컨테이너의 Python·Expat 버전 및 보안 패치 적합성 확인 (서비스/배포 활성화 전에 필요)
+- [x] F-03 실행 컨테이너 Python `3.12.16`, Expat `2.9.0`, WSL2/64bit 사용자 관측값 기록
+- [ ] F-03 배포 이미지·의존성 보안 패치 및 운영 적합성 별도 검증 (운영·실데이터 활성화 전)
 - [ ] 최종 브랜치 HEAD·동결 대상 실제 코드·테스트/CI 최신성 재검증
 - [ ] 사용자 v1.1 정책·변경점 명시 승인
 - [ ] 승인 후 v1.1 FROZEN 발행 및 `dev` PR·병합 절차 별도 진행
@@ -495,4 +498,4 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 
 - 프로젝트 근거: 최신 `dev`의 지침 v1.2, Frozen Taxonomy·전체 목록·개인화 목록, ORM(`trend.py`, `trend_source.py`, `category.py`, `trend_category_map.py`), `requirements.txt`, `pyproject.toml` 및 사용자 RSS 관찰 화면.
 - 일반 보안 근거: [Python XML security](https://docs.python.org/3/library/xml.html#xml-vulnerabilities), [OWASP XXE Prevention](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html), [defusedxml 문서](https://pypi.org/project/defusedxml/) 및 [defusedxml.ElementTree 구현](https://github.com/tiran/defusedxml/blob/main/defusedxml/ElementTree.py). XML 관련 공식 설명은 기술 권고로만 인용하며 Google RSS 사용 허가의 근거로 쓰지 않는다.
-- 현재 미검증: **원격 CI 성공 여부**, **컨테이너 Python·Expat 실제 버전과 보안 패치 적용 상태**, 실제 Google RSS 자동 호출·저장·게시 권리, 원문 기사 라이브 접속·사실 검증, MariaDB Collation 영향, P4 Writer/스포츠 Seed 변경. F-02 합성 XML과 통합 테스트의 원격 반영을 확인했으며, 사용자 로컬 `411 passed`·Ruff PASS는 CI 결과와 구분해 기록했다.
+- 현재 미검증: **원격 CI 성공 여부**, **배포 이미지 전체 보안 패치 적용 상태 및 운영 적합성**, 실제 Google RSS 자동 호출·저장·게시 권리, 원문 기사 라이브 접속·사실 검증, MariaDB Collation 영향, P4 Writer/스포츠 Seed 변경. F-02 합성 XML과 통합 테스트의 원격 반영을 확인했으며, 사용자 로컬 `411 passed`·Ruff PASS는 CI 결과와 구분해 기록했다.
