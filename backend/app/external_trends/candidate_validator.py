@@ -480,12 +480,28 @@ class CategoryCatalog:
                 "child references unknown parent root"
             )
 
+
     def select_active_child_ids(
         self,
         evidence_child_ids: tuple[int, ...],
     ) -> tuple[int, ...] | None:
         """근거로 제시된 활성 Child만 중복 없이 오름차순 반환한다."""
 
+        # R-04D: 정책 입력의 정확한 타입부터 검증한다.
+        # bool은 int의 하위 타입이고, float는 int와 값이
+        # 같을 수 있으므로 isinstance 대신 type을 사용한다.
+        if (
+            type(evidence_child_ids) is not tuple
+            or any(
+                type(child_id) is not int
+                for child_id in evidence_child_ids
+            )
+        ):
+            raise ValidationExecutionError(
+                "invalid category selection"
+            )
+
+        # 정상적인 빈 tuple은 선택 근거가 없음을 뜻한다.
         if not evidence_child_ids:
             return None
 
@@ -514,7 +530,6 @@ class CategoryCatalog:
             selected_ids.add(child_id)
 
         return tuple(sorted(selected_ids))
-
 
 
 class CategoryEvidenceRules(Protocol):
@@ -776,6 +791,7 @@ def has_valid_other_category_evidence(
     return True
 
 
+
 def evaluate_category_unclear_gate(
     candidate: ParsedCandidate,
     screening: SourceScreeningResult,
@@ -784,6 +800,7 @@ def evaluate_category_unclear_gate(
     proposed_child_ids: tuple[int, ...] | None,
 ) -> CandidateEvaluation | None:
     """Source·사건이 확인됐지만 활성 Child가 불명확하면 보류한다."""
+
     if not screening.valid_sources:
         return None
 
@@ -795,8 +812,17 @@ def evaluate_category_unclear_gate(
     if event_consistency is not EventConsistency.CONSISTENT:
         return None
 
+    # R-04D: None만 정상적인 '근거 미제공'으로 취급한다.
+    # [], "", 0 등의 잘못된 값은 그대로 Catalog에 전달해
+    # 타입 오류를 ValidationExecutionError로 처리한다.
+    selection_ids = (
+        ()
+        if proposed_child_ids is None
+        else proposed_child_ids
+    )
+
     selected_ids = catalog.select_active_child_ids(
-        proposed_child_ids or ()
+        selection_ids
     )
 
     if selected_ids is not None:
@@ -819,6 +845,7 @@ def evaluate_category_unclear_gate(
         warnings=candidate.warnings,
         source_issues=screening.source_issues,
     )
+
 
 # ---------------------------------------------------------------------
 # V-16: 미확인·차단 도메인 혼합 및 전체 차단 판정
@@ -959,6 +986,7 @@ def evaluate_event_and_category_gates(
 
 
 
+
 def validate_p3_candidate(
     candidate: ParsedCandidate,
     *,
@@ -985,8 +1013,6 @@ def validate_p3_candidate(
         # R-03: 후보 제목 정규화 실패
         # ---------------------------------------------------------
         if title is None:
-            # 외부 입력 데이터 품질 문제는 정책 실행 실패가 아니다.
-            # 유효한 제목이 없으므로 후속 정책·Source를 검사하지 않는다.
             return CandidateEvaluation(
                 decision=CandidateDecision.DEFERRED,
                 reason_codes=(
@@ -1075,7 +1101,7 @@ def validate_p3_candidate(
             )
 
         # ---------------------------------------------------------
-        # 3. R-02B: 적합 기사 근거로 2차 주제 범위 확인
+        # 3. R-02B: 기사 기반 2차 Topic Scope 검증
         # ---------------------------------------------------------
         article_scope_result = evaluate_article_topic_scope_gate(
             current,
@@ -1100,8 +1126,15 @@ def validate_p3_candidate(
         if deferred_result is not None:
             return deferred_result
 
+        # R-04D: None만 정상적인 근거 미제공으로 취급한다.
+        selection_ids = (
+            ()
+            if proposed_child_ids is None
+            else proposed_child_ids
+        )
+
         category_ids = category_catalog.select_active_child_ids(
-            proposed_child_ids or ()
+            selection_ids
         )
 
         if category_ids is None:
@@ -1189,6 +1222,7 @@ def validate_p3_candidate(
         topic_rules,
         second_stage,
     )
+
 
 # ---------------------------------------------------------------------
 # Final Review R-02B:

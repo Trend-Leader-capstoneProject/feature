@@ -5689,3 +5689,239 @@ def test_r04c_event_conflict_keeps_event_reason() -> None:
         warnings=(),
         source_issues=(),
     )
+
+
+
+# ---------------------------------------------------------------------
+# Final Review R-04D:
+# Category Child ID 입력 타입 안전성
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "invalid_ids",
+    [
+        pytest.param(
+            (101.0,),
+            id="float-child-id",
+        ),
+        pytest.param(
+            ("101",),
+            id="string-child-id",
+        ),
+        pytest.param(
+            (True,),
+            id="boolean-child-id",
+        ),
+        pytest.param(
+            (101, True),
+            id="mixed-valid-and-boolean",
+        ),
+        pytest.param(
+            ([101],),
+            id="unhashable-child-id",
+        ),
+    ],
+)
+def test_r04d_rejects_invalid_child_identifier_types(
+    invalid_ids: object,
+) -> None:
+    """Child ID의 실제 타입은 int여야 한다."""
+    catalog = make_v11_catalog()
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid category selection",
+    ):
+        catalog.select_active_child_ids(
+            cast(tuple[int, ...], invalid_ids)
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_ids",
+    [
+        pytest.param(
+            [101],
+            id="list-container",
+        ),
+        pytest.param(
+            [],
+            id="empty-list-container",
+        ),
+        pytest.param(
+            "101",
+            id="string-container",
+        ),
+    ],
+)
+def test_r04d_rejects_invalid_selection_container_types(
+    invalid_ids: object,
+) -> None:
+    """선택 ID의 컨테이너는 반드시 tuple이어야 한다."""
+    catalog = make_v11_catalog()
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid category selection",
+    ):
+        catalog.select_active_child_ids(
+            cast(tuple[int, ...], invalid_ids)
+        )
+
+
+def test_r04d_boolean_does_not_alias_integer_child_id() -> None:
+    """True가 정수 ID 1과 일치하는 Python 동작을 차단한다."""
+    catalog = CategoryCatalog(
+        roots=(
+            CategoryRoot(
+                10,
+                "ENTERTAINMENT",
+                True,
+            ),
+        ),
+        children=(
+            CategoryChild(
+                1,
+                10,
+                "음악",
+                True,
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid category selection",
+    ):
+        catalog.select_active_child_ids(
+            cast(tuple[int, ...], (True,))
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_ids",
+    [
+        pytest.param(
+            (101.0,),
+            id="final-float-id",
+        ),
+        pytest.param(
+            [],
+            id="final-empty-list",
+        ),
+    ],
+)
+def test_r04d_final_validator_rejects_invalid_proposals(
+    invalid_ids: object,
+) -> None:
+    """최종 Validator에서도 잘못된 정책 입력을 숨기지 않는다."""
+    candidate = make_v19_eligible_candidate()
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid category selection",
+    ):
+        evaluate_v19_fixture(
+            candidate,
+            event_by_title={
+                "가상 행사 기사": "event-main",
+            },
+            proposed_child_ids=cast(
+                tuple[int, ...] | None,
+                invalid_ids,
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("selected_ids", "expected"),
+    [
+        pytest.param(
+            (101,),
+            (101,),
+            id="valid-active-child",
+        ),
+        pytest.param(
+            (101, 101),
+            (101,),
+            id="duplicate-active-child",
+        ),
+        pytest.param(
+            (),
+            None,
+            id="empty-tuple",
+        ),
+        pytest.param(
+            (999,),
+            None,
+            id="unknown-integer-child",
+        ),
+    ],
+)
+def test_r04d_valid_selection_contract_is_preserved(
+    selected_ids: tuple[int, ...],
+    expected: tuple[int, ...] | None,
+) -> None:
+    """정상 정수 입력의 기존 선택 동작은 유지한다."""
+    catalog = make_v11_catalog()
+
+    assert catalog.select_active_child_ids(
+        selected_ids
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("proposed_ids", "expected_decision", "expected_reason"),
+    [
+        pytest.param(
+            (101,),
+            CandidateDecision.WOULD_ACCEPT,
+            ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+            id="active-child-is-accepted",
+        ),
+        pytest.param(
+            (999,),
+            CandidateDecision.DEFERRED,
+            ReasonCode.CATEGORY_UNCLEAR,
+            id="unknown-integer-is-deferred",
+        ),
+        pytest.param(
+            None,
+            CandidateDecision.DEFERRED,
+            ReasonCode.CATEGORY_UNCLEAR,
+            id="none-is-no-evidence",
+        ),
+        pytest.param(
+            (),
+            CandidateDecision.DEFERRED,
+            ReasonCode.CATEGORY_UNCLEAR,
+            id="empty-tuple-is-no-evidence",
+        ),
+    ],
+)
+def test_r04d_final_validator_preserves_valid_proposals(
+    proposed_ids: tuple[int, ...] | None,
+    expected_decision: CandidateDecision,
+    expected_reason: ReasonCode,
+) -> None:
+    """정상 Category 입력은 기존 최종 판정과 일치한다."""
+    candidate = make_v19_eligible_candidate()
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 기사": "event-main",
+        },
+        proposed_child_ids=proposed_ids,
+    )
+
+    assert result.decision == expected_decision
+    assert result.reason_codes == (expected_reason,)
+
+    if expected_decision == CandidateDecision.WOULD_ACCEPT:
+        assert result.category_ids == (101,)
+        assert len(result.valid_sources) == 1
+    else:
+        assert result.category_ids == ()
+        assert result.valid_sources == ()
