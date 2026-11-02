@@ -2,7 +2,7 @@
 
 > **상태: DRAFT — 미승인 개정안. 원본 v1.0 FROZEN은 그대로 유효하며 이 문서는 아직 FROZEN이 아니다.**  
 > 개정 초안 작성: 2026-11-02 (Asia/Seoul) / 원본 v1.0 작성·동결: 2026-10-30  
-> 기준 Repository: `Trend-Leader-capstoneProject/feature` / 원본 v1.0: `dev` / 검토 코드: `feat-rss-p1-parser` HEAD `4213954ed6dbaf59c72a2c42ffe7738f4cfaf2bf`  
+> 기준 Repository: `Trend-Leader-capstoneProject/feature` / 원본 v1.0: `dev` / v1.1 초안 최초 작성 당시 코드 체크포인트: `feat-rss-p1-parser`의 `4213954ed6dbaf59c72a2c42ffe7738f4cfaf2bf` (과거 기준점, 최신 HEAD 아님)  
 > 기반 문서: v1.0 FROZEN + R-03 제목 계약 + R-04A~C 안전·판정 계약 + R-04D Category 입력 타입 계약(각각 별도 DRAFT)  
 > 선행 자료: `Trend_Leader_AI_Development_Guidelines.md` v1.2, 기존 Frozen Taxonomy·조회 계약, 외부 실데이터 사전 설계 기록(NOT FROZEN), 사용자 수동 RSS 관찰 기록.  
 > **변경 통제:** 기존 v1.0을 덮어쓰지 않는 별도 파일로 작성했다. 사용자 최종 검토·승인 전에는 개정안을 동결하거나 `dev`로 병합하지 않는다. P4 Writer·실데이터 접근·외부 게시 권한은 여전히 별도 범위다.
@@ -28,8 +28,8 @@
 
 - **원본 v1.0 FROZEN의 동결 범위는 P0~P3의 독립 합성 XML Fixture 기반 구현·테스트 계약**에 한정된다. 이 v1.1은 같은 범위를 유지하는 개정 초안이며 아직 동결된 문서가 아니다. Live RSS 다운로더, 원문 URL 접속, 실제 기사 검증, 데이터베이스 Writer, 앱 공개는 기존 동결·구현 권한에 포함되지 않는다.
 - 2026-10-30에 사용자가 선택한 **후보 선별 C안 + 1차 보수적 제외 A안**, 기존 출처 도메인 C안, 기존 Frozen Taxonomy·조회 계약의 우선순위를 보존한다.
-- 이번 최종 검토로 추가한 보안·판정 우선순위·소스별 문제 기록 규칙은 P0~P3 구현의 **구속력 있는 테스트 계약**이다. 수치 상한과 Normalizer 세칙은 §4~§5에 명시된 값으로 동결한다.
-- 본 문서에서 `P4 후속`, `추가 검증`, `미확정`이라 명시한 정책(실제 외부 이용 허가, 운영 도메인 목록, DB Writer, 기존 `HIDDEN` 처리 등)은 **동결에 포함되지 않는다**. 별도 승인 없이 현재 기능의 권한이나 범위를 확대하지 않는다.
+- **2026-10-30 원본 v1.0 최종 검토**에서 추가한 보안·판정 우선순위·소스별 문제 기록 규칙은 당시 동결된 P0~P3 테스트 계약이다. 수치 상한과 Normalizer 세칙은 v1.0에서 동결된 값을 유지하며, 이번 v1.1의 R-03·R-04A~D 통합 내용은 **사용자 승인 전 개정 제안**이다.
+- `P4 후속`, `추가 검증`, `미확정`이라 명시한 정책(실제 외부 이용 허가, 운영 도메인 목록, DB Writer, 기존 `HIDDEN` 처리 등)은 **원본 v1.0의 동결 범위 밖이며 v1.1 개정 제안에도 포함하지 않는다**. 별도 승인 없이 현재 기능의 권한이나 범위를 확대하지 않는다.
 
 ### 0.3 이번 계약 포함 / 제외
 
@@ -94,7 +94,7 @@ backend/tests/external_trends/
 - P1 Parser: `bytes -> ParsedFeed`, 파일·URL·DB 읽기 없음.
 - P2 Normalizer: 제목 문자열, Source URL 문자열의 순수 변환.
 - P3 Validator: `ParsedCandidate + 주입한 DomainPolicy/CategoryCatalog/TopicRules -> CandidateEvaluation`; 네트워크/DB/시간 호출 없음.
-- P0~P3를 연결하는 얇은 오케스트레이션은 필요할 때만 별도 승인한다. 현재 PoC 구현은 Parser·Normalizer·Validator와 독립 테스트를 중심으로 한다. 공개 Router / SQLAlchemy Repository / 영속 상태는 추가하지 않는다.
+- P0~P3를 연결하는 얇은 오케스트레이션은 필요할 때만 별도 승인한다. 현재 PoC 구현은 Parser·Normalizer·Validator의 독립 테스트 및 F-02의 Parser → Validator 합성 통합 테스트를 포함한다. 별도 공개 Router / SQLAlchemy Repository / 영속 상태는 추가하지 않는다.
 
 ### 3.2 출력 타입 의미 (언어 중립 계약)
 
@@ -395,9 +395,9 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 | P3 | C+A안 선별, 관련성·Category·도메인·결정성 테스트 PASS | 실제 기사 검증, DB 저장, 공개 권한 승인 |
 | P4+ | 별도 Writer 확정안에 따라 격리 테스트 DB, UNIQUE/COMMIT/ROLLBACK/HIDDEN/동시성 검증 | Google RSS 자동 게시 권리 확보 |
 
-구현 시작 시 `dev` HEAD·현재 파일 구조·의존성·Category Master·관련 테스트와 DB 테스트 환경을 다시 확인한다. 현재 승인되지 않은 기존 Frozen 문서나 DB 모델의 수정은 별도 변경 요청이 필요하다.
+**v1.0 당시의 구현 시작 조건은 이미 수행 단계로 넘어갔다.** 이제 후속 기능 구현·v1.1 최종 승인·`dev` 병합을 판단할 때마다 최신 대상 브랜치 HEAD와 실제 파일 구조·의존성·Category Master·관련 테스트 및 필요한 DB 테스트 환경을 다시 확인한다. 기존 FROZEN 문서나 DB 모델의 변경은 별도 승인 없이는 수행하지 않는다.
 
-### v1.1 DRAFT 작성 시점 구현·검증 상태 (동결·승인과 분리)
+### v1.1 DRAFT 검토 시점 구현·검증 상태 (2026-11-02, 동결·승인과 분리)
 
 | 항목 | 근거 및 현재 상태 |
 |---|---|
@@ -415,7 +415,7 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 
 ## 9. 11개 관점 Final Review 보완 추적
 
-| Review 보완 항목 | v1.0 반영 위치 |
+| Review 보완 항목 | v1.0 보존 및 v1.1 개정 초안 반영 위치 |
 |---|---|
 | Parser 부분 실패 반환 모델 | §3.2, §4.1 |
 | XML 보안 및 자원 상한 | §4.2~§4.3 |
@@ -432,15 +432,15 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 
 ## 10. 사용자 동결 결정 및 변경 기록
 
-### 10.1 승인된 기술 계약
+### 10.1 원본 v1.0에서 승인된 기술 계약
 
 2026-10-30 사용자가 v1.0 후보를 확인한 후 **동결 전 최종 허점 검토 및 반영**을 요청함에 따라, **당시 원본 v1.0 파일을** P0~P3의 **설계 확정안(FROZEN)**으로 정리했다. 본 v1.1 파일은 그 결정을 계승하는 **미승인 통합 개정 초안(DRAFT)**이다. 기존 동결 범위는 해당 기술 PoC에 한정되며 운영·실데이터·P4 권한을 포함하지 않는다.
 
-| 항목 | 동결 내용 |
+| 항목 | 원본 v1.0 동결 내용(현재 상태는 별도 조항 참조) |
 |---|---|
 | XML 상한 | 2MiB, Item 200, Item별 기사 20, XML 깊이 32 |
 | 원문 URL 길이 | 입력 문자열 기준 4,096 코드포인트 |
-| 파서 | `defusedxml.ElementTree.fromstring` + DTD/Entity/외부 참조 거부 (`requirements.txt` 수정은 구현 승인 후) |
+| 파서 | `defusedxml.ElementTree.fromstring` + DTD/Entity/외부 참조 거부 (v1.0 당시 의존성 추가는 구현 승인 이후로 예정됐으며, 현재 작업 브랜치 `requirements.txt`에는 `defusedxml==0.7.1` 반영 확인, §4.3 참조) |
 | 제목 정규화 | NFC, 공백 정리, ASCII 영문 소문자화, 의미 있는 문자 보존 |
 | URL 추적 키 | 리터럴 `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`만 제거 |
 | 채택 의미 | 가상 승인 Source + 규칙 기반 관련성 + 활성 Child에 한정된 메타데이터 기술 판정 |
@@ -489,6 +489,7 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 - [x] `ambiguous_feed.xml` 4개 Item 및 Parser → Validator 통합 테스트 5개 원격 반영 확인 (`b3abc2d8`)
 - [x] F-03 로컬 `expat_2.7.3` 관측과 최신 보안 릴리스 격차·실제 방어 옵션 기록
 - [x] F-03 실행 컨테이너 Python `3.12.16`, Expat `2.9.0`, WSL2/64bit 사용자 관측값 기록
+- [x] F-04 v1.0 당시 동결·의존성·HEAD·구현 시작 안내와 v1.1 현재 상태의 시점 표현 정리
 - [ ] F-03 배포 이미지·의존성 보안 패치 및 운영 적합성 별도 검증 (운영·실데이터 활성화 전)
 - [ ] 최종 브랜치 HEAD·동결 대상 실제 코드·테스트/CI 최신성 재검증
 - [ ] 사용자 v1.1 정책·변경점 명시 승인
@@ -496,6 +497,6 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 
 ## 11. 근거와 한계
 
-- 프로젝트 근거: 최신 `dev`의 지침 v1.2, Frozen Taxonomy·전체 목록·개인화 목록, ORM(`trend.py`, `trend_source.py`, `category.py`, `trend_category_map.py`), `requirements.txt`, `pyproject.toml` 및 사용자 RSS 관찰 화면.
+- 프로젝트 근거: v1.0 동결 당시 `dev`에서 확인한 지침 v1.2, Frozen Taxonomy·전체 목록·개인화 목록 및 ORM(`trend.py`, `trend_source.py`, `category.py`, `trend_category_map.py`), 사용자 RSS 관찰 화면. v1.1 정합성 검토에는 작업 브랜치의 `requirements.txt`, `pyproject.toml`, Parser·Normalizer·Validator와 테스트 구현 및 F-02/F-03 검증 기록을 추가로 참고했다. 이 과거 기준 자료가 최신 `dev`의 상태를 자동 보증하지는 않는다.
 - 일반 보안 근거: [Python XML security](https://docs.python.org/3/library/xml.html#xml-vulnerabilities), [OWASP XXE Prevention](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html), [defusedxml 문서](https://pypi.org/project/defusedxml/) 및 [defusedxml.ElementTree 구현](https://github.com/tiran/defusedxml/blob/main/defusedxml/ElementTree.py). XML 관련 공식 설명은 기술 권고로만 인용하며 Google RSS 사용 허가의 근거로 쓰지 않는다.
 - 현재 미검증: **원격 CI 성공 여부**, **배포 이미지 전체 보안 패치 적용 상태 및 운영 적합성**, 실제 Google RSS 자동 호출·저장·게시 권리, 원문 기사 라이브 접속·사실 검증, MariaDB Collation 영향, P4 Writer/스포츠 Seed 변경. F-02 합성 XML과 통합 테스트의 원격 반영을 확인했으며, 사용자 로컬 `411 passed`·Ruff PASS는 CI 결과와 구분해 기록했다.
