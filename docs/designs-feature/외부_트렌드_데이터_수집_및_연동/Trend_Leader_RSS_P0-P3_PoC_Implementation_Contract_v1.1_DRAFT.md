@@ -11,8 +11,8 @@
 
 - §§0~11의 기존 v1.0 범위·상한·명시 정책을 최대한 보존하고, R-03·R-04A~D에서 검증한 조항만 보완했다.
 - **최신 판정 계약**은 본 개정안의 §6.3을 기준으로 제안하며, 과거 R-03 문서의 Scope 혼합 사유 `EVENT_AMBIGUOUS`는 R-04C에 의해 `TOPIC_SCOPE_UNCLEAR`로 대체된다.
-- 테스트 `406 passed`와 Ruff PASS는 사용자 로컬 실행 보고다. 원격 GitHub에서 코드와 테스트가 반영된 점은 확인했지만, CI 실행 성공을 이 문서만으로 증명하지 않는다.
-- 기존 FROZEN §7.1의 `ambiguous_feed.xml`은 v1.0에 명시된 Fixture로, 현재 원격 변경 파일 목록에서는 그 추가를 확인하지 못했다. **테스트 계약 충족 여부를 검토할 열린 항목**으로 남긴다.
+- 최신 전체 테스트 `411 passed`와 Ruff PASS는 2026-11-02 사용자의 로컬 실행 보고다. F-02 신규 Fixture·테스트의 GitHub 원격 반영은 확인했으나 원격 CI 성공을 이 문서만으로 증명하지 않는다.
+- 기존 FROZEN §7.1의 `ambiguous_feed.xml`은 F-02에서 작업 브랜치에 추가됐고 Parser → Validator 연결 테스트 5개가 포함됐다(코드 체크포인트 `b3abc2d8bafee1ea42f55575f0137361a53213f4`). 문서 동결 및 `dev` 병합은 별도 승인이 필요하다.
 
 ## 0. 결정 및 범위 요약
 
@@ -85,7 +85,7 @@ backend/tests/external_trends/
   fixtures/valid_feed.xml
   fixtures/missing_fields.xml
   fixtures/malformed_feed.xml
-  fixtures/ambiguous_feed.xml   # v1.0 명세에는 있으나 현재 원격 파일 목록에서 미확인
+  fixtures/ambiguous_feed.xml   # F-02 합성 RSS Fixture, 원격 체크포인트 반영 확인
   test_rss_parser.py
   test_normalizer.py
   test_candidate_validator.py
@@ -308,7 +308,7 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 1. `valid_feed.xml`: 3개 항목, 서로 다른 기사 수(0/1/3), 유효·빈 선택 필드, `-0700` 시간대, 임의 가상 제목/도메인.
 2. `missing_fields.xml`: 제목 없는 Item + 정상 Item, 기사 제목·URL 누락, invalid `pubDate`.
 3. `malformed_feed.xml`: 잘못된 XML; DTD·엔터티는 테스트에서 별도 합성 문자열로 조립하여 파일 수를 늘리지 않는다.
-4. `ambiguous_feed.xml`: 중의 검색어, 관심 분야 밖 주제, 혼합 사건과 기사, 명시 별칭 매칭.
+4. `ambiguous_feed.xml`: F-02에서 신규 등록. 4개 합성 Item으로 서로 다른 사건 혼합, 명백한 관심 범위 밖 주제, 명시적으로 주입된 별칭·관련성 근거, 중복 URL에서 기사 Scope 충돌을 검증한다. Parser → Validator 연결 테스트 5개에서 사용한다.
 
 모든 Fixtures는 자체 작성한 가상 제목·URL·내용으로 구성하며 원본 Google 기사 본문·제목·이미지를 복제하지 않는다.
 
@@ -359,8 +359,13 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 | R04B-01~04 | 동일 URL 기사 근거 혼재·사건 충돌·같은 사건·무관 기사 | Scope 근거 보존, `DUPLICATE_SOURCE` 유지 |
 | R04C-01~04 | 기존/최종 Scope 혼재, 중복 URL, 불명확/범위 밖 근거, 사건 충돌 | `TOPIC_SCOPE_UNCLEAR`와 `EVENT_AMBIGUOUS` 구분 |
 | R04D-01~06 | `float`/`bool`/`str`/unhashable ID, list 컨테이너, `None`·정상 ID 회귀 | 실행 오류와 `CATEGORY_UNCLEAR` 구분 |
+| F02-01 | 신규 합성 XML의 Item 4건, 기사 수·순서·URL 원본 보존 | P1 → P3 입력 계약 연결 |
+| F02-02 | 동일 검색어의 서로 다른 사건 ID | `DEFERRED(EVENT_AMBIGUOUS)` |
+| F02-03 | 명백한 범위 밖 주제 | `SKIPPED(OUT_OF_SCOPE)` |
+| F02-04 | 명시적 별칭·관련성·Category 근거 | `WOULD_ACCEPT(VALIDATED_BY_FIXTURE_RULES)` |
+| F02-05 | 중복 URL 기사 사이의 Scope 근거 충돌 | `DEFERRED(TOPIC_SCOPE_UNCLEAR)`, `DUPLICATE_SOURCE` 보존 |
 
-단위 테스트는 프로젝트의 `backend/pyproject.toml`에 정의된 pytest/Ruff 환경을 따른다. PowerShell 실행 예시: `python -m pytest tests/external_trends -q`; `python -m ruff check app/external_trends tests/external_trends`. **2026-11-02 기준 사용자 로컬 실행 결과는 P1~P3 전체 `406 passed`, Ruff `All checks passed!`이다.** 이는 사용자가 보고한 로컬 검증 증거이며, 별도 원격 CI 실행 성공을 의미하지 않는다.
+단위 테스트는 프로젝트의 `backend/pyproject.toml`에 정의된 pytest/Ruff 환경을 따른다. PowerShell 실행 예시: `python -m pytest tests/external_trends -q`; `python -m ruff check app/external_trends tests/external_trends`. **2026-11-02 F-02 추가 이후 사용자 로컬 실행 결과는 P1~P3 전체 `411 passed`, Ruff `All checks passed!`이다.** 이는 사용자가 보고한 로컬 검증 증거이며, 별도 원격 CI 실행 성공을 의미하지 않는다.
 
 ## 8. P0~P3 Done / Not Done 정의
 
@@ -380,10 +385,10 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 |---|---|
 | P1 Parser, P2 Normalizer, P3 Validator 구현 | 작업 브랜치 `feat-rss-p1-parser`에서 코드·테스트 파일 존재 확인 |
 | R-03, R-04A~C, R-04D | 별도 보완안 및 Python 코드 체크포인트의 원격 반영 확인 |
-| 전체 자동 테스트 | 사용자가 로컬에서 `406 passed` 보고 |
+| 전체 자동 테스트 | F-02 통합 테스트 5개 추가 후 사용자가 로컬에서 `411 passed` 보고 (기존 406개 → 411개) |
 | 정적 검사 | 사용자가 로컬에서 Ruff `All checks passed!` 보고 |
 | 원격 CI / 통합 배포 검증 | **미확인**. 이 초안은 PASS를 새로 실행한 결과가 아니다 |
-| `ambiguous_feed.xml` | v1.0 §7.1에 있지만 작업 브랜치 추가 파일 목록에서 미확인. 다른 합성 Fixture/테스트로 계약을 충족했는지 최종 대조 필요 |
+| `ambiguous_feed.xml` | F-02 체크포인트 `b3abc2d8`로 원격 추가 확인. 합성 XML Item 4개, Parser → Validator 테스트 5개 존재 확인 |
 | 실제 수집·저장·게시 | P0~P3 계약에서 제외, 실행·승인 완료 아님 |
 
 **판정:** P1~P3의 사용자 로컬 단위 회귀는 통과했으나 v1.1은 아직 **승인 전 DRAFT**이다. `dev` 병합, 실데이터 사용, P4 Writer·공개 기능 완료를 선언하지 않는다.
@@ -403,6 +408,7 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 | R-04B 중복 기사 Scope 근거 보존 | §3.2, §6.2~§6.4, R04B-01~04 |
 | R-04C Scope / Event ReasonCode 분리 | §6.2~§6.4, R04C-01~04 |
 | R-04D 선택 Child ID 입력 타입 안전성 | §3.2, §6.1, §6.3~§6.4, R04D-01~06 |
+| F-02 합성 XML Parser → Validator 연결 검증 | §7.1~§7.2, F02-01~05 |
 
 ## 10. 사용자 동결 결정 및 변경 기록
 
@@ -454,13 +460,13 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 
 > **v1.0 당시 구현 시작 조건:** 별도 구현 요청·최신 `dev` 확인·P1 TDD 착수였다. **v1.1 현재 상태:** P1~P3 코드는 작업 브랜치에 구현됐고 로컬 테스트 결과가 보고됐으나, 이 DRAFT는 최종 CI·문서 정합성·`dev` 병합 완료를 증명하지 않는다.
 
-### 10.4 v1.1 승인 전 최종 점검 (2026-11-02 초안)
+### 10.4 v1.1 승인 전 최종 점검 (2026-11-02 갱신)
 
 - [x] 원본 v1.0 FROZEN 텍스트 기준 구조·범위·수치 상한 유지
 - [x] R-03 및 R-04A~D 별도 보완안의 최종 코드·사유 계약 반영
 - [x] v1.0 원본 파일을 수정하지 않는 별도 신규 DRAFT로 작성
-- [x] 사용자 보고 로컬 `406 passed`·Ruff PASS 구분 표기
-- [ ] `ambiguous_feed.xml` 명세와 실제 테스트/Fixture의 일치 여부 최종 판단
+- [x] 사용자 보고 F-02 추가 후 로컬 `411 passed`·Ruff PASS 구분 표기
+- [x] `ambiguous_feed.xml` 4개 Item 및 Parser → Validator 통합 테스트 5개 원격 반영 확인 (`b3abc2d8`)
 - [ ] 최종 브랜치 HEAD·동결 대상 실제 코드·테스트/CI 최신성 재검증
 - [ ] 사용자 v1.1 정책·변경점 명시 승인
 - [ ] 승인 후 v1.1 FROZEN 발행 및 `dev` PR·병합 절차 별도 진행
@@ -469,4 +475,4 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 
 - 프로젝트 근거: 최신 `dev`의 지침 v1.2, Frozen Taxonomy·전체 목록·개인화 목록, ORM(`trend.py`, `trend_source.py`, `category.py`, `trend_category_map.py`), `requirements.txt`, `pyproject.toml` 및 사용자 RSS 관찰 화면.
 - 일반 보안 근거: [Python XML security](https://docs.python.org/3/library/xml.html#xml-vulnerabilities), [OWASP XXE Prevention](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html), [defusedxml 문서](https://pypi.org/project/defusedxml/) 및 [defusedxml.ElementTree 구현](https://github.com/tiran/defusedxml/blob/main/defusedxml/ElementTree.py). XML 관련 공식 설명은 기술 권고로만 인용하며 Google RSS 사용 허가의 근거로 쓰지 않는다.
-- 현재 미검증: **원격 CI 성공 여부**, 원본 §7.1에 적힌 `ambiguous_feed.xml`의 별도 Fixture 충족 여부, 실제 Google RSS 자동 호출·저장·게시 권리, 원문 기사 라이브 접속·사실 검증, MariaDB Collation 영향, P4 Writer/스포츠 Seed 변경. 코드 작성 및 사용자 로컬 406개 테스트·Ruff PASS는 확인된 범위로 따로 기록했다.
+- 현재 미검증: **원격 CI 성공 여부**, 실제 Google RSS 자동 호출·저장·게시 권리, 원문 기사 라이브 접속·사실 검증, MariaDB Collation 영향, P4 Writer/스포츠 Seed 변경. F-02 합성 XML과 통합 테스트의 원격 반영을 확인했으며, 사용자 로컬 `411 passed`·Ruff PASS는 CI 결과와 구분해 기록했다.
