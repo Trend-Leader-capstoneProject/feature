@@ -54,6 +54,8 @@ class CandidateDecision(StrEnum):
     SKIPPED = "SKIPPED"
 
 
+
+
 class ReasonCode(StrEnum):
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
     NO_ELIGIBLE_SOURCE = "NO_ELIGIBLE_SOURCE"
@@ -63,6 +65,13 @@ class ReasonCode(StrEnum):
     CATEGORY_UNCLEAR = "CATEGORY_UNCLEAR"
     BLOCKED_SOURCES_ONLY = "BLOCKED_SOURCES_ONLY"
     VALIDATED_BY_FIXTURE_RULES = "VALIDATED_BY_FIXTURE_RULES"
+
+    # Final Review R-03
+    CANDIDATE_TITLE_INVALID = "CANDIDATE_TITLE_INVALID"
+
+    # Final Review R-04C
+    TOPIC_SCOPE_UNCLEAR = "TOPIC_SCOPE_UNCLEAR"
+
 
 
 class SourceIssueCode(StrEnum):

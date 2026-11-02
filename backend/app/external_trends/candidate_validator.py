@@ -401,7 +401,6 @@ class CategoryChild:
     is_active: bool
 
 
-
 @dataclass(frozen=True, slots=True)
 class CategoryCatalog:
     """DB 접근 없는 Root/Child Category 정책 값 객체."""
@@ -410,10 +409,55 @@ class CategoryCatalog:
     children: tuple[CategoryChild, ...]
 
     def __post_init__(self) -> None:
-        """중복 ID·Root 코드 및 잘못된 부모 참조를 거부한다."""
-        root_ids = [root.category_id for root in self.roots]
-        root_codes = [root.code for root in self.roots]
-        child_ids = [child.category_id for child in self.children]
+        """정책 데이터 타입·중복·부모 참조를 검증한다."""
+
+        # R-04A: 컬렉션 자체의 계약 검증
+        if (
+            not isinstance(self.roots, tuple)
+            or not isinstance(self.children, tuple)
+        ):
+            raise ValidationExecutionError(
+                "invalid category catalog collection type"
+            )
+
+        # R-04A: Root 값 객체와 필드 타입 검증
+        for root in self.roots:
+            if (
+                not isinstance(root, CategoryRoot)
+                or type(root.category_id) is not int
+                or not isinstance(root.code, str)
+                or type(root.is_active) is not bool
+            ):
+                raise ValidationExecutionError(
+                    "invalid category catalog root data"
+                )
+
+        # R-04A: Child 값 객체와 필드 타입 검증
+        for child in self.children:
+            if (
+                not isinstance(child, CategoryChild)
+                or type(child.category_id) is not int
+                or type(child.parent_id) is not int
+                or not isinstance(child.name, str)
+                or type(child.is_active) is not bool
+            ):
+                raise ValidationExecutionError(
+                    "invalid category catalog child data"
+                )
+
+        # 기존 V-06: 식별자 및 Root 코드 중복 검증
+        root_ids = [
+            root.category_id
+            for root in self.roots
+        ]
+        root_codes = [
+            root.code
+            for root in self.roots
+        ]
+        child_ids = [
+            child.category_id
+            for child in self.children
+        ]
 
         if (
             len(root_ids) != len(set(root_ids))
@@ -425,6 +469,7 @@ class CategoryCatalog:
                 "duplicate category identifier or root code"
             )
 
+        # 기존 V-06: Child의 부모 Root 참조 검증
         known_root_ids = set(root_ids)
 
         if any(
@@ -440,6 +485,7 @@ class CategoryCatalog:
         evidence_child_ids: tuple[int, ...],
     ) -> tuple[int, ...] | None:
         """근거로 제시된 활성 Child만 중복 없이 오름차순 반환한다."""
+
         if not evidence_child_ids:
             return None
 
@@ -468,6 +514,7 @@ class CategoryCatalog:
             selected_ids.add(child_id)
 
         return tuple(sorted(selected_ids))
+
 
 
 class CategoryEvidenceRules(Protocol):
@@ -911,6 +958,7 @@ def evaluate_event_and_category_gates(
 # ---------------------------------------------------------------------
 
 
+
 def validate_p3_candidate(
     candidate: ParsedCandidate,
     *,
@@ -933,10 +981,22 @@ def validate_p3_candidate(
     ) -> CandidateEvaluation:
         title = normalize_title(current.raw_title)
 
+        # ---------------------------------------------------------
+        # R-03: 후보 제목 정규화 실패
+        # ---------------------------------------------------------
         if title is None:
-            # 제목 오류의 최종 정책은 R-03에서 검토한다.
-            raise ValidationExecutionError(
-                "candidate title cannot be normalized"
+            # 외부 입력 데이터 품질 문제는 정책 실행 실패가 아니다.
+            # 유효한 제목이 없으므로 후속 정책·Source를 검사하지 않는다.
+            return CandidateEvaluation(
+                decision=CandidateDecision.DEFERRED,
+                reason_codes=(
+                    ReasonCode.CANDIDATE_TITLE_INVALID,
+                ),
+                normalized_title=None,
+                valid_sources=(),
+                category_ids=(),
+                warnings=current.warnings,
+                source_issues=(),
             )
 
         # ---------------------------------------------------------
@@ -1130,12 +1190,11 @@ def validate_p3_candidate(
         second_stage,
     )
 
-
-
 # ---------------------------------------------------------------------
 # Final Review R-02B:
 # 기사 근거를 이용한 2차 관심 범위 판정
 # ---------------------------------------------------------------------
+
 
 
 
@@ -1144,11 +1203,13 @@ def evaluate_article_topic_scope_gate(
     screening: SourceScreeningResult,
     article_scope_rules: ArticleTopicScopeRules,
 ) -> CandidateEvaluation | None:
-    """적합 기사들의 명시적 근거로 2차 주제 범위를 판정한다.
+    """적합 기사와 중복 기사의 명시적 범위 근거를 검증한다.
 
-    None은 기존 사건·Category 검증을 계속한다는 의미다.
+    Source 저장 후보는 기존 중복 제거 결과를 유지한다.
+    None은 기존 Event·Category 검증을 계속한다는 의미다.
     """
-    # Source가 없으면 기존 Source 부족 판정이 우선한다.
+
+    # 적합 Source가 없으면 기존 Source 부족 판정이 우선한다.
     if not screening.valid_sources:
         return None
 
@@ -1159,21 +1220,71 @@ def evaluate_article_topic_scope_gate(
             "eligible source exists with invalid candidate title"
         )
 
+    # ---------------------------------------------------------
+    # 1. 기존 적합 Source의 제목 수집
+    # ---------------------------------------------------------
+    article_titles: list[str] = [
+        source.source_title
+        for source in screening.valid_sources
+    ]
+
+    # ---------------------------------------------------------
+    # 2. R-04B: 중복으로 제외된 기사 식별
+    #
+    # DUPLICATE_SOURCE는 Source Screening에서
+    # 제목·URL·도메인·관련성 검사를 통과한 뒤 부여된다.
+    #
+    # 저장 대상에서는 제외하되, 범위 판단 근거에는 포함한다.
+    # ---------------------------------------------------------
+    duplicate_indices = {
+        issue.item_news_index
+        for issue in screening.source_issues
+        if issue.code == SourceIssueCode.DUPLICATE_SOURCE
+    }
+
+    seen_duplicate_indices: set[int] = set()
+
+    for source in candidate.source_candidates:
+        if source.item_news_index not in duplicate_indices:
+            continue
+
+        if (
+            source.item_news_index in seen_duplicate_indices
+            or source.raw_title is None
+        ):
+            raise ValidationExecutionError(
+                "invalid duplicate source screening result"
+            )
+
+        seen_duplicate_indices.add(
+            source.item_news_index
+        )
+
+        article_titles.append(source.raw_title)
+
+    if seen_duplicate_indices != duplicate_indices:
+        raise ValidationExecutionError(
+            "incomplete duplicate source screening result"
+        )
+
+    # ---------------------------------------------------------
+    # 3. 모든 평가 대상의 명시적 Topic Scope 확인
+    # ---------------------------------------------------------
     article_scopes: list[TopicScope] = []
 
-    for source in screening.valid_sources:
-        # NormalizedSource는 표시 제목을 보존하므로
-        # 정책에 전달하기 전 정규화 키를 다시 계산한다.
-        source_title = normalize_title(source.source_title)
+    for raw_article_title in article_titles:
+        normalized_article_title = normalize_title(
+            raw_article_title
+        )
 
-        if source_title is None:
+        if normalized_article_title is None:
             raise ValidationExecutionError(
                 "eligible source has invalid normalized title"
             )
 
         scope = article_scope_rules.classify(
             title.normalized_title,
-            source_title.normalized_title,
+            normalized_article_title.normalized_title,
         )
 
         if not isinstance(scope, TopicScope):
@@ -1183,7 +1294,9 @@ def evaluate_article_topic_scope_gate(
 
         article_scopes.append(scope)
 
-    # 모든 적합 기사에 명백한 범위 밖 근거가 존재한다.
+    # ---------------------------------------------------------
+    # 4. 모든 평가 대상이 명백히 범위 밖인 경우
+    # ---------------------------------------------------------
     if all(
         scope == TopicScope.CLEAR_OUT_OF_SCOPE
         for scope in article_scopes
@@ -1198,15 +1311,22 @@ def evaluate_article_topic_scope_gate(
             source_issues=screening.source_issues,
         )
 
-    # 범위 밖 근거가 있지만 다른 기사에서는 확정되지 않았다.
-    # 후보 전체를 임의로 제외하지 않고 보류한다.
+    # ---------------------------------------------------------
+    # 5. R-04C: 관심 범위 불명확성과 사건 모호성 분리
+    #
+    # 일부 기사에서는 범위 밖 근거가 확인되었지만,
+    # 다른 기사에서는 범위 밖이라는 사실이 확정되지 않았다.
+    #
+    # 이는 사건 충돌 자체가 아니므로
+    # EVENT_AMBIGUOUS를 사용하지 않는다.
+    # ---------------------------------------------------------
     if any(
         scope == TopicScope.CLEAR_OUT_OF_SCOPE
         for scope in article_scopes
     ):
         return CandidateEvaluation(
             decision=CandidateDecision.DEFERRED,
-            reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+            reason_codes=(ReasonCode.TOPIC_SCOPE_UNCLEAR,),
             normalized_title=title.normalized_title,
             valid_sources=(),
             category_ids=(),
@@ -1214,6 +1334,7 @@ def evaluate_article_topic_scope_gate(
             source_issues=screening.source_issues,
         )
 
-    # 명백한 범위 밖 근거가 없다.
-    # 사건·Category 검증을 계속 진행한다.
+    # ---------------------------------------------------------
+    # 6. 범위 밖 근거가 없으면 기존 Event·Category 검증 계속
+    # ---------------------------------------------------------
     return None
