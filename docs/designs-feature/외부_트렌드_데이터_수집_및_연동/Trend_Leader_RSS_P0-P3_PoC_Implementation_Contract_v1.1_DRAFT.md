@@ -196,11 +196,13 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 - **별도 Compose 설정 이슈:** `docker compose --env-file ./backend/.env config --quiet`는 `DB_ROOT_PASSWORD`, `DB_EXTERNAL_PORT`가 없어 실패했고 `BACKEND_EXTERNAL_PORT` 누락 경고가 발생했다. 이는 Compose **변수 치환 설정** 문제이지 `docker exec`로 확인한 파서 버전의 무효 증거가 아니다. 비밀값·실제 포트를 추측하거나 기존 DB를 재초기화하지 않는다.
 - **판정:** P-08 XML 방어 설정 테스트와 P-11 비정상 입력 타입·빈 bytes 테스트는 기존 코드에서 확인됐다. F-03은 **로컬 및 실행 컨테이너 버전 관측 완료**, **배포 환경 전체 보안 적합성 미승인** 상태다. 특정 Expat 버전을 pytest 최소값으로 무조건 고정하거나 새 기능을 추가하지 않는다.
 
-실행 중인 Docker Compose 서비스의 버전 확인 예시(실제 실행 기록 아님):
+실행 중인 백엔드 컨테이너의 버전 재확인 예시(2026-11-02 사용자 실행 방식; Compose 변수 치환 단계 생략):
 
 ```powershell
-docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.version); print(platform.platform()); print(platform.architecture()[0]); print(pyexpat.EXPAT_VERSION)"
+docker exec trend-leader-api python -c "import sys, platform, pyexpat; print('Python:', sys.version); print('OS:', platform.platform()); print('Architecture:', platform.architecture()[0]); print('Expat:', pyexpat.EXPAT_VERSION)"
 ```
+
+컨테이너 이름은 현재 Compose 설정의 `container_name` 기준이며, 이름이나 구성이 변경되면 실제 실행 중인 컨테이너를 다시 확인한다.
 
 공식 검토 자료: [Python XML security](https://docs.python.org/3/library/xml.html#xml-security), [Expat upstream releases](https://github.com/libexpat/libexpat/releases), [Expat 변경 이력](https://github.com/libexpat/libexpat/blob/master/expat/Changes), [OWASP XXE Prevention](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html).
 
@@ -216,11 +218,17 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 
 > ASCII만 소문자화하는 범위는 **P0~P3 동결 정규화 규칙**이다. 다른 언어의 casefold와 과도한 동음의어/의미 치환은 별도 개정 없이 추가하지 않는다. MariaDB Collation이 만드는 동일성은 P4 DB 통합에서 재확인한다.
 
+**v1.1 추가 — R-03 문자열 후보 제목 실패 판정**
+
+- P1은 제목 없음·공백 Item을 `ItemIssue(MISSING_ITEM_TITLE)`로 제외한다. 반면 P3에 직접 들어온 후보의 `raw_title`이 `str`이면서 정규화 결과가 비거나 255 코드포인트를 초과하면 `DEFERRED(CANDIDATE_TITLE_INVALID)`로 처리한다.
+- 제목이 정규화되지 않으면 Topic·Source·Event·Category 정책을 호출하지 않으며, `normalized_title=None`, `valid_sources=()`, `category_ids=()`, `source_issues=()`를 반환하고 `warnings`를 보존한다.
+- 비문자열 후보 제목은 입력 타입 계약 위반이다. 정상 `DEFERRED`로 오인하지 않으며 실행 오류가 발생한다.
+
 ### 5.2 URL
 
 - 절대 `http://` 또는 `https://` URL만 허용. 유저정보(`user:password@`), 제어문자·원시 공백, 호스트 누락, localhost·IP 직접 주소, 비표준 포트는 P0~P3에서 거부한다.
 - scheme/호스트의 ASCII 대소문자는 정규화한다. 기본 포트(HTTP 80/HTTPS 443)는 제거 가능하나 **다른 포트는 거부**한다. 호스트의 승인 판단은 정규화된 **정확한 hostname** 기준이며, 부분 문자열/단순 접미사 매칭을 하지 않는다.
-- 유니코드 도메인·Punycode는 우선 `UNKNOWN_DOMAIN`으로 보류하고, 별도 검토를 통해 정확한 허용 호스트로만 등록한다. URL 파서가 자동으로 신뢰를 부여하지 않는다.
+- 유니코드 도메인·Punycode를 URL 파싱만으로 자동 승인하지 않는다. 명시적 승인 호스트 목록에 없는 경우 DomainPolicy가 `UNKNOWN`으로 분류하며, Source에는 `UNKNOWN_SOURCE_DOMAIN` 문제를 기록하고 채택하지 않는다. 별도 검토를 거쳐 정확히 일치하는 호스트만 승인 목록에 등록할 수 있다.
 - URL 파서가 호스트/포트 해석에 실패하거나 호스트가 인코딩·역슬래시·끝 점(`example.org.`) 등으로 모호하면 **유효하지 않은 URL**로 취급한다. 사용자 정보(`@`)를 통한 사칭, 퍼센트 인코딩된 호스트, 빈 포트·비정상 포트, 제어문자·개행 등도 거부한다. 승인 호스트 판정은 파서가 추출한 정규화 hostname의 **정확한 동등성 비교**만 허용한다.
 - 경로·쿼리 순서·중복 쿼리 키·의미 있는 `id`, `article`, `page` 파라미터와 fragment는 보존한다. 경로의 대소문자 및 인코딩을 임의로 변경하지 않는다.
 - 제거해도 된다고 **명시적으로 선정한 키** `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`만 **리터럴 키 이름이 정확히 일치할 때** 제거한다. URL 디코딩된 키나 비슷한 이름을 추측하여 제거하지 않는다. 나머지 미확인 파라미터는 보존하고, 제거하지 않은 쿼리의 표현·순서·반복 키·빈 값을 그대로 유지한다. 모든 쿼리가 제거된 경우 `?` 구분자 처리도 결정적으로 수행한다.
@@ -228,12 +236,6 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 - PoC URL 길이 상한은 **4,096 Unicode 코드포인트(입력 문자열 기준)**로 동결한다. 초과 시 해당 Source 후보를 제외한다. 이는 DB `Text` 컬럼의 기술적 최대 길이가 아니며, P4에서 인코딩·저장 한계를 다시 검증한다.
 
 > URL 정규화는 **동등성이 증명되지 않은 두 URL을 강제로 합치지 않는** 보수적 규칙이다. 실제 네트워크 리디렉션·canonical 태그 확인·DNS·인증·HTTPS 인증서는 P0~P3에서 다루지 않는다.
-
-**v1.1 추가 — R-03 문자열 후보 제목 실패 판정**
-
-- P1은 제목 없음·공백 Item을 `ItemIssue(MISSING_ITEM_TITLE)`로 제외한다. 반면 P3에 직접 들어온 후보의 `raw_title`이 `str`이면서 정규화 결과가 비거나 255 코드포인트를 초과하면 `DEFERRED(CANDIDATE_TITLE_INVALID)`로 처리한다.
-- 제목이 정규화되지 않으면 Topic·Source·Event·Category 정책을 호출하지 않으며, `normalized_title=None`, `valid_sources=()`, `category_ids=()`, `source_issues=()`를 반환하고 `warnings`를 보존한다.
-- 비문자열 후보 제목은 입력 타입 계약 위반이다. 정상 `DEFERRED`로 오인하지 않으며 실행 오류가 발생한다.
 
 ## 6. P3 Candidate Validator 및 결과 계약
 
@@ -490,6 +492,7 @@ docker compose exec backend python -c "import sys, platform, pyexpat; print(sys.
 - [x] F-03 로컬 `expat_2.7.3` 관측과 최신 보안 릴리스 격차·실제 방어 옵션 기록
 - [x] F-03 실행 컨테이너 Python `3.12.16`, Expat `2.9.0`, WSL2/64bit 사용자 관측값 기록
 - [x] F-04 v1.0 당시 동결·의존성·HEAD·구현 시작 안내와 v1.1 현재 상태의 시점 표현 정리
+- [x] 최종 검토에서 R-03 설명 위치(§5.1), 실제 `UNKNOWN_SOURCE_DOMAIN` 표기(§5.2), F-03 컨테이너 확인 예시(§4.3) 정합성 보정
 - [ ] F-03 배포 이미지·의존성 보안 패치 및 운영 적합성 별도 검증 (운영·실데이터 활성화 전)
 - [ ] 최종 브랜치 HEAD·동결 대상 실제 코드·테스트/CI 최신성 재검증
 - [ ] 사용자 v1.1 정책·변경점 명시 승인
