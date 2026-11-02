@@ -28,17 +28,42 @@ class TopicRules(Protocol):
     def classify(self, normalized_title: str) -> TopicScope: ...
 
 
+class ArticleTopicScopeRules(Protocol):
+    """승인·관련성 검증을 통과한 기사별 범위 판단 정책."""
+
+    def classify(
+        self,
+        normalized_topic: str,
+        normalized_source_title: str,
+    ) -> TopicScope: ...
+
+
+
 def evaluate_topic_gate(
     candidate: ParsedCandidate,
     topic_rules: TopicRules,
 ) -> CandidateEvaluation | None:
-    """명백한 범위 밖만 조기 제외한다. None은 2차 검사 계속을 의미한다."""
+    """명백한 범위 밖만 조기 제외한다.
+
+    None은 2차 검사 계속을 의미한다.
+    """
     title = normalize_title(candidate.raw_title)
 
+    # 정규화 실패 시 조기 제외하지 않는다.
+    # 최종 Validator에서 별도로 처리한다.
     if title is None:
         return None
 
-    if topic_rules.classify(title.normalized_title) != TopicScope.CLEAR_OUT_OF_SCOPE:
+    scope = topic_rules.classify(title.normalized_title)
+
+    # 잘못된 정책 반환값을 정상 판정으로 취급하지 않는다.
+    if not isinstance(scope, TopicScope):
+        raise ValidationExecutionError(
+            "invalid topic scope policy result"
+        )
+
+    # 명백한 범위 밖이 아니라면 2차 검증으로 진행한다.
+    if scope != TopicScope.CLEAR_OUT_OF_SCOPE:
         return None
 
     return CandidateEvaluation(
@@ -50,6 +75,7 @@ def evaluate_topic_gate(
         warnings=candidate.warnings,
         source_issues=(),
     )
+
 
 def evaluate_candidate(
     candidate: ParsedCandidate,
@@ -113,6 +139,7 @@ class SourceScreeningResult:
     source_issues: tuple[SourceIssue, ...]
 
 
+
 def screen_candidate_sources(
     candidate: ParsedCandidate,
     domain_policy: DomainPolicy,
@@ -132,6 +159,9 @@ def screen_candidate_sources(
     seen_source_keys: set[str] = set()
 
     for source in candidate.source_candidates:
+        # ---------------------------------------------------------
+        # 1. 기사 제목 검증
+        # ---------------------------------------------------------
         article_title = (
             normalize_title(source.raw_title)
             if source.raw_title is not None
@@ -145,10 +175,16 @@ def screen_candidate_sources(
                 else SourceIssueCode.SOURCE_TITLE_INVALID
             )
             source_issues.append(
-                SourceIssue(source.item_news_index, code)
+                SourceIssue(
+                    source.item_news_index,
+                    code,
+                )
             )
             continue
 
+        # ---------------------------------------------------------
+        # 2. URL 안전성 및 정규화
+        # ---------------------------------------------------------
         url = (
             normalize_source_url(source.raw_url)
             if source.raw_url is not None
@@ -164,7 +200,15 @@ def screen_candidate_sources(
             )
             continue
 
+        # ---------------------------------------------------------
+        # 3. 도메인 승인 정책 검증
+        # ---------------------------------------------------------
         domain_status = domain_policy.classify(url.hostname)
+
+        if not isinstance(domain_status, DomainStatus):
+            raise ValidationExecutionError(
+                "invalid domain policy result"
+            )
 
         if domain_status != DomainStatus.APPROVED:
             code = (
@@ -173,14 +217,25 @@ def screen_candidate_sources(
                 else SourceIssueCode.UNKNOWN_SOURCE_DOMAIN
             )
             source_issues.append(
-                SourceIssue(source.item_news_index, code)
+                SourceIssue(
+                    source.item_news_index,
+                    code,
+                )
             )
             continue
 
+        # ---------------------------------------------------------
+        # 4. 검색어와 기사 제목의 명시적 관련성 검증
+        # ---------------------------------------------------------
         relevance = relevance_rules.classify(
             topic_title.normalized_title,
             article_title.normalized_title,
         )
+
+        if not isinstance(relevance, SourceRelevance):
+            raise ValidationExecutionError(
+                "invalid source relevance policy result"
+            )
 
         if relevance != SourceRelevance.RELATED:
             code = (
@@ -189,12 +244,16 @@ def screen_candidate_sources(
                 else SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR
             )
             source_issues.append(
-                SourceIssue(source.item_news_index, code)
+                SourceIssue(
+                    source.item_news_index,
+                    code,
+                )
             )
             continue
 
-        # 제목·URL·도메인·관련성 검증을 모두 통과한 Source만
-        # 중복 제거 대상에 포함한다.
+        # ---------------------------------------------------------
+        # 5. 동일 source_key 중복 제거 (V-18)
+        # ---------------------------------------------------------
         if url.source_key in seen_source_keys:
             source_issues.append(
                 SourceIssue(
@@ -206,6 +265,9 @@ def screen_candidate_sources(
 
         seen_source_keys.add(url.source_key)
 
+        # ---------------------------------------------------------
+        # 6. 모든 조건을 통과한 Source만 유지
+        # ---------------------------------------------------------
         valid_sources.append(
             NormalizedSource(
                 source_title=article_title.display_title,
@@ -219,7 +281,6 @@ def screen_candidate_sources(
         valid_sources=tuple(valid_sources),
         source_issues=tuple(source_issues),
     )
-
 
 
 # ---------------------------------------------------------------------
@@ -409,6 +470,17 @@ class CategoryCatalog:
         return tuple(sorted(selected_ids))
 
 
+class CategoryEvidenceRules(Protocol):
+    """검증된 기사 근거로 지원 가능한 Child ID를 판정한다."""
+
+    def supported_child_ids(
+        self,
+        normalized_title: str,
+        valid_sources: tuple[NormalizedSource, ...],
+    ) -> tuple[int, ...] | None: ...
+
+
+
 # ---------------------------------------------------------------------
 # V-07: 사건 일관성 검증 및 모호한 사건 보류
 # ---------------------------------------------------------------------
@@ -430,20 +502,26 @@ class EventConsistencyRules(Protocol):
 
 
 
+
 def evaluate_event_consistency_gate(
     candidate: ParsedCandidate,
     screening: SourceScreeningResult,
     event_rules: EventConsistencyRules,
 ) -> CandidateEvaluation | None:
-    """적합 Source가 존재해도 사건 일관성이 불명확하면 보류한다."""
-    # Source가 없거나 모두 부적합한 경우는 V-04·V-05 등에서 판정한다.
+    """적합 Source의 사건 일관성이 불명확하면 보류한다."""
     if not screening.valid_sources:
         return None
 
     assessment = event_rules.assess(candidate, screening)
 
+    # StrEnum은 일반 문자열과 값 비교가 가능하므로
+    # 반드시 Enum 타입부터 확인한다.
+    if not isinstance(assessment, EventConsistency):
+        raise ValidationExecutionError(
+            "invalid event consistency policy result"
+        )
+
     if assessment == EventConsistency.CONSISTENT:
-        # 아직 WOULD_ACCEPT가 아니다. Category 등 후속 검증이 필요하다.
         return None
 
     if assessment not in (
@@ -528,6 +606,15 @@ class OtherCategoryEvidence(StrEnum):
     UNDETERMINED = "UNDETERMINED"
 
 
+@dataclass(frozen=True, slots=True)
+class OtherCategorySelectionEvidence:
+    """특정 후보 주제와 Root에 대한 '기타' 선택 근거."""
+
+    normalized_title: str
+    root_id: int
+    conclusion: OtherCategoryEvidence
+
+
 
 def resolve_other_category_ids(
     catalog: CategoryCatalog,
@@ -571,6 +658,75 @@ def resolve_other_category_ids(
         )
 
     return catalog.select_active_child_ids(other_ids)
+
+
+def has_valid_other_category_evidence(
+    catalog: CategoryCatalog,
+    category_ids: tuple[int, ...],
+    normalized_title: str,
+    other_category_evidence: tuple[
+        OtherCategorySelectionEvidence, ...
+    ],
+) -> bool:
+    """선택된 '기타' Child의 Root·주제·배제 근거를 검증한다."""
+    evidence_by_root: dict[int, OtherCategoryEvidence] = {}
+
+    for item in other_category_evidence:
+        if (
+            not isinstance(item, OtherCategorySelectionEvidence)
+            or not isinstance(item.normalized_title, str)
+            or type(item.root_id) is not int
+            or not isinstance(item.conclusion, OtherCategoryEvidence)
+        ):
+            raise ValidationExecutionError(
+                "invalid other category evidence"
+            )
+
+        if item.root_id in evidence_by_root:
+            raise ValidationExecutionError(
+                "duplicate other category evidence"
+            )
+
+        if item.normalized_title != normalized_title:
+            return False
+
+        evidence_by_root[item.root_id] = item.conclusion
+
+    children_by_id = {
+        child.category_id: child
+        for child in catalog.children
+    }
+
+    for child_id in category_ids:
+        child = children_by_id[child_id]
+
+        if child.name != "기타":
+            continue
+
+        # '기타'와 동일 Root의 구체적인 Child를
+        # 동시에 채택하는 모순을 허용하지 않는다.
+        if any(
+            other_id != child_id
+            and children_by_id[other_id].parent_id == child.parent_id
+            for other_id in category_ids
+        ):
+            return False
+
+        conclusion = evidence_by_root.get(
+            child.parent_id,
+            OtherCategoryEvidence.UNDETERMINED,
+        )
+
+        resolved_ids = resolve_other_category_ids(
+            catalog,
+            root_id=child.parent_id,
+            evidence=conclusion,
+        )
+
+        if resolved_ids != (child_id,):
+            return False
+
+    return True
 
 
 def evaluate_category_unclear_gate(
@@ -741,3 +897,323 @@ def evaluate_event_and_category_gates(
         catalog,
         proposed_child_ids,
     )
+
+
+
+# ---------------------------------------------------------------------
+# V-19: P3 최종 기술 판정
+# ---------------------------------------------------------------------
+
+
+
+# ---------------------------------------------------------------------
+# V-19: P3 최종 기술 판정
+# ---------------------------------------------------------------------
+
+
+def validate_p3_candidate(
+    candidate: ParsedCandidate,
+    *,
+    topic_rules: TopicRules,
+    domain_policy: DomainPolicy,
+    relevance_rules: SourceRelevanceRules,
+    event_rules: EventConsistencyRules,
+    category_catalog: CategoryCatalog,
+    proposed_child_ids: tuple[int, ...] | None,
+    category_evidence_rules: CategoryEvidenceRules,
+    article_scope_rules: ArticleTopicScopeRules,
+    other_category_evidence: tuple[
+        OtherCategorySelectionEvidence, ...
+    ] = (),
+) -> CandidateEvaluation:
+    """합성 Fixture 기반 P3 최종 기술 판정. 외부 I/O 없음."""
+
+    def second_stage(
+        current: ParsedCandidate,
+    ) -> CandidateEvaluation:
+        title = normalize_title(current.raw_title)
+
+        if title is None:
+            # 제목 오류의 최종 정책은 R-03에서 검토한다.
+            raise ValidationExecutionError(
+                "candidate title cannot be normalized"
+            )
+
+        # ---------------------------------------------------------
+        # 1. Source별 필수 정보·도메인·관련성·중복 검증
+        # ---------------------------------------------------------
+        screening = screen_candidate_sources(
+            current,
+            domain_policy,
+            relevance_rules,
+        )
+
+        # ---------------------------------------------------------
+        # 2. 적합 Source가 없으면 Source 부족 판정 우선
+        # ---------------------------------------------------------
+        if not screening.valid_sources:
+            source_gates = (
+                evaluate_unknown_blocked_domain_gate,
+                evaluate_unknown_domain_gate,
+                evaluate_missing_or_invalid_source_gate,
+                evaluate_relevance_unclear_gate,
+            )
+
+            for gate in source_gates:
+                result = gate(current, screening)
+
+                if result is not None:
+                    return result
+
+            source_indices = tuple(
+                source.item_news_index
+                for source in current.source_candidates
+            )
+            issue_indices = tuple(
+                issue.item_news_index
+                for issue in screening.source_issues
+            )
+
+            if source_indices != issue_indices:
+                raise ValidationExecutionError(
+                    "incomplete source screening result"
+                )
+
+            issue_codes = {
+                issue.code
+                for issue in screening.source_issues
+            }
+
+            reasons: list[ReasonCode] = [
+                ReasonCode.NO_ELIGIBLE_SOURCE,
+            ]
+
+            if (
+                SourceIssueCode.UNKNOWN_SOURCE_DOMAIN
+                in issue_codes
+            ):
+                reasons.append(
+                    ReasonCode.UNKNOWN_SOURCE_DOMAIN
+                )
+
+            if (
+                SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR
+                in issue_codes
+            ):
+                reasons.append(
+                    ReasonCode.RELEVANCE_UNCLEAR
+                )
+
+            return CandidateEvaluation(
+                decision=CandidateDecision.DEFERRED,
+                reason_codes=tuple(reasons),
+                normalized_title=title.normalized_title,
+                valid_sources=(),
+                category_ids=(),
+                warnings=current.warnings,
+                source_issues=screening.source_issues,
+            )
+
+        # ---------------------------------------------------------
+        # 3. R-02B: 적합 기사 근거로 2차 주제 범위 확인
+        # ---------------------------------------------------------
+        article_scope_result = evaluate_article_topic_scope_gate(
+            current,
+            screening,
+            article_scope_rules,
+        )
+
+        if article_scope_result is not None:
+            return article_scope_result
+
+        # ---------------------------------------------------------
+        # 4. 사건 일관성 및 활성 Child 검증
+        # ---------------------------------------------------------
+        deferred_result = evaluate_event_and_category_gates(
+            current,
+            screening,
+            event_rules,
+            category_catalog,
+            proposed_child_ids,
+        )
+
+        if deferred_result is not None:
+            return deferred_result
+
+        category_ids = category_catalog.select_active_child_ids(
+            proposed_child_ids or ()
+        )
+
+        if category_ids is None:
+            raise ValidationExecutionError(
+                "category validation returned inconsistent result"
+            )
+
+        # ---------------------------------------------------------
+        # 5. R-02A: 실제 후보·기사에 대한 Child 근거 확인
+        # ---------------------------------------------------------
+        supported_ids = category_evidence_rules.supported_child_ids(
+            title.normalized_title,
+            screening.valid_sources,
+        )
+
+        if supported_ids is not None:
+            if (
+                not isinstance(supported_ids, tuple)
+                or any(
+                    type(child_id) is not int
+                    for child_id in supported_ids
+                )
+            ):
+                raise ValidationExecutionError(
+                    "invalid category evidence policy result"
+                )
+
+        verified_supported_ids = (
+            category_catalog.select_active_child_ids(supported_ids)
+            if supported_ids is not None
+            else None
+        )
+
+        if supported_ids and verified_supported_ids is None:
+            raise ValidationExecutionError(
+                "category evidence references unavailable child"
+            )
+
+        category_supported = (
+            verified_supported_ids is not None
+            and set(category_ids).issubset(verified_supported_ids)
+        )
+
+        # ---------------------------------------------------------
+        # 6. R-01: '기타' 선택 시 추가 배제 근거 확인
+        # ---------------------------------------------------------
+        other_supported = (
+            category_supported
+            and has_valid_other_category_evidence(
+                catalog=category_catalog,
+                category_ids=category_ids,
+                normalized_title=title.normalized_title,
+                other_category_evidence=other_category_evidence,
+            )
+        )
+
+        if not other_supported:
+            return CandidateEvaluation(
+                decision=CandidateDecision.DEFERRED,
+                reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+                normalized_title=title.normalized_title,
+                valid_sources=(),
+                category_ids=(),
+                warnings=current.warnings,
+                source_issues=screening.source_issues,
+            )
+
+        # ---------------------------------------------------------
+        # 7. 모든 검증 통과: 기술적 채택 가능 판정
+        # ---------------------------------------------------------
+        return CandidateEvaluation(
+            decision=CandidateDecision.WOULD_ACCEPT,
+            reason_codes=(
+                ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+            ),
+            normalized_title=title.normalized_title,
+            valid_sources=screening.valid_sources,
+            category_ids=category_ids,
+            warnings=current.warnings,
+            source_issues=screening.source_issues,
+        )
+
+    return evaluate_candidate(
+        candidate,
+        topic_rules,
+        second_stage,
+    )
+
+
+
+# ---------------------------------------------------------------------
+# Final Review R-02B:
+# 기사 근거를 이용한 2차 관심 범위 판정
+# ---------------------------------------------------------------------
+
+
+
+def evaluate_article_topic_scope_gate(
+    candidate: ParsedCandidate,
+    screening: SourceScreeningResult,
+    article_scope_rules: ArticleTopicScopeRules,
+) -> CandidateEvaluation | None:
+    """적합 기사들의 명시적 근거로 2차 주제 범위를 판정한다.
+
+    None은 기존 사건·Category 검증을 계속한다는 의미다.
+    """
+    # Source가 없으면 기존 Source 부족 판정이 우선한다.
+    if not screening.valid_sources:
+        return None
+
+    title = normalize_title(candidate.raw_title)
+
+    if title is None:
+        raise ValidationExecutionError(
+            "eligible source exists with invalid candidate title"
+        )
+
+    article_scopes: list[TopicScope] = []
+
+    for source in screening.valid_sources:
+        # NormalizedSource는 표시 제목을 보존하므로
+        # 정책에 전달하기 전 정규화 키를 다시 계산한다.
+        source_title = normalize_title(source.source_title)
+
+        if source_title is None:
+            raise ValidationExecutionError(
+                "eligible source has invalid normalized title"
+            )
+
+        scope = article_scope_rules.classify(
+            title.normalized_title,
+            source_title.normalized_title,
+        )
+
+        if not isinstance(scope, TopicScope):
+            raise ValidationExecutionError(
+                "invalid article topic scope policy result"
+            )
+
+        article_scopes.append(scope)
+
+    # 모든 적합 기사에 명백한 범위 밖 근거가 존재한다.
+    if all(
+        scope == TopicScope.CLEAR_OUT_OF_SCOPE
+        for scope in article_scopes
+    ):
+        return CandidateEvaluation(
+            decision=CandidateDecision.SKIPPED,
+            reason_codes=(ReasonCode.OUT_OF_SCOPE,),
+            normalized_title=title.normalized_title,
+            valid_sources=(),
+            category_ids=(),
+            warnings=candidate.warnings,
+            source_issues=screening.source_issues,
+        )
+
+    # 범위 밖 근거가 있지만 다른 기사에서는 확정되지 않았다.
+    # 후보 전체를 임의로 제외하지 않고 보류한다.
+    if any(
+        scope == TopicScope.CLEAR_OUT_OF_SCOPE
+        for scope in article_scopes
+    ):
+        return CandidateEvaluation(
+            decision=CandidateDecision.DEFERRED,
+            reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+            normalized_title=title.normalized_title,
+            valid_sources=(),
+            category_ids=(),
+            warnings=candidate.warnings,
+            source_issues=screening.source_issues,
+        )
+
+    # 명백한 범위 밖 근거가 없다.
+    # 사건·Category 검증을 계속 진행한다.
+    return None

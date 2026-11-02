@@ -5,6 +5,7 @@ import ast
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -14,12 +15,15 @@ from app.external_trends.candidate_validator import (
     CategoryChild,
     CategoryRoot,
     DomainPolicy,
+    DomainStatus,
     EventConsistency,
     OtherCategoryEvidence,
+    OtherCategorySelectionEvidence,
     SourceRelevance,
     SourceScreeningResult,
     TopicScope,
     ValidationExecutionError,
+    evaluate_article_topic_scope_gate,
     evaluate_candidate,
     evaluate_category_unclear_gate,
     evaluate_event_and_category_gates,
@@ -31,6 +35,7 @@ from app.external_trends.candidate_validator import (
     evaluate_unknown_domain_gate,
     resolve_other_category_ids,
     screen_candidate_sources,
+    validate_p3_candidate,
 )
 from app.external_trends.rss_parser import parse_rss_feed
 from app.external_trends.types import (
@@ -1074,6 +1079,42 @@ class FixtureEventRules:
             return EventConsistency.AMBIGUOUS
 
         return EventConsistency.CONSISTENT
+
+
+@dataclass(frozen=True)
+class FixtureCategoryEvidenceRules:
+    """제목과 적합 기사에 대해 명시한 합성 분류 근거."""
+
+    supported_by_article: dict[
+        tuple[str, str],
+        tuple[int, ...],
+    ]
+
+    def supported_child_ids(
+        self,
+        normalized_title: str,
+        valid_sources: tuple[NormalizedSource, ...],
+    ) -> tuple[int, ...] | None:
+        supported: set[int] = set()
+
+        for source in valid_sources:
+            article_key = (
+                normalized_title,
+                source.source_title,
+            )
+
+            supported.update(
+                self.supported_by_article.get(
+                    article_key,
+                    (),
+                )
+            )
+
+        if not supported:
+            return None
+
+        return tuple(sorted(supported))
+
 
 
 def make_v07_candidate(
@@ -3910,3 +3951,1134 @@ def test_v18_deduplication_state_is_per_candidate_call() -> None:
     assert results[0].source_issues == (
         SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
     )
+
+
+
+# ---------------------------------------------------------------------
+# V-19: 최종 기술 판정 및 출력 불변조건
+# ---------------------------------------------------------------------
+
+
+
+def evaluate_v19_fixture(
+    candidate: ParsedCandidate,
+    *,
+    event_by_title: dict[str, str] | None = None,
+    proposed_child_ids: tuple[int, ...] | None = (101,),
+    topic_scopes: dict[str, TopicScope] | None = None,
+    other_category_evidence: tuple[
+        OtherCategorySelectionEvidence, ...
+    ] = (),
+    category_evidence_by_article: dict[
+        tuple[str, str],
+        tuple[int, ...],
+    ] | None = None,
+    article_scopes: dict[
+        tuple[str, str],
+        TopicScope,
+    ] | None = None,
+) -> CandidateEvaluation:
+    """명시적 합성 정책만 사용하는 최종 판정 헬퍼."""
+
+    default_category_evidence = {
+        ("가상 행사", "가상 행사 기사"): (101,),
+        ("가상 행사", "가상 행사 첫 기사"): (101,),
+        ("가상 행사", "가상 행사 다른 기사"): (101,),
+        ("가상 행사", "가상 행사 추가 기사"): (101,),
+        ("가상 행사", "가상 행사 관련 기사"): (101,),
+    }
+
+    category_evidence = (
+        default_category_evidence
+        if category_evidence_by_article is None
+        else category_evidence_by_article
+    )
+
+    return validate_p3_candidate(
+        candidate,
+        topic_rules=FixtureTopicRules(topic_scopes or {}),
+        domain_policy=DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset({"blocked.example.test"}),
+        ),
+        relevance_rules=FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 행사", "가상 행사 기사"),
+                ("가상 행사", "가상 행사 첫 기사"),
+                ("가상 행사", "가상 행사 다른 기사"),
+                ("가상 행사", "가상 행사 추가 기사"),
+                ("가상 행사", "가상 행사 관련 기사"),
+                ("가상 축제", "가상 축제 a 개막"),
+                ("가상 축제", "가상 축제 b 일정"),
+            }),
+            unrelated=frozenset({
+                ("가상 행사", "다른 분야 소식"),
+                ("가상 행사", "완전히 다른 소식"),
+            }),
+        ),
+        event_rules=FixtureEventRules(event_by_title or {}),
+        category_catalog=make_v11_catalog(),
+        proposed_child_ids=proposed_child_ids,
+        category_evidence_rules=FixtureCategoryEvidenceRules(
+            supported_by_article=category_evidence,
+        ),
+        article_scope_rules=FixtureArticleTopicScopeRules(
+            article_scopes=article_scopes or {},
+        ),
+        other_category_evidence=other_category_evidence,
+    )
+
+
+def make_v19_eligible_candidate() -> ParsedCandidate:
+    return make_candidate(
+        "  가상   행사  ",
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        sources=(
+            ParsedSource(
+                0,
+                "가상 행사 기사",
+                (
+                    "https://news.example.test/a"
+                    "?id=42&utm_source=rss"
+                ),
+                "합성 매체",
+            ),
+        ),
+    )
+
+
+
+@pytest.mark.parametrize(
+    ("proposed_ids", "expected_ids"),
+    [
+        ((101,), (101,)),
+        ((401, 101, 401), (101, 401)),
+    ],
+)
+def test_v19_would_accept_requires_valid_sources_and_children(
+    proposed_ids: tuple[int, ...],
+    expected_ids: tuple[int, ...],
+) -> None:
+    candidate = make_v19_eligible_candidate()
+
+    # 이번 사례에서 허용되는 Child의 근거를
+    # 합성 정책에 명시적으로 설정한다.
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 기사": "event-main",
+        },
+        proposed_child_ids=proposed_ids,
+        category_evidence_by_article={
+            ("가상 행사", "가상 행사 기사"): expected_ids,
+        },
+    )
+
+    canonical_url = "https://news.example.test/a?id=42"
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.WOULD_ACCEPT,
+        reason_codes=(ReasonCode.VALIDATED_BY_FIXTURE_RULES,),
+        normalized_title="가상 행사",
+        valid_sources=(
+            NormalizedSource(
+                source_title="가상 행사 기사",
+                canonical_url=canonical_url,
+                source_key=sha256(
+                    canonical_url.encode("utf-8")
+                ).hexdigest(),
+                publisher_name="합성 매체",
+            ),
+        ),
+        category_ids=expected_ids,
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(),
+    )
+
+
+
+def test_v19_accept_keeps_only_distinct_eligible_sources() -> None:
+    candidate = make_v18_candidate((
+        ("가상 행사 첫 기사", "https://news.example.test/a"),
+        ("가상 행사 다른 기사", "https://news.example.test/a"),
+        ("가상 행사 관련 기사", "https://unknown.example.test/b"),
+        ("가상 행사 관련 기사", "https://blocked.example.test/c"),
+        ("완전히 다른 소식", "https://news.example.test/d"),
+        ("가상 행사 추가 기사", "https://news.example.test/e"),
+    ))
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 첫 기사": "event-main",
+            "가상 행사 다른 기사": "event-main",
+            "가상 행사 관련 기사": "event-main",
+            "완전히 다른 소식": "event-main",
+            "가상 행사 추가 기사": "event-main",
+        },
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+    assert tuple(
+        source.canonical_url for source in result.valid_sources
+    ) == (
+        "https://news.example.test/a",
+        "https://news.example.test/e",
+    )
+    assert len({
+        source.source_key for source in result.valid_sources
+    }) == 2
+    assert result.category_ids == (101,)
+    assert result.source_issues == (
+        SourceIssue(1, SourceIssueCode.DUPLICATE_SOURCE),
+        SourceIssue(2, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(3, SourceIssueCode.BLOCKED_SOURCE_DOMAIN),
+        SourceIssue(4, SourceIssueCode.SOURCE_UNRELATED),
+    )
+
+
+def test_v19_explicit_out_of_scope_has_highest_priority() -> None:
+    candidate = make_v16_candidate(("unknown", "blocked"))
+
+    result = evaluate_v19_fixture(
+        candidate,
+        topic_scopes={
+            "가상 행사": TopicScope.CLEAR_OUT_OF_SCOPE,
+        },
+    )
+
+    assert result.decision == CandidateDecision.SKIPPED
+    assert result.reason_codes == (ReasonCode.OUT_OF_SCOPE,)
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+    assert result.source_issues == ()
+
+
+@pytest.mark.parametrize(
+    ("kinds", "decision", "reasons"),
+    [
+        (
+            (),
+            CandidateDecision.DEFERRED,
+            (ReasonCode.NO_ELIGIBLE_SOURCE,),
+        ),
+        (
+            ("unknown",),
+            CandidateDecision.DEFERRED,
+            (
+                ReasonCode.NO_ELIGIBLE_SOURCE,
+                ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+            ),
+        ),
+        (
+            ("blocked",),
+            CandidateDecision.SKIPPED,
+            (ReasonCode.BLOCKED_SOURCES_ONLY,),
+        ),
+        (
+            ("unknown", "blocked"),
+            CandidateDecision.DEFERRED,
+            (
+                ReasonCode.NO_ELIGIBLE_SOURCE,
+                ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+            ),
+        ),
+        (
+            ("invalid",),
+            CandidateDecision.DEFERRED,
+            (ReasonCode.NO_ELIGIBLE_SOURCE,),
+        ),
+        (
+            ("unrelated",),
+            CandidateDecision.DEFERRED,
+            (ReasonCode.NO_ELIGIBLE_SOURCE,),
+        ),
+    ],
+)
+def test_v19_no_eligible_source_has_correct_final_decision(
+    kinds: tuple[str, ...],
+    decision: CandidateDecision,
+    reasons: tuple[ReasonCode, ...],
+) -> None:
+    candidate = make_v16_candidate(kinds)
+
+    result = evaluate_v19_fixture(candidate)
+
+    assert result.decision == decision
+    assert result.reason_codes == reasons
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+def test_v19_all_relevance_unclear_is_deferred() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(
+            ParsedSource(
+                0,
+                "확인되지 않은 합성 기사",
+                "https://news.example.test/a",
+                None,
+            ),
+        ),
+    )
+
+    result = evaluate_v19_fixture(candidate)
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.RELEVANCE_UNCLEAR,
+    )
+    assert result.source_issues == (
+        SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+    )
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+def test_v19_mixed_ineligible_sources_are_deferred() -> None:
+    candidate = make_candidate(
+        "가상 행사",
+        sources=(
+            ParsedSource(
+                0,
+                "관련성 미확정 기사",
+                "https://news.example.test/a",
+                None,
+            ),
+            ParsedSource(
+                1,
+                "가상 행사 기사",
+                "https://unknown.example.test/b",
+                None,
+            ),
+            ParsedSource(
+                2,
+                "가상 행사 기사",
+                "javascript:alert(1)",
+                None,
+            ),
+            ParsedSource(
+                3,
+                "다른 분야 소식",
+                "https://news.example.test/d",
+                None,
+            ),
+        ),
+    )
+
+    result = evaluate_v19_fixture(candidate)
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.NO_ELIGIBLE_SOURCE,
+        ReasonCode.UNKNOWN_SOURCE_DOMAIN,
+        ReasonCode.RELEVANCE_UNCLEAR,
+    )
+    assert result.source_issues == (
+        SourceIssue(0, SourceIssueCode.SOURCE_RELEVANCE_UNCLEAR),
+        SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        SourceIssue(2, SourceIssueCode.SOURCE_URL_INVALID),
+        SourceIssue(3, SourceIssueCode.SOURCE_UNRELATED),
+    )
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+def test_v19_event_ambiguity_precedes_category() -> None:
+    candidate = make_v07_candidate("news.example.test")
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 축제 A 개막": "event-a",
+            "가상 축제 B 일정": "event-b",
+        },
+        proposed_child_ids=None,
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.EVENT_AMBIGUOUS,)
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+def test_v19_unclear_child_blocks_acceptance() -> None:
+    candidate, _ = make_v11_screening()
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 기사": "event-main",
+            "가상 행사 추가 기사": "event-main",
+        },
+        proposed_child_ids=None,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.CATEGORY_UNCLEAR,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(
+            SourceIssue(1, SourceIssueCode.UNKNOWN_SOURCE_DOMAIN),
+        ),
+    )
+
+
+
+
+@pytest.mark.parametrize(
+    "broken_policy",
+    ["topic", "domain", "relevance", "event"],
+)
+def test_v19_invalid_policy_result_is_execution_error(
+    broken_policy: str,
+) -> None:
+    """잘못된 주입 정책을 정상 보류로 숨기지 않는다."""
+
+    class BadTopicRules:
+        def classify(self, normalized_title: str) -> TopicScope:
+            return cast(TopicScope, "INVALID_SCOPE")
+
+    class BadDomainPolicy(DomainPolicy):
+        def classify(self, hostname: str) -> DomainStatus:
+            return cast(DomainStatus, "INVALID_DOMAIN")
+
+    class BadRelevanceRules:
+        def classify(
+            self,
+            normalized_topic: str,
+            normalized_source_title: str,
+        ) -> SourceRelevance:
+            return cast(SourceRelevance, "INVALID_RELEVANCE")
+
+    class BadEventRules:
+        def assess(
+            self,
+            candidate: ParsedCandidate,
+            screening: SourceScreeningResult,
+        ) -> EventConsistency:
+            return cast(EventConsistency, "INVALID_EVENT")
+
+    candidate = make_v19_eligible_candidate()
+
+    topic_rules = (
+        BadTopicRules()
+        if broken_policy == "topic"
+        else FixtureTopicRules({})
+    )
+    domain_policy = (
+        BadDomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        )
+        if broken_policy == "domain"
+        else DomainPolicy(
+            approved_hosts=frozenset({"news.example.test"}),
+            blocked_hosts=frozenset(),
+        )
+    )
+    relevance_rules = (
+        BadRelevanceRules()
+        if broken_policy == "relevance"
+        else FixtureSourceRelevanceRules(
+            related=frozenset({
+                ("가상 행사", "가상 행사 기사"),
+            }),
+        )
+    )
+    event_rules = (
+        BadEventRules()
+        if broken_policy == "event"
+        else FixtureEventRules({
+            "가상 행사 기사": "event-main",
+        })
+    )
+
+    with pytest.raises(ValidationExecutionError):
+        validate_p3_candidate(
+            candidate,
+            topic_rules=topic_rules,
+            domain_policy=domain_policy,
+            relevance_rules=relevance_rules,
+            event_rules=event_rules,
+            category_catalog=make_v11_catalog(),
+            proposed_child_ids=(101,),
+            category_evidence_rules=FixtureCategoryEvidenceRules(
+                supported_by_article={
+                    ("가상 행사", "가상 행사 기사"): (101,),
+                },
+            ),
+            article_scope_rules=FixtureArticleTopicScopeRules(
+                article_scopes={},
+            ),
+        )
+
+
+def test_v19_would_accept_does_not_require_external_io() -> None:
+    candidate = make_v19_eligible_candidate()
+
+    with (
+        patch(
+            "builtins.open",
+            side_effect=AssertionError("file I/O forbidden"),
+        ),
+        patch(
+            "socket.create_connection",
+            side_effect=AssertionError("network I/O forbidden"),
+        ),
+        patch(
+            "socket.socket.connect",
+            side_effect=AssertionError("network I/O forbidden"),
+        ),
+        patch(
+            "sqlite3.connect",
+            side_effect=AssertionError("DB I/O forbidden"),
+        ),
+    ):
+        result = evaluate_v19_fixture(
+            candidate,
+            event_by_title={
+                "가상 행사 기사": "event-main",
+            },
+        )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.valid_sources
+    assert result.category_ids
+
+
+
+def test_v19_final_result_is_deterministic() -> None:
+    candidate = make_v19_eligible_candidate()
+
+    results = tuple(
+        evaluate_v19_fixture(
+            candidate,
+            event_by_title={
+                "가상 행사 기사": "event-main",
+            },
+            proposed_child_ids=(401, 101, 401),
+            category_evidence_by_article={
+                ("가상 행사", "가상 행사 기사"): (101, 401),
+            },
+        )
+        for _ in range(10)
+    )
+
+    assert all(result == results[0] for result in results)
+    assert results[0].decision == CandidateDecision.WOULD_ACCEPT
+    assert results[0].category_ids == (101, 401)
+    assert results[0].reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+
+
+
+def test_v19_plain_string_event_result_is_execution_error() -> None:
+    """StrEnum과 같은 값을 가진 일반 문자열도 정책 오류다."""
+
+    class StringEventRules:
+        def assess(
+            self,
+            candidate: ParsedCandidate,
+            screening: SourceScreeningResult,
+        ) -> EventConsistency:
+            return cast(EventConsistency, "CONSISTENT")
+
+    candidate = make_v19_eligible_candidate()
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid event consistency policy result",
+    ):
+        validate_p3_candidate(
+            candidate,
+            topic_rules=FixtureTopicRules({}),
+            domain_policy=DomainPolicy(
+                approved_hosts=frozenset({"news.example.test"}),
+                blocked_hosts=frozenset(),
+            ),
+            relevance_rules=FixtureSourceRelevanceRules(
+                related=frozenset({
+                    ("가상 행사", "가상 행사 기사"),
+                }),
+            ),
+            event_rules=StringEventRules(),
+            category_catalog=make_v11_catalog(),
+            proposed_child_ids=(101,),
+            category_evidence_rules=FixtureCategoryEvidenceRules(
+                supported_by_article={
+                    ("가상 행사", "가상 행사 기사"): (101,),
+                },
+            ),
+            article_scope_rules=FixtureArticleTopicScopeRules(
+                article_scopes={},
+            ),
+        )
+
+
+
+# ---------------------------------------------------------------------
+# V-19 Final Review R-01:
+# 기타 Category 선택 근거 우회 방지
+# ---------------------------------------------------------------------
+
+
+def make_v19_other_evidence(
+    *,
+    normalized_title: str = "가상 행사",
+    root_id: int = 10,
+    conclusion: OtherCategoryEvidence = (
+        OtherCategoryEvidence.NO_SPECIFIC_CHILD_APPLIES
+    ),
+) -> OtherCategorySelectionEvidence:
+    return OtherCategorySelectionEvidence(
+        normalized_title=normalized_title,
+        root_id=root_id,
+        conclusion=conclusion,
+    )
+
+
+
+def evaluate_v19_other(
+    proposed_ids: tuple[int, ...],
+    evidence: tuple[OtherCategorySelectionEvidence, ...] = (),
+    *,
+    supported_ids: tuple[int, ...] = (199,),
+) -> CandidateEvaluation:
+    return evaluate_v19_fixture(
+        make_v19_eligible_candidate(),
+        event_by_title={
+            "가상 행사 기사": "event-main",
+        },
+        proposed_child_ids=proposed_ids,
+        other_category_evidence=evidence,
+        category_evidence_by_article={
+            ("가상 행사", "가상 행사 기사"): supported_ids,
+        },
+    )
+
+
+
+def test_v19_other_without_evidence_is_deferred() -> None:
+    result = evaluate_v19_other((199,))
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.normalized_title == "가상 행사"
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+    assert result.warnings == (WarningCode.INVALID_PUB_DATE,)
+
+
+def test_v19_other_with_explicit_evidence_can_pass() -> None:
+    result = evaluate_v19_other(
+        (199,),
+        (make_v19_other_evidence(),),
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+    assert result.category_ids == (199,)
+    assert len(result.valid_sources) == 1
+
+
+def test_v19_other_wrong_root_is_deferred() -> None:
+    result = evaluate_v19_other(
+        (199,),
+        (make_v19_other_evidence(root_id=40),),
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.category_ids == ()
+
+
+def test_v19_other_stale_topic_evidence_is_deferred() -> None:
+    result = evaluate_v19_other(
+        (199,),
+        (
+            make_v19_other_evidence(
+                normalized_title="다른 가상 주제",
+            ),
+        ),
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+
+
+@pytest.mark.parametrize(
+    "conclusion",
+    [
+        OtherCategoryEvidence.UNDETERMINED,
+        OtherCategoryEvidence.SPECIFIC_CHILD_APPLIES,
+    ],
+)
+def test_v19_other_without_exclusion_evidence_is_deferred(
+    conclusion: OtherCategoryEvidence,
+) -> None:
+    result = evaluate_v19_other(
+        (199,),
+        (make_v19_other_evidence(conclusion=conclusion),),
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+
+
+def test_v19_other_conflicting_same_root_child_is_deferred() -> None:
+    result = evaluate_v19_other(
+        (101, 199),
+        (make_v19_other_evidence(),),
+        supported_ids=(101, 199),
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (ReasonCode.CATEGORY_UNCLEAR,)
+    assert result.category_ids == ()
+
+
+def test_v19_other_duplicate_policy_evidence_is_error() -> None:
+    evidence = make_v19_other_evidence()
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="duplicate other category evidence",
+    ):
+        evaluate_v19_other(
+            (199,),
+            (evidence, evidence),
+        )
+
+
+def test_v19_other_duplicate_proposed_ids_are_normalized() -> None:
+    result = evaluate_v19_other(
+        (199, 199),
+        (make_v19_other_evidence(),),
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.category_ids == (199,)
+
+
+
+# ---------------------------------------------------------------------
+# Final Review R-02A:
+# 활성 Child라도 분류 근거 없이 최종 채택해서는 안 된다.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "proposed_ids",
+    [
+        pytest.param((401,), id="unproven-game-child"),
+        pytest.param((101, 401), id="mixed-unproven-children"),
+    ],
+)
+def test_r02a_active_child_without_category_evidence_is_deferred(
+    proposed_ids: tuple[int, ...],
+) -> None:
+    candidate = make_v19_eligible_candidate()
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 기사": "event-main",
+        },
+        proposed_child_ids=proposed_ids,
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.CATEGORY_UNCLEAR,
+    )
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+
+
+# ---------------------------------------------------------------------
+# R-02B: 기사 근거 기반 2차 OUT_OF_SCOPE
+# ---------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class FixtureArticleTopicScopeRules:
+    """기사별 명시적 범위 근거만 사용하는 합성 정책."""
+
+    article_scopes: dict[
+        tuple[str, str],
+        TopicScope,
+    ]
+
+    def classify(
+        self,
+        normalized_topic: str,
+        normalized_source_title: str,
+    ) -> TopicScope:
+        return self.article_scopes.get(
+            (normalized_topic, normalized_source_title),
+            TopicScope.AMBIGUOUS,
+        )
+
+
+def test_r02b_explicit_article_evidence_returns_skipped() -> None:
+    candidate = make_v18_candidate(
+        (
+            (
+                "가상 행사 첫 기사",
+                "https://news.example.test/a",
+            ),
+        ),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v18_candidate(candidate)
+
+    rules = FixtureArticleTopicScopeRules({
+        ("가상 행사", "가상 행사 첫 기사"):
+            TopicScope.CLEAR_OUT_OF_SCOPE,
+    })
+
+    result = evaluate_article_topic_scope_gate(
+        candidate,
+        screening,
+        rules,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.SKIPPED,
+        reason_codes=(ReasonCode.OUT_OF_SCOPE,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(),
+    )
+
+
+def test_r02b_all_eligible_articles_outside_preserves_issues() -> None:
+    candidate = make_v18_candidate(
+        (
+            (
+                "가상 행사 첫 기사",
+                "https://news.example.test/a",
+            ),
+            (
+                "가상 행사 다른 기사",
+                "https://news.example.test/b",
+            ),
+            (
+                "가상 행사 관련 기사",
+                "https://blocked.example.test/c",
+            ),
+            (
+                "가상 행사 추가 기사",
+                "https://unknown.example.test/d",
+            ),
+        ),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+    )
+    screening = screen_v18_candidate(candidate)
+
+    rules = FixtureArticleTopicScopeRules({
+        ("가상 행사", "가상 행사 첫 기사"):
+            TopicScope.CLEAR_OUT_OF_SCOPE,
+        ("가상 행사", "가상 행사 다른 기사"):
+            TopicScope.CLEAR_OUT_OF_SCOPE,
+    })
+
+    result = evaluate_article_topic_scope_gate(
+        candidate,
+        screening,
+        rules,
+    )
+
+    assert len(screening.valid_sources) == 2
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.SKIPPED,
+        reason_codes=(ReasonCode.OUT_OF_SCOPE,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(
+            SourceIssue(
+                2,
+                SourceIssueCode.BLOCKED_SOURCE_DOMAIN,
+            ),
+            SourceIssue(
+                3,
+                SourceIssueCode.UNKNOWN_SOURCE_DOMAIN,
+            ),
+        ),
+    )
+
+
+def test_r02b_conflicting_article_scopes_are_deferred() -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/b",
+        ),
+    ))
+    screening = screen_v18_candidate(candidate)
+
+    rules = FixtureArticleTopicScopeRules({
+        ("가상 행사", "가상 행사 첫 기사"):
+            TopicScope.CLEAR_OUT_OF_SCOPE,
+        ("가상 행사", "가상 행사 다른 기사"):
+            TopicScope.POSSIBLE_IN_SCOPE,
+    })
+
+    result = evaluate_article_topic_scope_gate(
+        candidate,
+        screening,
+        rules,
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(),
+        source_issues=(),
+    )
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        TopicScope.AMBIGUOUS,
+        TopicScope.POSSIBLE_IN_SCOPE,
+    ],
+)
+def test_r02b_no_explicit_outside_evidence_continues(
+    scope: TopicScope,
+) -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+    ))
+    screening = screen_v18_candidate(candidate)
+
+    rules = FixtureArticleTopicScopeRules({
+        ("가상 행사", "가상 행사 첫 기사"): scope,
+    })
+
+    assert evaluate_article_topic_scope_gate(
+        candidate,
+        screening,
+        rules,
+    ) is None
+
+
+def test_r02b_no_eligible_source_skips_scope_policy() -> None:
+    candidate = make_v18_candidate((
+        (
+            "완전히 다른 소식",
+            "https://news.example.test/a",
+        ),
+    ))
+    screening = screen_v18_candidate(candidate)
+
+    class ForbiddenArticleScopeRules:
+        def classify(
+            self,
+            normalized_topic: str,
+            normalized_source_title: str,
+        ) -> TopicScope:
+            pytest.fail(
+                "적합 Source가 없으면 기사 범위 정책을 호출하면 안 됩니다."
+            )
+
+    assert screening.valid_sources == ()
+    assert screening.source_issues == (
+        SourceIssue(
+            0,
+            SourceIssueCode.SOURCE_UNRELATED,
+        ),
+    )
+
+    assert evaluate_article_topic_scope_gate(
+        candidate,
+        screening,
+        ForbiddenArticleScopeRules(),
+    ) is None
+
+
+def test_r02b_invalid_scope_policy_result_is_error() -> None:
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+    ))
+    screening = screen_v18_candidate(candidate)
+
+    class InvalidArticleScopeRules:
+        def classify(
+            self,
+            normalized_topic: str,
+            normalized_source_title: str,
+        ) -> TopicScope:
+            return cast(
+                TopicScope,
+                "CLEAR_OUT_OF_SCOPE",
+            )
+
+    with pytest.raises(
+        ValidationExecutionError,
+        match="invalid article topic scope policy result",
+    ):
+        evaluate_article_topic_scope_gate(
+            candidate,
+            screening,
+            InvalidArticleScopeRules(),
+        )
+
+
+
+def test_r02b_final_outside_precedes_event_and_category() -> None:
+    """2차 범위 밖 확정이 사건·Category 검사보다 우선한다."""
+    candidate = make_v19_eligible_candidate()
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={},
+        proposed_child_ids=None,
+        article_scopes={
+            ("가상 행사", "가상 행사 기사"):
+                TopicScope.CLEAR_OUT_OF_SCOPE,
+        },
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.SKIPPED,
+        reason_codes=(ReasonCode.OUT_OF_SCOPE,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(WarningCode.INVALID_PUB_DATE,),
+        source_issues=(),
+    )
+
+
+def test_r02b_final_conflicting_article_scopes_are_deferred() -> None:
+    """사건 ID가 같아도 기사별 범위 근거가 충돌하면 보류한다."""
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://news.example.test/b",
+        ),
+    ))
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 첫 기사": "event-main",
+            "가상 행사 다른 기사": "event-main",
+        },
+        proposed_child_ids=(101,),
+        article_scopes={
+            ("가상 행사", "가상 행사 첫 기사"):
+                TopicScope.CLEAR_OUT_OF_SCOPE,
+            ("가상 행사", "가상 행사 다른 기사"):
+                TopicScope.POSSIBLE_IN_SCOPE,
+        },
+    )
+
+    assert result == CandidateEvaluation(
+        decision=CandidateDecision.DEFERRED,
+        reason_codes=(ReasonCode.EVENT_AMBIGUOUS,),
+        normalized_title="가상 행사",
+        valid_sources=(),
+        category_ids=(),
+        warnings=(),
+        source_issues=(),
+    )
+
+
+def test_r02b_final_blocked_article_cannot_define_scope() -> None:
+    """차단 출처의 범위 근거로 후보 전체를 제외하지 않는다."""
+    candidate = make_v18_candidate((
+        (
+            "가상 행사 첫 기사",
+            "https://news.example.test/a",
+        ),
+        (
+            "가상 행사 다른 기사",
+            "https://blocked.example.test/b",
+        ),
+    ))
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 첫 기사": "event-main",
+            "가상 행사 다른 기사": "event-main",
+        },
+        proposed_child_ids=(101,),
+        article_scopes={
+            ("가상 행사", "가상 행사 다른 기사"):
+                TopicScope.CLEAR_OUT_OF_SCOPE,
+        },
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+    assert result.category_ids == (101,)
+    assert len(result.valid_sources) == 1
+    assert result.valid_sources[0].canonical_url == (
+        "https://news.example.test/a"
+    )
+    assert result.source_issues == (
+        SourceIssue(
+            1,
+            SourceIssueCode.BLOCKED_SOURCE_DOMAIN,
+        ),
+    )
+
+
+def test_r02b_final_unregistered_article_is_not_skipped() -> None:
+    """명백한 범위 밖 근거가 없으면 기존 최종 검증을 유지한다."""
+    candidate = make_v19_eligible_candidate()
+
+    result = evaluate_v19_fixture(
+        candidate,
+        event_by_title={
+            "가상 행사 기사": "event-main",
+        },
+        proposed_child_ids=(101,),
+        article_scopes={},
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+    assert result.category_ids == (101,)
+    assert len(result.valid_sources) == 1
