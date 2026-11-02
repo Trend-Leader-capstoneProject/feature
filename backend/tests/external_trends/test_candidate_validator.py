@@ -5925,3 +5925,181 @@ def test_r04d_final_validator_preserves_valid_proposals(
     else:
         assert result.category_ids == ()
         assert result.valid_sources == ()
+
+
+
+# ---------------------------------------------------------------------
+# F-02: ambiguous_feed.xml 기반 P1 -> P3 통합 검증
+# ---------------------------------------------------------------------
+
+F02_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "ambiguous_feed.xml"
+)
+
+
+def test_f02_parser_preserves_ambiguous_feed_structure() -> None:
+    """XML에서 Item과 기사 순서 및 원본 URL을 보존한다."""
+    feed = parse_rss_feed(F02_FIXTURE.read_bytes())
+
+    assert feed.item_issues == ()
+
+    assert [
+        (
+            candidate.item_index,
+            candidate.raw_title,
+            len(candidate.source_candidates),
+        )
+        for candidate in feed.candidates
+    ] == [
+        (0, "가상 행사", 2),
+        (1, "가상 관심 외 주제", 1),
+        (2, "가상 반짝 콘서트", 1),
+        (3, "가상 행사", 2),
+    ]
+
+    assert tuple(
+        source.item_news_index
+        for source in feed.candidates[3].source_candidates
+    ) == (0, 1)
+
+    assert (
+        feed.candidates[3].source_candidates[0].raw_url
+        == (
+            "https://news.example.test/f02/duplicate"
+            "?id=42&utm_source=rss"
+        )
+    )
+
+
+def test_f02_mixed_events_are_deferred() -> None:
+    """XML로 파싱한 서로 다른 사건은 임의 채택하지 않는다."""
+    feed = parse_rss_feed(F02_FIXTURE.read_bytes())
+
+    result = evaluate_v19_fixture(
+        feed.candidates[0],
+        event_by_title={
+            "가상 행사 첫 기사": "event-a",
+            "가상 행사 다른 기사": "event-b",
+        },
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.EVENT_AMBIGUOUS,
+    )
+    assert result.normalized_title == "가상 행사"
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+    assert result.source_issues == ()
+
+
+def test_f02_explicit_outside_topic_is_skipped() -> None:
+    """1차에서 명백히 제외된 주제는 Source를 채택하지 않는다."""
+    feed = parse_rss_feed(F02_FIXTURE.read_bytes())
+
+    result = evaluate_v19_fixture(
+        feed.candidates[1],
+        topic_scopes={
+            "가상 관심 외 주제":
+                TopicScope.CLEAR_OUT_OF_SCOPE,
+        },
+    )
+
+    assert result.decision == CandidateDecision.SKIPPED
+    assert result.reason_codes == (
+        ReasonCode.OUT_OF_SCOPE,
+    )
+    assert result.normalized_title == "가상 관심 외 주제"
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+    assert result.source_issues == ()
+
+
+def test_f02_explicit_alias_can_be_accepted() -> None:
+    """명시적인 별칭 관계와 Category 근거로 채택 가능성을 검증한다."""
+    feed = parse_rss_feed(F02_FIXTURE.read_bytes())
+
+    candidate = feed.candidates[2]
+
+    result = validate_p3_candidate(
+        candidate,
+        topic_rules=FixtureTopicRules({
+            "가상 반짝 콘서트": TopicScope.AMBIGUOUS,
+        }),
+        domain_policy=DomainPolicy(
+            approved_hosts=frozenset({
+                "news.example.test",
+            }),
+            blocked_hosts=frozenset(),
+        ),
+        relevance_rules=FixtureSourceRelevanceRules(
+            related=frozenset({
+                (
+                    "가상 반짝 콘서트",
+                    "별빛 공연 개막 안내",
+                ),
+            }),
+        ),
+        event_rules=FixtureEventRules({
+            "별빛 공연 개막 안내": "event-alias",
+        }),
+        category_catalog=make_v11_catalog(),
+        proposed_child_ids=(101,),
+        category_evidence_rules=FixtureCategoryEvidenceRules({
+            (
+                "가상 반짝 콘서트",
+                "별빛 공연 개막 안내",
+            ): (101,),
+        }),
+        article_scope_rules=FixtureArticleTopicScopeRules({}),
+    )
+
+    assert result.decision == CandidateDecision.WOULD_ACCEPT
+    assert result.reason_codes == (
+        ReasonCode.VALIDATED_BY_FIXTURE_RULES,
+    )
+    assert result.normalized_title == "가상 반짝 콘서트"
+    assert result.category_ids == (101,)
+    assert len(result.valid_sources) == 1
+    assert result.valid_sources[0].source_title == (
+        "별빛 공연 개막 안내"
+    )
+    assert result.valid_sources[0].canonical_url == (
+        "https://news.example.test/f02/alias?id=7"
+    )
+    assert result.source_issues == ()
+
+
+def test_f02_duplicate_article_scope_conflict_is_deferred() -> None:
+    """중복 URL의 두 번째 기사도 Scope 판정 근거로 사용한다."""
+    feed = parse_rss_feed(F02_FIXTURE.read_bytes())
+
+    result = evaluate_v19_fixture(
+        feed.candidates[3],
+        event_by_title={
+            "가상 행사 첫 기사": "event-main",
+            "가상 행사 다른 기사": "event-main",
+        },
+        article_scopes={
+            (
+                "가상 행사",
+                "가상 행사 다른 기사",
+            ): TopicScope.CLEAR_OUT_OF_SCOPE,
+        },
+    )
+
+    assert result.decision == CandidateDecision.DEFERRED
+    assert result.reason_codes == (
+        ReasonCode.TOPIC_SCOPE_UNCLEAR,
+    )
+    assert result.normalized_title == "가상 행사"
+    assert result.valid_sources == ()
+    assert result.category_ids == ()
+    assert result.source_issues == (
+        SourceIssue(
+            1,
+            SourceIssueCode.DUPLICATE_SOURCE,
+        ),
+    )
