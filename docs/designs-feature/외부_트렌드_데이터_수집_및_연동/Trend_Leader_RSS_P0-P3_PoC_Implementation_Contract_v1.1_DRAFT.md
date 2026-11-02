@@ -360,7 +360,7 @@ FeedParseError 코드: `INVALID_INPUT_TYPE`, `EMPTY_INPUT`, `INVALID_XML`, `UNSU
 | R04C-01~04 | 기존/최종 Scope 혼재, 중복 URL, 불명확/범위 밖 근거, 사건 충돌 | `TOPIC_SCOPE_UNCLEAR`와 `EVENT_AMBIGUOUS` 구분 |
 | R04D-01~06 | `float`/`bool`/`str`/unhashable ID, list 컨테이너, `None`·정상 ID 회귀 | 실행 오류와 `CATEGORY_UNCLEAR` 구분 |
 
-단위 테스트는 프로젝트의 `backend/pyproject.toml`에 정의된 pytest/Ruff 환경을 따른다. PowerShell 실행 예시: `python -m pytest tests/external_trends -q`; `python -m ruff check app/external_trends tests/external_trends`. **현재 실행된 테스트는 0개이며, 명령은 구현 후 검증용**이다.
+단위 테스트는 프로젝트의 `backend/pyproject.toml`에 정의된 pytest/Ruff 환경을 따른다. PowerShell 실행 예시: `python -m pytest tests/external_trends -q`; `python -m ruff check app/external_trends tests/external_trends`. **2026-11-02 기준 사용자 로컬 실행 결과는 P1~P3 전체 `406 passed`, Ruff `All checks passed!`이다.** 이는 사용자가 보고한 로컬 검증 증거이며, 별도 원격 CI 실행 성공을 의미하지 않는다.
 
 ## 8. P0~P3 Done / Not Done 정의
 
