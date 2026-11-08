@@ -570,7 +570,7 @@ http://127.0.0.1:8000/docs
 Category Master Seed는 대분류 6개와 세부분류 38개를 생성하거나 검증합니다.
 API 서버 시작이나 Alembic Migration 실행만으로 자동 실행되지 않습니다.
 
-가상환경을 활성화하고 `backend/` 디렉터리에서 실행합니다.
+Windows 로컬 Python 가상환경을 활성화하고 `backend/` 디렉터리에서 **관리용 DB 계정(`trend_user`)**으로 실행합니다. Docker FastAPI의 API 전용 계정으로 Migration·Seed를 실행하지 않습니다.
 먼저 `backend/.env`와 현재 환경변수가 가리키는 DB 연결 대상을 확인합니다.
 `DATABASE_URL`이 설정되어 있으면 개별 `DB_*` 설정보다 우선합니다.
 
@@ -638,7 +638,7 @@ docker compose version
 
 | 파일 | 역할 |
 |---|---|
-| `.env.compose` | Docker Compose와 MariaDB 실행 설정 |
+| `.env.compose` | MariaDB 초기 관리 계정·API 실행 계정 및 외부 포트 설정 |
 | `backend/.env` | FastAPI 애플리케이션 설정 |
 | `.env.compose.example` | Compose 환경변수 예시 |
 | `backend/.env.example` | 백엔드 환경변수 예시 |
@@ -646,15 +646,15 @@ docker compose version
 #### Windows PowerShell
 
 ```powershell
-Copy-Item .env.compose.example .env.compose
-Copy-Item backend/.env.example backend/.env
+if (!(Test-Path .\.env.compose)) { Copy-Item .\.env.compose.example .\.env.compose }
+if (!(Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
 ```
 
 #### macOS / Linux
 
 ```bash
-cp .env.compose.example .env.compose
-cp backend/.env.example backend/.env
+[ -f .env.compose ] || cp .env.compose.example .env.compose
+[ -f backend/.env ] || cp backend/.env.example backend/.env
 ```
 
 이미 실제 환경변수 파일이 존재한다면 다시 복사하지 않고 기존 파일을 사용합니다.
@@ -675,6 +675,10 @@ DB_USER=trend_user
 DB_PASSWORD=change-me
 DB_ROOT_PASSWORD=change-me
 
+# FastAPI runtime DB account (provision separately)
+API_DB_USER=trend_api_runtime
+API_DB_PASSWORD=change-me
+
 DB_EXTERNAL_PORT=3306
 BACKEND_EXTERNAL_PORT=8000
 ```
@@ -685,13 +689,17 @@ BACKEND_EXTERNAL_PORT=8000
 |---|---|
 | `MARIADB_IMAGE_TAG` | 사용할 MariaDB 이미지 태그 |
 | `DB_NAME` | 생성할 데이터베이스 이름 |
-| `DB_USER` | 애플리케이션용 DB 사용자 |
-| `DB_PASSWORD` | 애플리케이션용 DB 사용자 비밀번호 |
+| `DB_USER` | MariaDB 초기 관리용 DB 사용자 (`trend_user`) |
+| `DB_PASSWORD` | 초기 관리용 DB 사용자 비밀번호 |
 | `DB_ROOT_PASSWORD` | MariaDB root 계정 비밀번호 |
+| `API_DB_USER` | FastAPI 전용 최소 권한 DB 사용자 (`trend_api_runtime`) |
+| `API_DB_PASSWORD` | FastAPI 전용 DB 사용자 비밀번호 |
 | `DB_EXTERNAL_PORT` | 호스트에서 MariaDB에 접근할 포트 |
 | `BACKEND_EXTERNAL_PORT` | 호스트에서 FastAPI에 접근할 포트 |
 
-`change-me` 값은 팀 로컬 개발 환경에 맞는 비밀번호로 변경합니다.
+`change-me`는 예시 문자열이므로 팀 로컬 개발 환경의 실제 비밀번호로 변경합니다. **`API_DB_USER` 선언만으로 DB 계정은 생성되지 않습니다.** 신규 환경에서는 10.6절의 계정 프로비저닝을 완료해야 Backend를 실행할 수 있습니다.
+
+개발 MariaDB의 외부 포트는 Compose에서 `127.0.0.1`에만 바인딩합니다. 다른 PC에서 해당 포트로 직접 접속하는 구성이 아닙니다.
 
 > `.env.compose`는 Docker Compose가 자동으로 읽는 기본 파일명이 아닙니다.
 > 따라서 실행할 때 반드시 `--env-file .env.compose` 옵션을 사용합니다.
@@ -714,7 +722,7 @@ DATABASE_URL=
 JWT_SECRET_KEY=change_this_secret_key_min_32_chars
 ```
 
-Docker Compose 실행 시 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`는 Compose 설정값으로 덮어씁니다.
+Windows 로컬 Python에서는 위 `backend/.env`의 관리용 계정(`trend_user`)으로 Migration·Seed를 실행합니다. Docker Backend에서는 Compose가 `DB_HOST=db`, `DB_PORT=3306`, `DB_NAME`, API 전용 `DB_USER=${API_DB_USER}`, `DB_PASSWORD=${API_DB_PASSWORD}`로 주입하므로 서로 다른 DB 계정으로 연결합니다.
 
 `DATABASE_URL`은 다음과 같이 **빈 값으로 유지합니다.**
 
@@ -736,15 +744,10 @@ DATABASE_URL=
 컨테이너를 실행하기 전에 환경변수가 정상적으로 치환되는지 확인합니다.
 
 ```powershell
-docker compose --env-file .env.compose config
+docker compose --env-file .env.compose config --quiet
 ```
 
-완성된 Compose 설정이 출력되고 다음과 같은 경고가 없다면 정상입니다.
-
-```text
-variable is not set
-Defaulting to a blank string
-```
+검증 오류 없이 종료되는지 확인합니다. `config`의 전체 출력에는 치환된 비밀번호가 포함될 수 있으므로 터미널 로그를 그대로 공유하지 않습니다.
 
 경고가 발생하면 다음 항목을 확인합니다.
 
@@ -756,22 +759,25 @@ Defaulting to a blank string
 
 ### 10.6 컨테이너 실행
 
-MariaDB와 FastAPI 컨테이너를 빌드하고 백그라운드에서 실행합니다.
+**신규 개발환경은 DB만 먼저 실행합니다.** 아직 API 전용 계정이 생성되지 않았으므로 전체 서비스를 한 번에 기동하지 않습니다.
 
 ```powershell
-docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose up -d db
+docker compose --env-file .env.compose ps
 ```
 
-각 옵션의 의미는 다음과 같습니다.
+그다음 Windows 로컬 Python에서 `backend/.env`의 연결 대상이 본인의 개발 DB이며 관리용 `trend_user`인지 확인하고, **신규 DB에 한해** Alembic Migration과 Category Seed를 적용합니다. 실행 명령 및 주의사항은 [Windows 온보딩 가이드 5장](docs/onboarding/Trend_Leader_Windows_Developer_Onboarding_Guide_v1.0.md#5-mariadb-migration-및-category-seed)을 따릅니다.
 
-| 옵션 | 설명 |
-|---|---|
-| `--env-file .env.compose` | Compose 치환 변수 파일 지정 |
-| `up` | 서비스 생성 및 실행 |
-| `--build` | 백엔드 Docker 이미지를 다시 빌드 |
-| `-d` | 백그라운드 실행 |
+Migration 후에는 팀에서 승인한 C3 최소 권한 정책에 따라 API 전용 `trend_api_runtime` 계정을 **별도로 생성하고 테이블별 GRANT를 검증**해야 합니다. Compose가 계정을 자동 생성하지 않습니다. 승인된 프로비저닝 절차가 없다면 여기서 중단하며, 오류 해결 목적으로 API 계정에 `trend_leader.*` 전체 `ALL PRIVILEGES`를 부여하지 않습니다.
 
-최초 실행 시 MariaDB 이미지 다운로드와 백엔드 의존성 설치 때문에 로그 출력이 많을 수 있습니다.
+계정과 `.env.compose` 값이 모두 준비된 후 Backend를 실행합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d backend
+docker compose --env-file .env.compose ps
+```
+
+API가 실제로 `trend_api_runtime` 계정으로 연결되는지와 Readiness 응답을 [온보딩 가이드 5.3절](docs/onboarding/Trend_Leader_Windows_Developer_Onboarding_Guide_v1.0.md#53-api-전용-계정-프로비저닝-및-backend-실행)에 따라 확인합니다. **이미 DB·계정이 구성된 환경**에서는 `docker compose --env-file .env.compose up -d`로 일상 기동할 수 있습니다.
 
 ---
 
@@ -781,14 +787,14 @@ docker compose --env-file .env.compose up --build -d
 docker compose --env-file .env.compose ps
 ```
 
-정상적인 경우 다음 컨테이너가 실행 상태로 표시됩니다.
+최초 DB 기동 직후에는 `trend-leader-db`의 `Up (healthy)`를 확인합니다. Migration 및 API 계정 준비 후 Backend까지 실행했다면 다음 상태를 확인합니다.
 
 ```text
 trend-leader-db    Up (healthy)
 trend-leader-api   Up
 ```
 
-MariaDB가 먼저 초기화되고 상태가 `healthy`가 된 이후 FastAPI 백엔드가 실행됩니다.
+MariaDB가 `healthy`인 사실만으로 DB 스키마·API 전용 계정까지 준비된 것은 아닙니다.
 
 ---
 
@@ -836,7 +842,7 @@ Invoke-RestMethod http://localhost:8000/api/health
 Invoke-RestMethod http://localhost:8000/api/health/ready
 ```
 
-`/api/health/ready` 응답의 `database` 값이 `available`이면 FastAPI와 MariaDB 연결이 정상입니다.
+`/api/health/ready` 응답의 `data.database`가 `available`이면 FastAPI와 MariaDB 연결이 정상입니다. 이 응답만으로 실제 접속 계정까지 확인되는 것은 아니므로, 계정 검증은 온보딩 가이드 5.3절을 따릅니다.
 
 ```json
 {
@@ -863,7 +869,7 @@ docker compose --env-file .env.compose down
 
 MariaDB 데이터는 Docker Volume에 남아 있으므로 다음 실행에서도 유지됩니다.
 
-다시 실행할 때는 다음 명령을 사용합니다.
+이미 DB 스키마와 API 계정이 준비된 환경에서 다시 실행할 때는 다음 명령을 사용합니다.
 
 ```powershell
 docker compose --env-file .env.compose up -d
@@ -897,10 +903,10 @@ docker compose --env-file .env.compose restart backend
 docker compose --env-file .env.compose down -v
 ```
 
-그다음 컨테이너를 다시 생성합니다.
+Volume을 삭제한 경우 **신규 DB와 동일한 초기 구성 절차**가 다시 필요합니다. 먼저 MariaDB만 실행하고, 10.6절의 Migration·Seed·API 계정 생성 검증을 수행한 뒤 Backend를 시작합니다.
 
 ```powershell
-docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose up -d db
 ```
 
 > `down -v`는 MariaDB 데이터가 저장된 Docker Volume까지 삭제합니다.
@@ -919,10 +925,10 @@ The "DB_NAME" variable is not set.
 Defaulting to a blank string.
 ```
 
-실행 명령에 `--env-file .env.compose`가 포함되었는지 확인합니다.
+실행 명령에 `--env-file .env.compose`가 포함되었는지 확인하고, 실제 값을 노출하지 않는 설정 검증부터 수행합니다.
 
 ```powershell
-docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose config --quiet
 ```
 
 #### 포트 충돌
@@ -953,9 +959,10 @@ http://localhost:8001/docs
 다음 항목을 확인합니다.
 
 1. `backend/.env`의 `DATABASE_URL`이 비어 있는지 확인
-2. `.env.compose`의 DB 환경변수가 모두 설정되어 있는지 확인
-3. MariaDB 컨테이너가 `healthy` 상태인지 확인
-4. MariaDB와 백엔드 로그 확인
+2. `.env.compose`의 `API_DB_USER`/`API_DB_PASSWORD`를 포함한 필수 값 확인
+3. API 전용 계정 존재 및 팀 승인 GRANT가 적용되었는지 확인
+4. MariaDB 컨테이너가 `healthy` 상태인지 확인
+5. MariaDB와 백엔드 로그 확인
 
 ```powershell
 docker compose --env-file .env.compose ps
@@ -975,17 +982,18 @@ Docker Desktop을 실행하고 Linux Container Engine이 정상적으로 시작�
 
 ### 10.13 빠른 실행 명령 모음
 
-최초 실행:
+최초 실행 시에는 **10.6절의 단계별 준비와 검증을 생략하지 않습니다.** 아래 명령은 신규 환경에서 DB를 먼저 실행하는 단계까지만 안내합니다.
 
 ```powershell
-Copy-Item .env.compose.example .env.compose
-Copy-Item backend/.env.example backend/.env
-Copy-Item .env.test.compose.example .env.test.compose
-Copy-Item backend/.env.test.example backend/.env.test
-docker compose --env-file .env.compose config
-docker compose --env-file .env.compose up --build -d
+if (!(Test-Path .\.env.compose)) { Copy-Item .\.env.compose.example .\.env.compose }
+if (!(Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
+# 예시 파일을 복사한 뒤 각자 인증정보를 설정·확인합니다.
+docker compose --env-file .env.compose config --quiet
+docker compose --env-file .env.compose up -d db
 docker compose --env-file .env.compose ps
 ```
+
+테스트용 환경파일은 통합 테스트를 수행할 때 별도로 준비하며, 개발 DB를 테스트 대상으로 사용하지 않습니다. Migration·Seed 및 API 계정 검증이 완료된 뒤에만 Backend를 실행합니다.
 
 상태 확인:
 
