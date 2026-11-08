@@ -11,7 +11,7 @@
 
 1. 기존 `dev`의 ORM, FastAPI 인증/공통 응답, `docker-compose.yml`, Demo Seed, Category Taxonomy v1.0.1, 전체 목록 v1.0.14, P0~P3 v1.1 FROZEN, G5 A1 2026-11-04 체크포인트를 확인하였다.
 2. G5 A1 체크포인트는 기술·합성 리허설 일부 PASS이지만 **실제 G4/G5/G6는 HOLD**라고 기록한다. 독립 JSON 대조 도구도 당시 실제 G6 PASS를 발행하지 않았다.
-3. 최상위 정책 원본 `Google_Trends_RSS_운영_Gate_통과기준_검증증거_v0.3_POLICY_CONFIRMED.md` **전체 원문은 아직 미대조**다. 이전 검토 기록에서는 `trend_leader_g5_p1_hold_gate_v01(1).zip`의 `trend_leader_g5_a1_approval_reconcile_v02.py`와 Python 3.15 합성 JSON을 읽고 `content_ref`를 독립 재계산하여 일치했다고 보고했다. **이번 문서 반영 작업에서는 해당 ZIP 원본을 다시 확보·재실행·독립 재계산하지 않았다.** 해시 일치는 이전 기록에 한정되며 운영 승인 증거가 아니다.
+3. 최상위 정책 원본 `Google_Trends_RSS_운영_Gate_통과기준_검증증거_v0.3_POLICY_CONFIRMED.md`의 **사용자 제공 원문(2026-11-03 개정, 2026-11-08 수신)을 확보하여 G0~G6·§4·AT-13/15·§6을 이번 작업에서 직접 대조**했다. 정책의 원문 근거(약관/권한) 및 실제 운영 Gate를 새로 검증한 것은 아니다. 이전 검토 기록에서는 `trend_leader_g5_p1_hold_gate_v01(1).zip`의 `trend_leader_g5_a1_approval_reconcile_v02.py`와 Python 3.15 합성 JSON을 읽고 `content_ref`를 독립 재계산하여 일치했다고 보고했다. **이번 문서 반영 작업에서는 해당 ZIP 원본을 다시 확보·재실행·독립 재계산하지 않았다.** 해시 일치는 이전 기록에 한정되며 운영 승인 증거가 아니다.
 4. 이전 검토에서 언급된 `Trend_Leader_P4_Writer_G0-G6_Final_Review_DRAFT_20261108.md`는 **현재 `dev` 파일 트리에서 발견되지 않았다**. 이전 검토 기록이 지적한 ‘같은 Batch 재실행 멱등 처리’·‘CLI 우선’·‘P3 후보→Writer 직접 흐름’과 DEC-05·12·16의 차이는 문서 이력에 관한 **재검증 필요 사항**으로 남긴다. 이 초안이 `dev`에 있다고 가정하거나 기존 문서를 임의 수정하지 않는다.
 
 ## 1. 결론 및 공통 불변조건
@@ -22,6 +22,7 @@
 - 진입: 운영자별 전용 인증키 + 실제 내부 접근 제한 + API는 `batch_id`만 수신. 서버의 보호된 승인 Batch v1만 로드한다.
 - 승인: 보호된 G4 개별 기록, `content_ref` 일치, 철회 상태, 신뢰 가능한 G6 운영 프로필을 **서로 독립적으로** 검사한다. 클라이언트 `approved=true`는 증거가 아니다.
 - DB: 명시적 관측 UTC, 활성 Child Category, 원문 Source, 기존 HIDDEN 포함 중복을 재검증하고 Batch **전체 하나의 Transaction**만 Commit/Rollback한다. 실패·중복 시 자동 재시도하지 않는다.
+- **운영 Gate v0.3과 P4-DEC-04의 차이(명시적 적용 범위):** 운영 정책 §G5·AT-13·§6은 부적격 항목을 제외하고 나머지 적격 항목의 게시를 허용하며, **DB Transaction 원자성은 후속 구현 확정 대상으로 남겼다**. P4-DEC-04는 사용자가 후속으로 확정한 **개별 승인·확정 Batch의 전체 Commit/Rollback 실행 계약**이다. 따라서 **Batch 확정 전 후보 선별**에서는 부적격 후보를 제외할 수 있으나, **확정된 Batch의 실행/최종 재검증에서** 한 항목이라도 중복·철회·검증 실패하면 **전체 HOLD 또는 전체 Rollback**하며 나머지 항목만 자동 게시하지 않는다. 필요한 경우 운영자가 적격 항목을 **새 승인 Batch로 수동 재구성**한다. 이는 v0.3의 부분 게시 허용을 P4에서 더 엄격하게 구체화한 **문서 간 차이**이며, v0.3 자체가 전체 Rollback을 명령했다고 해석하거나 정책 원문을 변경하지 않는다.
 - `WOULD_ACCEPT`는 P0~P3 합성 Fixture 기술 결과이며 게시 허가가 아니다. Google RSS 실수집·재공개는 별도 승인 전 비활성이다.
 - 게시 시도와 DB 확정은 다른 사건이다. 응답 소실·Commit 결과 불명확은 **실패가 아니라 조사 필요**로 기록한다.
 - B2 사용자 선택: **보호된 영속 Journal + 구조화 로그**를 분리한다. Journal 무결성이나 복구를 검증하지 못하면 실행을 차단한다.
@@ -167,12 +168,12 @@ A1 v0.2의 `reconcile()` 결과 `ELIGIBLE_FOR_REVIEW_ONLY`는 **검토용 적격
 | `category_refs` | 중복 없는 비공백 문자열 배열 | 정확한 부모 코드/Child 이름 매핑, 활성·계층 검증 후 DB ID 파생 | Taxonomy·DEC-09 |
 | `source_platform` | `GOOGLE/YOUTUBE/SNS/ETC` | 원문 실제 목적지 플랫폼으로 확인, 무조건 Google Trends로 기재 금지 | DEC-03 |
 | `source_url` | HTTPS·호스트 존재·사용자정보 없음 | 원본 보존, 별도 P2 URL 안전성·Canonical URL·4,096자 검증 추가 | DEC-02·17 |
-| `source_title` | `NONE→null`, `EDITORIAL_LABEL→1~80자` | **`EDITORIAL_LABEL`이면서 증거 존재하는 항목만** P4 게시 후보. `NONE`은 전체 차단 | DEC-10 |
+| `source_title` | `NONE→null`, `EDITORIAL_LABEL→1~80자` | **기능 담당자 자체 작성·G4 검토 `EDITORIAL_LABEL`이며 작성·표시 근거가 있는 항목만** P4 게시 후보. 기사 원제목·언론사 제공 문구 복제 제외. `NONE`은 전체 차단 | DEC-10·G4 |
 | `thumbnail_url` | 반드시 `null` | 현 A1 경로에서는 `null` 고정. 임의 이미지 추가 불가 | DEC-10 |
 | Source 수 | A1 item에 하나의 `source_url` | 초기 연결은 **Source 정확히 1건**. DEC-17 최대 5건은 상한 유지 | DEC-17 |
 | 관측 시각 | A1 `content_ref`에 **없음** | 독립된 실제 Collection/관측 증거와 연결 후에만 저장 | DEC-07·08 |
 
-A1 v0.2의 출처 문구 규칙 중 `EDITORIAL_LABEL`은 앞뒤 공백 없음·길이 1~80자·개행/`<`/`>` 없음이며, `source_label_evidence_id`가 비어 있으면 거부한다. A1의 `NONE` 사례는 합성 오프라인 검토용으로 유효할 수 있지만 DEC-10에서 요구한 **P4 비공백 Source 제목**을 충족하지 못한다. Writer가 새 제목을 생성하거나 승인 스냅샷을 변경해서 보완해서는 안 된다.
+A1 v0.2의 출처 문구 규칙 중 `EDITORIAL_LABEL`은 앞뒤 공백 없음·길이 1~80자·개행/`<`/`>` 없음이며, `source_label_evidence_id`가 비어 있으면 거부한다. **운영 Gate v0.3 §G4는 기사 원제목·본문·이미지·언론사 제공 요약의 MVP 복제를 제외한다.** 따라서 `EDITORIAL_LABEL`은 기사 원제목의 별칭이나 원문 전재물이 아니라 **기능 담당자가 직접 작성하고 G4가 검토한 출처 표시 문구**로만 취급한다. `source_label_evidence_id`는 작성·검토 근거를 추적해야 하며 값의 존재나 문자열 형식만으로 비복제·이용 권리를 입증했다고 볼 수 없다. A1의 `NONE` 사례는 합성 오프라인 검토용으로 유효할 수 있지만 DEC-10에서 요구한 **P4 비공백 Source 제목**을 충족하지 못한다. Writer가 새 제목을 생성하거나 승인 스냅샷을 변경해서 보완해서는 안 된다.
 
 ### 5.3 새 게시 콘텐츠 복제를 피하는 P4 v1 Envelope (제안)
 
@@ -210,6 +211,8 @@ A1 v0.2의 출처 문구 규칙 중 `EDITORIAL_LABEL`은 앞뒤 공백 없음·�
 
 **현재 입증 수준:** A1 v0.2의 `content_ref` 계산 대상 및 예시 JSON에는 `observed_at`·`collected_at`이 없다. G4 `approved_at`은 **승인 시각이지 수집 시각이 아니다**. 원문 기사 게시일(`pubDate`)도 자동으로 실제 수집 시각이 되는 것은 아니다.
 
+**운영 Gate v0.3 §4의 `source_observed_at: <YYYY-MM-DD>`는 G4 Evidence 작성 예시**이며 실제 관측 일시를 입증하는 P4 DB 계약이 아니다. 해당 정책 양식을 소급 수정하지 않고, P4의 별도 보호 관측 증거에는 **타임존을 포함한 실제 관측 일시 및 근거 자료**가 필요하다고 구분한다. 날짜만 있는 기록을 임의로 자정·정오로 확장하거나 G4 승인 시각·Batch 게시 시각·기사 발행일로 대체하지 않는다.
+
 **P4에서 별도 보호 기록으로 확인할 최소 사실(제안)**
 
 | 사실 | 확인 규칙 |
@@ -219,6 +222,11 @@ A1 v0.2의 출처 문구 규칙 중 `EDITORIAL_LABEL`은 앞뒤 공백 없음·�
 | URL 연결 | 관측한 URL이 A1의 `source_url`과 정확히 일치하거나 사전에 승인된 정규화 관계임을 증명. 단순 호스트 일치 금지 |
 | 실제 시각 | 출처를 실제 관측/수집한 시각과 그 증거가 있어야 함. 타임존 명시 및 UTC 변환 검증 |
 | 검토 범위 | 원본 링크·관측 증거가 G4의 확인 대상과 정합하며 별도 승인·변조 방지가 확인됨 |
+| 기록 주체·방법 | 관측 담당자 식별, 수동 열람/승인된 수집 방식 구분; G4 담당자의 별도 검토 확인 |
+| 시각 의미 | `observed_at`(실제 관측)·`recorded_at`(증거 작성)·`approved_at`(G4 승인)·`published_at`(게시) 혼용 금지 |
+| 보존·무결성 | 독립 보호 저장소에 등록한 관측 Evidence ID 및 변경 탐지 수단, 승인 기록과의 검토 연결. 해시만으로 진위·권리를 보장하지 않음 |
+
+**FR-B02b 최소 논리 연결 계약(제안·미동결):** 기존 P4 Envelope의 `observation_evidence_ref`로 Source별 보호된 관측 증거를 조회한다. 최소 정보 후보는 `evidence_id`, `trend_ref`, `content_ref`, `source_url`, `observed_at`(타임존 포함), `recorded_at`, `observer_id`, `observation_method`, `artifact_reference`, `review_evidence_id`, 증거 버전/무결성 확인 정보다. 실제 필드명·보관 형태·기록 담당자·G4 승인 대조 방법은 원본 증거와 책임자 확인 후 동결한다. A1 v0.2 `canonical_ref()`나 `content_ref` 계산 규칙을 변경하지 않는다. **`content_ref`가 일치해도 외부 관측 증거 참조가 교체될 수 있으므로** 별도 변경·교체 방지가 필요하다.
 
 현재 **실제 관측 증거 서식·보관 경로·검토 권한이 확인되지 않았으므로**, 이를 존재한다고 가정해 `collected_at` 값을 생성하거나 G4 승인 완료라고 표시하지 않는다. 증거가 없거나 내용이 불일치하면 전체 Batch **HOLD**한다.
 
@@ -272,7 +280,7 @@ P4가 `category_ids`·`source_key`·`normalized_title` 등을 **추가 계산한
 
 ### 설계 FROZEN 전에 해결해야 하는 사실 확인
 
-- [ ] **FR-B01** 운영 Gate v0.3 원문과 이번 보완안의 G4/G5/G6 정의/예외 및 서식 일치 확인.
+- [x] **FR-B01 (정책 원문 대조·차이 명시 완료)** 운영 Gate v0.3 원문 G0~G6·§4·AT-13/15·§6을 직접 대조하였다. **부분 게시 허용(v0.3)과 확정 Batch 전체 Rollback(P4-DEC-04)의 차이**, G4 원제목 비복제와 `EDITORIAL_LABEL`, 관측 날짜 예시와 P4 실제 시각 요구를 **범위 구분·미동결 사항**으로 기록했다. v0.3 운영 정책 자체의 개정이나 실제 Gate PASS를 의미하지 않는다.
 - [x] **FR-B02a (기존 검토 기록 기준)** A1 v0.2 검사기·승인/Batch 예시 원문 확인 및 `content_ref` SHA-256 독립 재계산 일치가 이전에 보고됨. **이번 작업에서는 원본 재검증 미실행; 실제 승인 진위·G6 운영 허가 미입증**.
 - [ ] **FR-B02b** 독립 실제 관측 증거의 형식·책임자·`trend_ref`/`content_ref`/Source 연결 방식을 확인하고 P4 v1 Envelope 필드 최종 동결.
 - [ ] **FR-B03** 영속 Journal 저장·원자화·복구 설계를 격리 환경에서 실증하거나 불가능하면 대체 설계 재승인.
@@ -291,8 +299,8 @@ P4가 `category_ids`·`source_key`·`normalized_title` 등을 **추가 계산한
 
 ## 8. 권고 구현 순서
 
-1. **보완안 검토·조건부 승인:** 위 4개 영역의 책임·최소 배포 프로필 승인. `FR-B01~05`는 근거 확보 전 미완료로 둔다.
-2. **Phase 0 (차단 사실 확인):** v0.3 원문과 독립 관측 증거 형식, Journal·승인 변경 보호·DB 권한과 관리자 네트워크 배포 환경 확인. A1 v0.2의 해시 계산은 기존 검토 기록을 활용하되 **원본이 필요한 변경이나 검증에는 다시 확인**하고, 원본 부재를 PASS로 처리하지 않음.
+1. **보완안 검토·조건부 승인:** 위 4개 영역의 책임·최소 배포 프로필 승인. `FR-B01` 정책 원문 대조는 완료했으며, `FR-B02b`·`FR-B03~05`는 근거 확보 전 미완료로 둔다.
+2. **Phase 0 (차단 사실 확인):** v0.3 원문 대조 완료. 독립 관측 증거 실물·책임자·보관 형식, Journal·승인 변경 보호·DB 권한과 관리자 네트워크 배포 환경 확인. A1 v0.2의 해시 계산은 기존 검토 기록을 활용하되 **원본이 필요한 변경이나 검증에는 다시 확인**하고, 원본 부재를 PASS로 처리하지 않음.
 3. **Phase 1 (격리 기술 구현):** A1 v0.2 승인 원본을 변경하지 않는 P4 참조 Envelope v1 → P4 Core Writer + Transaction + 테스트 DB. 합성 데이터만 사용.
 4. **Phase 2 (실행 통제):** 오프라인 승인 변경 절차 + Journal + Named Lock + 운영자 키/DB 대상 검증.
 5. **Phase 3 (B-Lite API):** 동기 실행, 응답·오류 계약, 이중 Worker 재요청 차단.
