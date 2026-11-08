@@ -2,6 +2,7 @@
 
 > 문서 버전: v1.0
 > 작성일: 2026-10-14
+> C4 보완일: 2026-11-08 — API 전용 DB 계정 분리 및 온보딩 실행 경로 정정
 > 대상: Windows 10/11 + PowerShell 신규 개발 참여자
 > 기준 저장소: [`Trend-Leader-capstoneProject/feature`](https://github.com/Trend-Leader-capstoneProject/feature)
 > 기준 브랜치: `dev` (작성 시점의 설정 파일 기준이며, 실제 착수 시 최신 HEAD 확인 필요)
@@ -12,7 +13,7 @@
 
 ## 빠른 시작 (이미 Git Pull과 `.env` 전달을 마친 팀원용)
 
-아래는 **전체 절차를 한 번에 보는 요약**입니다. 설치가 안 되어 있거나 명령이 실패하면 **해당 단계에서 멈추고 아래 상세 설명**을 참고하세요. `docker-compose.yml`이 있는 저장소 루트의 PowerShell에서 시작합니다.
+아래는 **전체 절차를 한 번에 보는 요약**입니다. 신규 DB 구성 시 9.1절의 Windows Python 환경 및 5.3절의 API 계정 프로비저닝이 필요합니다. **명령을 통째로 실행하지 말고 단계마다 검증**하세요. `docker-compose.yml`이 있는 저장소 루트의 PowerShell에서 시작합니다.
 
 ```powershell
 # 1) 현재 작업 위치 / 브랜치 / 받은 환경파일 확인
@@ -22,18 +23,23 @@ Test-Path .\.env.compose
 Test-Path .\backend\.env
 Test-Path .\frontend\.env
 
-# 2) Docker 엔진 및 실행
-# (환경파일이 올바르게 준비되고 Docker Desktop이 실행 중이어야 함)
+# 2) Docker 엔진 확인 및 MariaDB만 먼저 실행
 docker version
-docker compose --env-file .env.compose config
-docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose config --quiet
+docker compose --env-file .env.compose up -d db
 docker compose --env-file .env.compose ps
 
-# 3) 본인의 신규 로컬 DB에 스키마/초기 카테고리 반영
-docker compose --env-file .env.compose exec backend python -m alembic upgrade head
-docker compose --env-file .env.compose exec backend python -m scripts.seed_categories
+# 3) 신규 개발 DB에 한해 관리 계정으로 Migration/Seed (5절·9.1절 확인 후)
+Push-Location backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m scripts.seed_categories
+Pop-Location
 
-# 4) API + DB 정상 동작 확인
+# 4) 5.3절에 따라 API 계정 생성/GRANT 검증을 완료한 후 Backend 시작
+docker compose --env-file .env.compose up --build -d backend
+docker compose --env-file .env.compose ps
+
+# 5) API + DB 정상 동작 확인 (외부 포트 변경 시 주소 수정)
 Invoke-RestMethod http://localhost:8000/api/health/ready
 ```
 
@@ -60,7 +66,8 @@ npx expo start -c
 - [ ] Windows에서 Docker Desktop의 Linux Engine과 Docker Compose가 동작한다.
 - [ ] 전달받은 환경변수 파일이 **올바른 위치와 이름**으로 존재한다.
 - [ ] MariaDB(`db`)와 FastAPI(`backend`) 컨테이너가 실행된다.
-- [ ] Alembic Migration과 Category Master Seed가 정상 실행된다.
+- [ ] Alembic Migration과 Category Master Seed가 관리용 DB 계정으로 정상 실행된다.
+- [ ] 별도 API 실행 계정이 준비되고 Backend에서 최소 권한으로 연결된다.
 - [ ] `/api/health/ready`에서 `data.database = "available"`를 확인했다.
 - [ ] Swagger(`/docs`)에 접속할 수 있다.
 - [ ] Frontend 의존성을 설치하고 Expo 앱을 실행할 수 있다.
@@ -76,11 +83,12 @@ Windows PC
 │  └─ FastAPI 컨테이너: backend (내부 8000 / 기본 호스트 8000)
 │
 └─ Windows PowerShell
+   ├─ backend/ → 로컬 Python Migration/Seed (신규 DB 구성 시)
    └─ frontend/ → npm → Expo 개발 서버
       └─ Android 실기기 또는 에뮬레이터
 ```
 
-첫날에는 **Backend와 DB는 Docker에서**, **Frontend는 Windows에서** 실행합니다. Windows에서 별도 MariaDB 서버를 중복 설치할 필요는 없습니다. Python 가상환경과 Backend 테스트 준비는 [9절](#9-선택-로컬-python-개발-및-backend-테스트)에 따로 설명합니다.
+MariaDB 및 FastAPI 서버는 Docker에서, 신규 DB의 Migration·Seed는 Windows Python의 관리용 DB 계정으로, Frontend는 Windows에서 실행합니다. 별도 MariaDB 서버를 Windows에 중복 설치할 필요는 없습니다. Python 가상환경 준비는 [9절](#9-로컬-python-개발-및-backend-테스트)을 참고합니다.
 
 ---
 
@@ -131,7 +139,7 @@ git pull --ff-only origin dev
 | npm | Frontend 의존성 설치 | `npm --version` |
 | VS Code 또는 기존 편집기 | 소스 탐색 및 터미널 | 실행 여부 확인 |
 | Android 실행 수단 | Expo 앱 검증 | Android 실기기 또는 Android Studio 에뮬레이터 |
-| Python 3.12 | **선택**: Windows에서 Backend 코드 직접 실행·테스트 시 | `python --version` |
+| Python 3.12 | 신규 DB Migration·Seed 수행 시 필요; 준비된 DB에서 Docker API만 실행한다면 선택 | `python --version` |
 
 **버전 참고**: 현재 `backend/Dockerfile`은 `python:3.12-slim`을 사용합니다. 저장소 README 일부 표기에는 Python 3.14 배지가 있지만, 이 가이드의 Docker 경로는 **실제 Dockerfile의 Python 3.12**에 맞춥니다. Frontend는 `package.json`의 Node.js 엔진 조건을 우선합니다.
 
@@ -196,17 +204,21 @@ DB_NAME=trend_leader
 DB_USER=trend_user
 DB_PASSWORD=<local-db-password>
 DB_ROOT_PASSWORD=<local-root-password>
+API_DB_USER=trend_api_runtime
+API_DB_PASSWORD=<local-api-db-password>
 DB_EXTERNAL_PORT=3306
 BACKEND_EXTERNAL_PORT=8000
 ```
 
 `MARIADB_IMAGE_TAG=latest`는 현재 예시 파일 값입니다. 태그를 고정하지 않아 팀원 PC마다 설치 시점에 다른 MariaDB 이미지가 내려올 위험이 있으므로, **팀에서 테스트한 태그로 맞추는 작업은 별도 협의 사항**입니다. 이미 전달받은 값을 멋대로 변경하지 않습니다.
 
+`DB_USER`/`DB_PASSWORD`는 MariaDB 초기 관리용 계정, `API_DB_USER`/`API_DB_PASSWORD`는 FastAPI 실행용 계정의 접속 정보입니다. 환경변수 선언만으로 API 계정이 생성되지는 않습니다. 관리자와 API 계정의 실제 비밀번호는 문서·커밋에 포함하지 않습니다.
+
 **`backend/.env` 확인 항목**
 
 - `JWT_SECRET_KEY`: 현재 `backend/app/core/config.py` 기준 **32자 이상 필수**. 실제 값은 공유 문서에 복사하지 않습니다.
 - `DATABASE_URL=`: Docker Compose 실행 시 **비운 상태로 유지**하는 설정입니다. 값이 있다면 `DB_*` 설정보다 우선할 수 있습니다.
-- Docker Compose는 Backend에 `DB_HOST=db`, `DB_PORT=3306`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`를 주입하므로, 컨테이너와 호스트에서 Backend를 직접 실행할 때 DB 연결 주소가 다릅니다.
+- Docker Compose는 Backend에 `DB_HOST=db`, `DB_PORT=3306`, `DB_NAME`과 API 계정값(`API_DB_USER`/`API_DB_PASSWORD` → `DB_USER`/`DB_PASSWORD`)을 주입합니다. Windows 로컬 Migration·Seed는 `backend/.env`에 설정된 관리용 `trend_user` 및 호스트 접근 주소를 사용합니다.
 - 프론트엔드 `EXPO_PUBLIC_*`에는 서버 비밀값(JWT Secret, API Secret, DB 비밀번호)을 절대 작성하지 않습니다.
 
 **`frontend/.env` 예시 파일의 현행 기본값**
@@ -237,22 +249,20 @@ git check-ignore -v .env.compose backend/.env frontend/.env
 ### 4.1 Compose 설정 검사
 
 ```powershell
-docker compose --env-file .env.compose config
+docker compose --env-file .env.compose config --quiet
 ```
 
-`variable is not set`, `DB_NAME is required` 등 오류가 없고 서비스 구성이 출력되는지 확인합니다. 비밀번호가 출력될 수 있으므로 결과 전체를 팀 채팅에 붙여넣지 않습니다.
+필수 환경변수 누락 또는 Compose 설정 오류가 발생하지 않는지 확인합니다. 전체 설정을 출력하는 `config` 명령은 인증정보가 포함될 수 있어 공유하지 않습니다.
 
 ### 4.2 최초 실행
 
+신규 환경은 **MariaDB만 먼저 시작**합니다. Migration·Seed 및 API 계정 프로비저닝이 완료되기 전에는 Backend를 실행하지 않습니다.
+
 ```powershell
-docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose up -d db
 ```
 
-- `up`: 서비스를 만들고 실행
-- `--build`: 현재 Backend Dockerfile/소스를 포함해 이미지를 빌드
-- `-d`: 백그라운드 실행
-
-첫 실행 시 이미지 다운로드/설치에 시간이 걸릴 수 있습니다.
+DB 준비 후 5.3절에 따라 API 계정을 검증하고 Backend를 시작합니다. 이미 설정된 개발 환경의 일상 실행 명령은 11절을 참고합니다.
 
 ### 4.3 상태 확인
 
@@ -260,14 +270,7 @@ docker compose --env-file .env.compose up --build -d
 docker compose --env-file .env.compose ps
 ```
 
-기대 상태(로컬 실행으로 직접 확인 필요):
-
-```text
-trend-leader-db    Up (healthy)
-trend-leader-api   Up
-```
-
-MariaDB 컨테이너가 `healthy`가 되어야 Backend를 시작하도록 `depends_on`이 설정되어 있습니다. 단, 컨테이너가 `Up`이라는 사실만으로 DB 스키마까지 정상 준비되었다는 뜻은 아닙니다.
+신규 DB 기동 직후에는 `trend-leader-db`의 `Up (healthy)`를, 5.3절의 Backend 기동 이후에는 `trend-leader-api`의 `Up`을 확인합니다. 컨테이너가 `Up`이라는 사실만으로 DB 스키마와 인증이 준비됐다고 판단하지 않습니다.
 
 ### 4.4 로그 확인
 
@@ -287,28 +290,31 @@ docker compose --env-file .env.compose logs -f db backend
 
 ## 5. MariaDB Migration 및 Category Seed
 
-**최초 생성한 로컬 개발 DB에서만** 아래를 실행합니다. Alembic/Seed는 DB 상태를 변경하므로 DB가 본인의 로컬 컨테이너를 향하는지 먼저 확인합니다.
+**신규 개발 DB를 구성하거나 명시적으로 승인된 스키마 갱신 시에만** 실행합니다. Alembic/Seed는 데이터를 변경하므로 `backend/.env`가 본인의 개발 DB와 관리용 `trend_user` 계정을 가리키는지 먼저 확인해야 합니다. Docker Backend의 API 전용 계정에서 실행하지 않습니다.
 
 현재 `backend/sql_script/init.sql`은 DB 생성용 SQL이며, 전체 테이블 스키마를 대신하지 않습니다. 테이블은 **Alembic Migration**으로 적용합니다.
 
 ### 5.1 스키마 최신화
 
-```powershell
-docker compose --env-file .env.compose exec backend python -m alembic upgrade head
-```
-
-확인용:
+9.1절에 따라 Windows 가상환경을 준비하고, **저장소 루트에서** 실행합니다. 연결 계정·DB가 예상과 일치하는지 확인한 뒤 신규 DB에 적용합니다.
 
 ```powershell
-docker compose --env-file .env.compose exec backend python -m alembic current
+Push-Location backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic current
+Pop-Location
 ```
 
 `current`가 현재 HEAD Migration과 일치하는지 확인합니다. 실패 시 로그를 보고 멈춥니다. `stamp head`로 오류를 숨기거나 DB를 초기화하지 않습니다.
 
 ### 5.2 카테고리 초기 데이터
 
+**저장소 루트에서** 신규 개발 DB의 초기화가 필요한 경우에만 실행합니다.
+
 ```powershell
-docker compose --env-file .env.compose exec backend python -m scripts.seed_categories
+Push-Location backend
+.\.venv\Scripts\python.exe -m scripts.seed_categories
+Pop-Location
 ```
 
 정상 완료 시 프로그램 출력 예시:
@@ -319,7 +325,22 @@ Category Master Seed 생성 및 검증이 완료되었습니다.
 
 현재 README 기준으로 빈 DB에서는 **대분류 6개 + 세부분류 38개 = 44개**를 대상으로 합니다. Seed는 API 실행 또는 Migration 과정에서 자동으로 수행되지 않습니다.
 
-**Demo Trend Seed(선택)**: 트렌드 목록 UI 검증이 필요할 때만 작업 담당자와 데이터 범위를 확인한 후 `python -m scripts.seed_demo_trends` 실행을 검토합니다. 온보딩 필수 단계가 아닙니다.
+**Demo Trend Seed(선택)**: 트렌드 목록 UI 검증이 필요할 때만 작업 담당자와 데이터 범위를 확인한 후 Windows 가상환경에서 `python -m scripts.seed_demo_trends` 실행을 검토합니다. 온보딩 필수 단계가 아닙니다.
+
+### 5.3 API 전용 계정 프로비저닝 및 Backend 실행
+
+`.env.compose`에 `API_DB_USER=trend_api_runtime`을 선언해도 DB 계정은 자동으로 생성되지 않습니다. 신규 DB의 Migration 후 팀에서 승인한 C3 최소 권한 정책에 따라 계정과 테이블별 GRANT를 별도 준비해야 합니다. **현재 이 문서에는 승인된 계정 생성 SQL이 포함되어 있지 않으므로, 별도의 확정 절차를 확보하지 못한 경우 여기서 중단합니다.** 단순 실행 오류를 해결하기 위해 API 계정에 `trend_leader.*` 전체 `ALL PRIVILEGES`를 부여하지 않습니다.
+
+계정 생성 및 `SHOW GRANTS` 검증이 완료된 경우에만 저장소 루트에서 아래 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.compose up --build -d backend
+docker compose --env-file .env.compose ps
+docker compose --env-file .env.compose exec backend python -c "from app.db.session import engine; from sqlalchemy import text; conn = engine.connect(); print(dict(conn.execute(text('SELECT CURRENT_USER() AS account, DATABASE() AS db_name')).mappings().one())); conn.close()"
+Invoke-RestMethod http://localhost:8000/api/health/ready
+```
+
+연결 계정이 설정한 `API_DB_USER`와 일치하고, Readiness 응답의 `data.database`가 `available`인지 확인합니다. `BACKEND_EXTERNAL_PORT`를 변경했다면 Readiness 호출 포트도 변경합니다.
 
 ---
 
@@ -428,15 +449,15 @@ README의 '계획된 기능 목록'이나 과거 완료 현황은 오늘의 구�
 
 ---
 
-## 9. 선택: 로컬 Python 개발 및 Backend 테스트
+## 9. 로컬 Python 개발 및 Backend 테스트
 
-**첫날 Docker 기동만 할 목적이라면 Windows에 Python을 반드시 설치할 필요는 없습니다.** 다만 Backend 코드를 수정하거나 pytest/ruff를 반복 실행한다면 별도의 Windows 가상환경이 편리합니다.
+**신규 DB에 Migration·Seed를 수행하는 담당자는 Windows Python 가상환경이 필요합니다.** DB와 API 계정이 이미 준비된 환경에서 Docker API만 시작하는 팀원에게는 선택 사항입니다. Backend 코드를 수정하거나 pytest/ruff를 반복 실행할 때도 가상환경이 유용합니다.
 
 현재 Backend Docker 이미지는 `backend/requirements.txt`만 설치하며, `pytest`/`ruff`는 별도 `backend/requirements-dev.txt`에서 관리됩니다. 따라서 **기본 Docker 컨테이너에 `pytest`가 있다고 가정하면 안 됩니다.**
 
 ### 9.1 Python 3.12 가상환경(호스트)
 
-프로젝트 루트에서 다음 명령을 실행합니다. Python 3.12가 PC에 등록되어 있다면:
+프로젝트 루트에서 다음 명령을 실행합니다. Python 3.12가 PC에 등록되어 있다면(기존 `.venv`가 있으면 재생성하지 않음):
 
 ```powershell
 cd backend
@@ -495,7 +516,7 @@ docker compose --env-file .env.compose logs --tail=100 db backend
 
 ## 11. 일상 실행 명령 요약
 
-모두 **저장소 루트**에서 실행합니다(`frontend` 명령만 해당 폴더에서).
+모두 **저장소 루트**에서 실행합니다(`frontend` 명령만 해당 폴더에서). DB가 이미 구성된 환경에서만 전체 서비스 `up`을 사용합니다.
 
 ```powershell
 # Docker 컨테이너 시작(기존 빌드)
@@ -510,8 +531,10 @@ docker compose --env-file .env.compose ps
 # 최근 로그
 docker compose --env-file .env.compose logs --tail=100 db backend
 
-# DB 스키마 변경사항 반영(대상 확인 후)
-docker compose --env-file .env.compose exec backend python -m alembic upgrade head
+# DB 스키마 변경사항 반영(관리 계정·대상 DB 확인 후)
+Push-Location backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+Pop-Location
 
 # 정상적으로 컨테이너 중지 (DB Volume 보존)
 docker compose --env-file .env.compose down
