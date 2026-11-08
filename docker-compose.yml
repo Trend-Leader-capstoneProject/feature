@@ -10,8 +10,8 @@ services:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
 
     ports:
-      - "${DB_EXTERNAL_PORT:?DB_EXTERNAL_PORT is required}:3306"
-      
+      - "127.0.0.1:${DB_EXTERNAL_PORT:?DB_EXTERNAL_PORT is required}:3306"
+
     volumes:
       - trend_leader_db:/var/lib/mysql
       - ./backend/sql_script:/docker-entrypoint-initdb.d:ro
@@ -42,8 +42,8 @@ services:
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_USER: ${API_DB_USER:?API_DB_USER is required}
+      DB_PASSWORD: ${API_DB_PASSWORD:?API_DB_PASSWORD is required}
 
     ports:
       - "${BACKEND_EXTERNAL_PORT}:8000"
