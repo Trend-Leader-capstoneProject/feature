@@ -1,0 +1,24 @@
+{
+  "schema": "A1_RECONCILE_V02",
+  "policy_version": "v0.3_POLICY_CONFIRMED",
+  "batch_id": "SIM-REVIEW-ONLY",
+  "profile": "MVP-A",
+  "g6_status": "HOLD",
+  "items": [
+    {
+      "trend_ref": "SIM-TREND-001",
+      "source_title_origin": "EDITORIAL_LABEL",
+      "content": {
+        "title": "가상 릴리스 안내",
+        "summary": "가상 테스트 자료입니다.",
+        "category_refs": [
+          "IT_DIGITAL/소프트웨어·앱"
+        ],
+        "source_platform": "ETC",
+        "source_url": "https://example.test/release",
+        "source_title": "가상 프로젝트 공식 안내",
+        "thumbnail_url": null
+      }
+    }
+  ]
+}

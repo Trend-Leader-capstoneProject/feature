@@ -1,0 +1,9 @@
+{
+  "schema": "FR_B02B_SIM_INPUT_V01",
+  "trend_ref": "SIM-TREND-001",
+  "content_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "review_evidence_id": "SIM-G4-001",
+  "source_url": "https://example.test/official-release",
+  "source_title": "가상 소프트웨어 공식 출시 안내",
+  "claim_note": "가상 제품의 신규 출시 소식을 확인한다는 테스트 문구"
+}
