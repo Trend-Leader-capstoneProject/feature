@@ -8,6 +8,9 @@ import hashlib
 import importlib
 import io
 import json
+import os
+import stat
+import subprocess
 import tempfile
 import unittest
 import uuid
@@ -385,6 +388,103 @@ class LocalObservationTests(unittest.TestCase):
         self.out = link / "out"
         self.assert_blocked(self.observe())
         self.assertFalse((target / "out").exists())
+
+    def create_temporary_windows_junction(self, link, target):
+        """Create/remove ONLY a junction owned by this test's temporary root."""
+        if os.name != "nt":
+            self.skipTest("requires a real Windows junction")
+        for path in (link, target):
+            self.assertTrue(path.absolute().is_relative_to(self.root.absolute()))
+            # cmd.exe expands these even within some quoted argument forms.
+            self.assertFalse(any(char in str(path) for char in '%!^"&|<>\r\n'))
+        self.assertFalse(os.path.lexists(link))
+        self.assertTrue(target.is_dir())
+        cmd = str(Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe")
+        result = subprocess.run(
+            [cmd, "/d", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True, timeout=10, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        def remove_owned_junction():
+            # Do not resolve through the junction or recursively remove target.
+            self.assertTrue(link.absolute().is_relative_to(self.root.absolute()))
+            self.assertTrue(link.is_junction())
+            link.rmdir()
+            self.assertTrue(target.is_dir())
+
+        self.addCleanup(remove_owned_junction)
+        self.assertTrue(link.is_junction())
+        self.assertTrue(link.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+    def test_ro13_real_windows_junction_output_root_blocks(self):
+        target = self.root / "junction-target"
+        target.mkdir()
+        marker = target / "preserve.txt"
+        marker.write_bytes(b"synthetic target marker")
+        self.out = self.root / "junction-output"
+        self.create_temporary_windows_junction(self.out, target)
+        before = self.archive.read_bytes()
+        calls = []
+        result = self.observe(input_func=lambda _: calls.append(True) or "YES")
+        self.assert_blocked(result)
+        self.browser.assert_not_called()
+        self.assertEqual(calls, [])
+        self.assertEqual(marker.read_bytes(), b"synthetic target marker")
+        self.assertEqual(list(target.iterdir()), [marker])
+        self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_ro13_real_windows_junction_ancestor_blocks(self):
+        target = self.root / "ancestor-target"
+        target.mkdir()
+        link = self.root / "junction-parent"
+        self.create_temporary_windows_junction(link, target)
+        self.out = link / "nested" / "observations"
+        before = self.archive.read_bytes()
+        self.assert_blocked(self.observe())
+        self.browser.assert_not_called()
+        self.assertFalse((target / "nested").exists())
+        self.assertEqual(list(target.iterdir()), [])
+        self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_ro09_windows_rename_race_preserves_newly_existing_destination(self):
+        if os.name != "nt":
+            self.skipTest("Windows no-replace rename semantics")
+        original_rename = self.obs.os.rename
+        # Both collisions occur AFTER the last lexists check, inside rename.
+        for nonempty in (False, True):
+            with self.subTest(nonempty=nonempty):
+                self.out = self.root / ("nonempty-race" if nonempty else "empty-race")
+                destination = self.out / ("LOCAL-OBS-" + FIXED_ID.hex)
+                self.clock.side_effect = [T0, T0]
+                identity = []
+
+                def collide(staging, final, nonempty=nonempty,
+                            destination=destination, identity=identity):
+                    self.assertEqual(final, destination)
+                    self.assertFalse(final.exists())
+                    final.mkdir()
+                    if nonempty:
+                        (final / "preserve.txt").write_bytes(b"existing synthetic data")
+                    info = final.stat()
+                    identity.append((info.st_dev, info.st_ino))
+                    return original_rename(staging, final)
+
+                with patch.object(self.obs.uuid, "uuid4", return_value=FIXED_ID), \
+                        patch.object(self.obs.os, "rename", side_effect=collide):
+                    self.assert_blocked(self.observe())
+                info = destination.stat()
+                self.assertEqual(identity, [(info.st_dev, info.st_ino)])
+                self.assertFalse((destination / "observation.json").exists())
+                if nonempty:
+                    self.assertEqual((destination / "preserve.txt").read_bytes(),
+                                     b"existing synthetic data")
+                else:
+                    self.assertEqual(list(destination.iterdir()), [])
+                # Failed staging remains HOLD; it must not be accepted as a record.
+                staging = next(self.out.glob(".obs-staging-*"))
+                self.assertTrue((staging / "observation.json").is_file())
+                self.assert_blocked(self.verify(staging))
 
     def test_ro13_duplicate_zip_members_and_json_keys_block(self):
         with warnings.catch_warnings():
