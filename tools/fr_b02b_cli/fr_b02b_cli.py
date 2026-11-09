@@ -308,9 +308,9 @@ def run_cli(argv: list[str] | None = None, *, input_func: Callable[[str], str] =
                 if not webbrowser.open(snapshot.source_url):
                     raise observation.ObservationError("browser launch failed")
                 answer = input_func(
-                    "원문·페이지 대상·URL·내용이 승인 스냅샷과 일치하고, 지금 직접 확인해 "
-                    "새 출처 근거로 채택할 때만 정확히 YES를 입력하세요. "
-                    "단순 링크 재확인·내용 변경·의심스러운 리디렉션은 취소하세요: "
+                    "공식 페이지의 URL과 내용을 직접 확인하고, "
+                    "지금 새 출처 근거로 기록하시겠습니까? "
+                    "(단순 접속 확인은 취소 / YES: 기록): "
                 )
                 if answer != "YES":
                     print("CANCELLED")
