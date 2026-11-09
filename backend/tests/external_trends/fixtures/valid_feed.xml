@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:ht="https://trends.google.com/trending/rss">
+  <channel>
+    <title>합성 RSS 테스트 피드</title>
+
+    <item>
+      <title>가상 기기 A</title>
+    </item>
+
+    <item>
+      <title>가상 기기 B</title>
+      <pubDate>Fri, 30 Oct 2026 10:00:00 -0700</pubDate>
+      <description/>
+      <ht:news_item>
+        <ht:news_item_title>B 관련 기사 1</ht:news_item_title>
+        <ht:news_item_url>https://example.test/b/1</ht:news_item_url>
+        <ht:news_item_source>가상 신문 B</ht:news_item_source>
+        <ht:news_item_snippet/>
+      </ht:news_item>
+    </item>
+
+    <item>
+      <title>가상 기기 C</title>
+      <ht:news_item>
+        <ht:news_item_title>C 관련 기사 1</ht:news_item_title>
+        <ht:news_item_url>https://example.test/c/1</ht:news_item_url>
+        <ht:news_item_source>가상 신문 C</ht:news_item_source>
+      </ht:news_item>
+      <ht:news_item>
+        <ht:news_item_title>C 관련 기사 2</ht:news_item_title>
+        <ht:news_item_url>https://example.test/c/2</ht:news_item_url>
+        <ht:news_item_source>가상 신문 D</ht:news_item_source>
+      </ht:news_item>
+      <ht:news_item>
+        <ht:news_item_title>C 관련 기사 3</ht:news_item_title>
+        <ht:news_item_url>https://example.test/c/1</ht:news_item_url>
+        <ht:news_item_source>가상 신문 E</ht:news_item_source>
+      </ht:news_item>
+    </item>
+
+  </channel>
+</rss>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:ht="https://trends.google.com/trending/rss">
+  <channel>
+    <title>F-02 합성 모호성 검증 피드</title>
+
+    <!-- 0: 하나의 검색어에 서로 다른 사건 기사 혼합 -->
+    <item>
+      <title>가상 행사</title>
+      <ht:news_item>
+        <ht:news_item_title>가상 행사 첫 기사</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/event/1</ht:news_item_url>
+        <ht:news_item_source>합성 매체 A</ht:news_item_source>
+      </ht:news_item>
+      <ht:news_item>
+        <ht:news_item_title>가상 행사 다른 기사</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/event/2</ht:news_item_url>
+        <ht:news_item_source>합성 매체 B</ht:news_item_source>
+      </ht:news_item>
+    </item>
+
+    <!-- 1: 명백한 관심 범위 밖 주제 -->
+    <item>
+      <title>가상 관심 외 주제</title>
+      <ht:news_item>
+        <ht:news_item_title>범위 밖 합성 기사</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/outside/1</ht:news_item_url>
+        <ht:news_item_source>합성 매체 C</ht:news_item_source>
+      </ht:news_item>
+    </item>
+
+    <!-- 2: 명시적으로 등록한 별칭 관계 -->
+    <item>
+      <title>가상 반짝 콘서트</title>
+      <ht:news_item>
+        <ht:news_item_title>별빛 공연 개막 안내</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/alias?utm_source=rss&amp;id=7</ht:news_item_url>
+        <ht:news_item_source>합성 매체 D</ht:news_item_source>
+      </ht:news_item>
+    </item>
+
+    <!-- 3: 같은 URL을 가진 기사들의 Scope 근거 충돌 -->
+    <item>
+      <title>가상 행사</title>
+      <ht:news_item>
+        <ht:news_item_title>가상 행사 첫 기사</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/duplicate?id=42&amp;utm_source=rss</ht:news_item_url>
+        <ht:news_item_source>합성 매체 E</ht:news_item_source>
+      </ht:news_item>
+      <ht:news_item>
+        <ht:news_item_title>가상 행사 다른 기사</ht:news_item_title>
+        <ht:news_item_url>https://news.example.test/f02/duplicate?id=42</ht:news_item_url>
+        <ht:news_item_source>합성 매체 F</ht:news_item_source>
+      </ht:news_item>
+    </item>
+
+  </channel>
+</rss>

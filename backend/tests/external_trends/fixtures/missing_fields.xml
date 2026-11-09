@@ -1,0 +1,37 @@
+
+<rss version="2.0" xmlns:ht="https://trends.google.com/trending/rss">
+  <channel>
+    <title>가상 혼합 RSS 피드</title>
+
+    <item>
+      <title>가상 로봇 발표</title>
+      <ht:news_item>
+        <ht:news_item_title>로봇 관련 기사</ht:news_item_title>
+        <ht:news_item_url>https://example.test/robot/1</ht:news_item_url>
+      </ht:news_item>
+    </item>
+
+    <item>
+      <description>제목이 없는 Item</description>
+    </item>
+
+    <item>
+      <title>  가상 AI 행사  </title>
+      <pubDate>invalid-date</pubDate>
+      <ht:news_item>
+        <ht:news_item_url>https://example.test/ai/1</ht:news_item_url>
+      </ht:news_item>
+      <ht:news_item>
+        <ht:news_item_title>기사 제목만 존재</ht:news_item_title>
+      </ht:news_item>
+    </item>
+
+    <item>
+      <title>   </title>
+    </item>
+
+    <item>
+      <title>가상 게임 박람회</title>
+    </item>
+  </channel>
+</rss>
