@@ -1,4 +1,5 @@
-# Trend Leader — FR-B02b Phase 4A 실제 출처 확인 CLI 설계 확정안 v1.0
+# Trend Leader — 실데이터 출처 확인 기록 생성·검증 Phase 4A CLI 설계 확정안 v1.0
+> 요구사항 추적 ID: `FR-B02b` (파일명은 기능명으로 표기)
 
 > **상태: FROZEN — Phase 4A 로컬 CLI 기능 범위에 한정 / 구현 전 / 운영 증거 아님 / G5·G6 HOLD**  
 > **확정 기준일:** 2026-11-09 (KST)  
