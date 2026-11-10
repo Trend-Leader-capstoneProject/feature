@@ -219,8 +219,7 @@ def _validate_records(snapshot: A1Snapshot, record_raw: bytes, index_raw: bytes,
     }
     if index != expected_index:
         raise ObservationError("local index digest/reference/state mismatch")
-    return {"status": "PASS_LOCAL_INTEGRITY_ONLY", "evidence_id": event_id,
-            "publish_authorization": "NONE"}
+    return record
 
 
 def _read_record_file(path: Path) -> bytes:
@@ -235,8 +234,12 @@ def _read_record_file(path: Path) -> bytes:
     return raw
 
 
-def verify_observation(archive_path: Path, record_dir: Path) -> dict[str, str]:
-    """Read only; do not repair missing files, rehash, or authenticate an actor."""
+def _load_verified_observation(archive_path: Path, record_dir: Path) -> dict[str, str]:
+    """Return values from the very JSON bytes checked against the A1 snapshot.
+
+    Never reopen JSON to extract candidate values after verification. The final
+    ZIP read only detects changes; it is not a second source of candidate data.
+    """
     folder = _safe_local_path(record_dir)
     _event_id(folder.name)
     if not stat.S_ISDIR(folder.lstat().st_mode):
@@ -249,6 +252,13 @@ def verify_observation(archive_path: Path, record_dir: Path) -> dict[str, str]:
     if read_a1_archive(archive_path) != snapshot.archive_bytes:
         raise ObservationError("A1 ZIP changed during verification")
     return result
+
+
+def verify_observation(archive_path: Path, record_dir: Path) -> dict[str, str]:
+    """Read only; preserve Phase 4A's public local-integrity-only result."""
+    record = _load_verified_observation(archive_path, record_dir)
+    return {"status": "PASS_LOCAL_INTEGRITY_ONLY", "evidence_id": record["evidence_id"],
+            "publish_authorization": "NONE"}
 
 
 def _write_fsynced(path: Path, raw: bytes) -> None:
