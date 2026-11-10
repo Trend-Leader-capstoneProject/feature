@@ -21,6 +21,27 @@ load_dotenv(
 )
 
 
+@pytest.fixture
+def demo_seed_approval() -> dict[str, object]:
+    """관리자가 별도 승인한 테스트 기대값만 사용한다(URL에서 추출 금지)."""
+    keys = ("HOST", "PORT", "DATABASE", "CURRENT_USER")
+    values = {key: os.getenv(f"DEMO_SEED_ALLOWED_{key}") for key in keys}
+    if any(not value or not value.strip() for value in values.values()):
+        pytest.fail("Demo Seed 통합 테스트에 별도 승인 설정 4개가 필요합니다.")
+    try:
+        port = int(values["PORT"])
+    except (TypeError, ValueError):
+        pytest.fail("Demo Seed 승인 Port 설정이 올바르지 않습니다.")
+    if not 1 <= port <= 65535:
+        pytest.fail("Demo Seed 승인 Port 설정이 올바르지 않습니다.")
+    return {
+        "allowed_host": values["HOST"],
+        "allowed_port": port,
+        "allowed_database": values["DATABASE"],
+        "allowed_current_user": values["CURRENT_USER"],
+    }
+
+
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
     """안전한 테스트 전용 DB URL을 반환한다."""

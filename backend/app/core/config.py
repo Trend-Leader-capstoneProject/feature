@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # 값이 존재하면 아래 DB_HOST, DB_PORT 등의 개별 설정보다 우선한다.
     database_url: str | None = None
 
+    # 접속 설정에서 복사하지 않는 별도 승인값. 일반 API 실행에는 선택 사항이다.
+    demo_seed_allowed_host: str | None = None
+    demo_seed_allowed_port: int | None = Field(default=None, ge=1, le=65535)
+    demo_seed_allowed_database: str | None = None
+    demo_seed_allowed_current_user: str | None = None
+
     # SQLAlchemy Connection Pool
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)

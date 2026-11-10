@@ -327,6 +327,10 @@ Category Master Seed 생성 및 검증이 완료되었습니다.
 
 **Demo Trend Seed(선택)**: 트렌드 목록 UI 검증이 필요할 때만 작업 담당자와 데이터 범위를 확인한 후 Windows 가상환경에서 `python -m scripts.seed_demo_trends` 실행을 검토합니다. 온보딩 필수 단계가 아닙니다.
 
+Demo Seed는 `APP_ENV=local` 외에도 별도 승인 설정 4개가 필요합니다. 관리자와 **Windows 호스트에서 접근하는 TCP Host / 명시적 Port / DB 이름 / `CURRENT_USER()`의 `user@host` 전체값**을 확인한 뒤 `backend/.env`에 `DEMO_SEED_ALLOWED_HOST`, `DEMO_SEED_ALLOWED_PORT`, `DEMO_SEED_ALLOWED_DATABASE`, `DEMO_SEED_ALLOWED_CURRENT_USER`를 입력합니다. 기본 승인값은 없으며 접속용 `DB_*`나 `DATABASE_URL`에서 자동 복사하지 않습니다. `DATABASE_URL` 우선순위는 유지되므로 실제 Session의 URL과 같은 연결의 `DATABASE()`·`CURRENT_USER()`가 모두 승인값과 일치해야 합니다. `localhost`와 `127.0.0.1`도 자동으로 동치 처리하지 않습니다.
+
+Seed 전용의 깨끗한 Session을 사용해야 합니다. pending 변경, 불명확한 bind, 조회 오류, 대상 불일치는 첫 Seed DML 전에 거절됩니다. 실패 시 CLI는 인증정보 없이 비정상 종료하며, 성공 시에만 완료 메시지가 표시됩니다. 관리용 계정과 API 전용 계정을 혼동하거나 오류 해결을 위해 GRANT를 확대하지 않습니다. Docker 컨테이너 내부 CLI는 후속 범위이며 우회 허용 경로가 없습니다. 이 가드는 URL 목적지와 서버가 보고한 DB·계정을 비교하며 TLS 서버 신원 증명을 대신하지 않습니다.
+
 ### 5.3 API 전용 계정 프로비저닝 및 Backend 실행
 
 `.env.compose`에 `API_DB_USER=trend_api_runtime`을 선언해도 DB 계정은 자동으로 생성되지 않습니다. 신규 DB의 Migration 후 팀에서 승인한 C3 최소 권한 정책에 따라 계정과 테이블별 GRANT를 별도 준비해야 합니다. **현재 이 문서에는 승인된 계정 생성 SQL이 포함되어 있지 않으므로, 별도의 확정 절차를 확보하지 못한 경우 여기서 중단합니다.** 단순 실행 오류를 해결하기 위해 API 계정에 `trend_leader.*` 전체 `ALL PRIVILEGES`를 부여하지 않습니다.
@@ -478,6 +482,14 @@ Repository에는 `docker-compose.test.yml`, `.env.test.compose.example`, `backen
 - 일반 개발 DB를 테스트용으로 지정하지 않습니다.
 - 테스트용 Compose 서비스의 기본 호스트 포트는 `3307`이므로 해당 포트의 충돌 여부를 확인해야 합니다.
 - 첫날은 Backend의 테스트 DB 전체 구성을 억지로 완료하기보다 **실행 환경 확인을 우선**하고, 담당 기능 개발 전 테스트 설정을 팀과 함께 검증합니다.
+
+**실제 통합 테스트 실행 전:** 격리 대상의 Host·Port·DB·`CURRENT_USER()` 전체값, Alembic 스키마 변경 및 테스트 데이터 쓰기/정리 허용 여부를 관리자가 별도로 승인해야 합니다. `tests/conftest.py`는 DB 이름 검사 후 Demo Seed보다 먼저 `alembic upgrade head`를 실행하므로 Demo Seed 가드가 Migration을 보호하지 않습니다. 승인된 테스트 기대값 4개를 `backend/.env.test` 또는 해당 프로세스 환경변수에 독립적으로 입력합니다(`backend/.env.test.example` 참고). URL에서 승인값을 추출하거나 일반 개발 DB 승인을 재사용하지 않습니다. 실제 비밀번호·URL을 채팅이나 커밋에 공유하지 않습니다.
+
+DB 승인이 없는 상태에서는 `backend/`에서 다음 모의 연결 테스트만 실행할 수 있습니다. 아래 두 파일은 MariaDB/DB Fixture를 사용하지 않습니다.
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests/db/seeds/test_demo_seed_guard.py tests/db/seeds/test_demo_seed_cli.py -q -p no:cacheprovider
+```
 
 ---
 
