@@ -23,6 +23,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import fr_b02b_observation as observation
+from fr_b02b_review_candidate import review_candidate
 from fr_b02b_a1_adapter import (
     A1InspectionError,
     inspect_a1_paths,
@@ -290,7 +291,28 @@ def run_cli(argv: list[str] | None = None, *, input_func: Callable[[str], str] =
     verify_observation_cmd = sub.add_parser("verify-observation", help="read-only local integrity verification")
     verify_observation_cmd.add_argument("--zip", type=Path, required=True)
     verify_observation_cmd.add_argument("--record-dir", type=Path, required=True)
+    candidate_cmd = sub.add_parser(
+        "review-candidate", help="read-only A1/local observation binding; review HOLD only"
+    )
+    candidate_cmd.add_argument("--zip", type=Path, required=True)
+    candidate_cmd.add_argument("--record-dir", type=Path, required=True)
     args = parser.parse_args(argv)
+
+    if args.command == "review-candidate":
+        try:
+            result = review_candidate(args.zip, args.record_dir)
+        except observation.ObservationError:
+            print("BLOCKED: local observation integrity failure", file=sys.stderr)
+            return 1
+        except A1InspectionError:
+            print("BLOCKED: A1 ZIP validation failure", file=sys.stderr)
+            return 1
+        except (OSError, ValueError, RuntimeError):
+            # Category only: OS paths and untrusted input are not diagnostics.
+            print("BLOCKED: local input failure", file=sys.stderr)
+            return 1
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0
 
     if args.command in ("observe-a1-zip", "verify-observation"):
         try:

@@ -1,6 +1,7 @@
-# Trend Leader — FR-B02b Phase 4A 로컬 확인 기록 CLI
+# Trend Leader — FR-B02b Phase 4A 기록·Phase 4B-1 검토 후보 CLI
 
-Phase 4A FROZEN v1.0의 **로컬 확인 진술·무결성 검증**만 구현합니다.
+Phase 4A FROZEN v1.0의 **로컬 확인 진술·무결성 검증**과
+Phase 4B-1 FROZEN v1.0의 **읽기 전용 검증·검토 후보 연결**을 구현합니다.
 G5/G6는 HOLD이며 모든 신규 성공 결과의 `publish_authorization`은 `NONE`입니다.
 운영 P4 Evidence·권리/신원 인증·게시 도구가 아닙니다.
 
@@ -10,6 +11,7 @@ G5/G6는 HOLD이며 모든 신규 성공 결과의 `publish_authorization`은 `N
 - 저장소 루트 `tools/fr_b02b_cli/`에서 실행합니다. 현재 Docker 빌드 문맥 밖에 있습니다.
 - `fr_b02b_a1_adapter.py`: A1 v0.2 검사 및 동일 ZIP 바이트에 결속한 안전 표시값.
 - `fr_b02b_observation.py`: 로컬 기록·시각·ID·JSON·해시·경로·저장·읽기 검증.
+- `fr_b02b_review_candidate.py`: 동일 검증 스냅샷의 연결 필드·로컬 시각을 검토 후보로 반환.
 - `fr_b02b_cli.py`: 명령·브라우저·한 번의 확인 입력·출력/종료 코드 연결.
 - `validation_report.md`와 아래 v0.3 이력은 **과거 원본 PoC 검증 기록**입니다. 이번 실행 증거로 사용하지 않습니다.
 
@@ -23,11 +25,88 @@ py -3.12 -B -m unittest discover -s tests -v
 Pop-Location
 ```
 
-2026-11-09 Python 3.12.10 실행 결과: **87 tests / OK**.
+2026-11-09 구현 당시 기록: Python 3.12.10 **87 tests / OK**.
 원본 unittest 51개(어댑터 36, 합성 CLI 15)는 파일 내용까지 그대로 보존했습니다.
 신규 36개는 RO-01~11·13~14의 합성 ZIP·취소·상태·시간·변조·경로·저장 실패를 검증합니다.
 브라우저/시각은 mock이며 테스트 임시 폴더는 정리됩니다. 실제 관측·승인 증거가 아닙니다.
 **RO-12 실제 원문 열람·YES·재검증은 미실행**이며 사용자가 별도로 수행해야 합니다.
+위 내용은 4A 구현 당시 기록입니다. 이후 RO-12 성공은 사용자 실행 보고로 확인했으며,
+이번 작업에서 실제 원문 열람이나 사용자 관측 기록 검사를 다시 수행한 것은 아닙니다.
+
+2026-11-10 Phase 4B-1 검증: **Python 3.12·3.14 각각 104 tests / OK**.
+구현 전 최신 브랜치에서 기존 **90개 / OK**를 재확인했습니다. 이전 README 87개와의 차이는
+이미 반영된 Windows junction 2건·rename 경합 1건이며 기존 테스트 파일은 수정하지 않았습니다.
+신규 14개는 아래 B41-01~08을 검증합니다. 모두 합성 입력만 사용합니다.
+
+## Phase 4B-1 읽기 전용 검토 후보
+
+원본 A1 ZIP과 **명시적인 기존 `LOCAL-OBS-...` 폴더**를 지정합니다.
+최신 기록 자동 선택, 브라우저 실행, 추가 `YES` 입력은 없습니다.
+
+```powershell
+Push-Location .\tools\fr_b02b_cli
+$a1Zip = Join-Path $env:USERPROFILE 'Downloads\trend_leader_g5_p1_hold_gate_v01.zip'
+$recordDir = Join-Path $env:USERPROFILE 'Documents\TrendLeaderLocalObservations\LOCAL-OBS-<기존 UUID4 hex>'
+py -3.12 -B .\fr_b02b_cli.py review-candidate --zip $a1Zip --record-dir $recordDir
+Pop-Location
+```
+
+`-B`는 Python 바이트코드 캐시 파일 생성을 막습니다. ZIP·관측 JSON·인덱스는 읽기만 하며,
+별도 실행 기록·후보 파일을 생성하지 않습니다. DB·외부 HTTP·추가 의존성은 사용하지 않습니다.
+
+성공 시 stdout에는 아래 **10개 필드의 JSON 한 개**만 출력하며 종료 코드는 `0`입니다.
+
+- `status=REVIEW_CANDIDATE_HOLD`, `local_evidence_id`
+- `trend_ref`, `content_ref`, `review_evidence_id`, `source_url`
+- `confirmed_at_utc`, `record_created_at_utc`
+- `review_result=HOLD`, `publish_authorization=NONE`
+
+실패 시 stdout은 비우고 stderr에 `BLOCKED: <category>` 한 줄과 종료 코드 `1`을 반환합니다.
+범주는 `A1 ZIP validation failure`, `local observation integrity failure`, `local input failure`이며
+원시 예외·개인 경로·입력 내용은 오류 메시지에 포함하지 않습니다. 필수 인자 누락은 기존 argparse의
+사용 오류/종료 코드 `2`를 유지합니다.
+
+검증 함수가 읽은 같은 ZIP/JSON 바이트의 값만 사용합니다. 마지막 ZIP 재읽기는 변경 감지용이며,
+후보 값 추출용으로 JSON을 다시 열지 않습니다. 반환된 시각은 **기존 로컬 시계 기록 문자열 그대로**입니다.
+실제 관측자/권한·독립 시각·권리·`ACCEPTED`·운영 Evidence·보호 저장소 등록을 인증하지 않습니다.
+`observed_at`, DB `collected_at`, P4 `observation_evidence_ref`를 만들지 않으며 **G5/G6 HOLD**를 유지합니다.
+기존 `verify-observation` 결과와 4A 확인 입력 정책은 그대로입니다.
+
+### Phase 4B-1 검증 증거와 인계
+
+기준 브랜치 `feat/phase4b1-review-candidate`, 원격 확인 HEAD
+`2e0b530245c85e193f3719d84efaec2943af1eb3`에서 FROZEN v1.0과 기존 코드를 대조했고 충돌은 없었습니다.
+새 명령 미구현으로 실패하는 테스트를 먼저 확인한 뒤 내부 검증 결과 공유·후보 어댑터·CLI를 구현했습니다.
+
+| 기준 | 자동 검증 내용 |
+|---|---|
+| B41-01 | 정확한 단일 후보 필드, 검증 후 JSON 교체 시 기존 검증 값 사용, 4A 공개 결과 유지 |
+| B41-02 | 네 바인딩 필드 각각 불일치 시 재해시해도 차단 |
+| B41-03 | 기록/인덱스 누락·손상·해시·ID·ZIP 지문·시간·미승인 상태 차단, 자동 복구 없음 |
+| B41-04 | 잘못된 ZIP·검증 중 ZIP 변경 차단, 입력 보존 |
+| B41-05 | 반복 조회 결과·ID·기록 시각 동일, 새 UUID/시계 호출 없음 |
+| B41-06 | HOLD/NONE·미인증/로컬 시계 의미 유지, 운영 필드 승격 없음 |
+| B41-07 | 성공/실패 입력 바이트·수정 시각 보존, 별도 프로세스 audit로 파일 변경·네트워크·DB 연결 경로 차단 |
+| B41-08 | 프롬프트/브라우저 없음, 공백 포함 경로 지원, 간결한 오류와 개인 경로/입력 비노출 |
+
+실행 명령(위 CLI 디렉터리에서):
+
+```powershell
+py -3.14 -B -m unittest discover -s tests -p test_fr_b02b_review_candidate.py -v
+# 14 tests / OK
+py -3.14 -B -m unittest discover -s tests
+# 104 tests / OK
+py -3.12 -B -m unittest discover -s tests
+# 104 tests / OK
+```
+
+새 명령의 별도 프로세스 성공/실패 실행도 합성 입력으로 검증했습니다. 실제 RO-12 원본에 대한
+이 명령 실행은 미실행이며 위 PowerShell 명령으로 별도 확인할 수 있습니다. 실제 기록은 Git에 추가하지 않습니다.
+Ruff는 검증 환경에 설치되어 있지 않아 정적 검사를 실행하지 않았습니다.
+
+PR 준비 제목: `feat: 실데이터 출처 확인 기록 자동 검증·연결 (Phase 4B-1)`.
+기존 설계 문서와 이번 CLI·검증·README 변경을 **같은 기능 브랜치의 단일 PR**로 통합합니다.
+4B-2 신원·권한/수락·보호 저장소 등록과 P4 Writer·게시·DB 쓰기는 후속 범위입니다.
 
 ## 신규 명령과 사용자 Windows Acceptance (RO-12)
 
