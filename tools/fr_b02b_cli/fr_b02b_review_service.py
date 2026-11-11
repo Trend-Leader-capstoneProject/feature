@@ -172,13 +172,16 @@ def stage_pending_review(decision: PendingReviewDecision, archive_path: Path,
                          record_dir: Path, *,
                          store: ProtectedEvidenceStore | MirroredEvidenceStore | None = None,
                          allowlist_source: AllowlistSource | None = None,
-                         restore_store: ProtectedEvidenceStore | None = None
+                         restore_store: ProtectedEvidenceStore | None = None,
+                         complete_registration: bool = False
                          ) -> StagedReview | MirroredStagedReview:
     """Internal synthetic staging entry; no operational destination is assumed."""
     if store is None:
         raise ReviewBlocked("protected review registration is not configured")
     from fr_b02b_protected_store import MirroredEvidenceStore, ProtectedEvidenceStore, StagingError
 
+    if type(complete_registration) is not bool or (complete_registration and restore_store is None):
+        raise ReviewBlocked("internal registration requires explicit restore configuration; HOLD")
     if restore_store is not None and (not isinstance(store, MirroredEvidenceStore)
                                      or not isinstance(restore_store, ProtectedEvidenceStore)):
         raise ReviewBlocked("restore requires configured mirrored protected storage; HOLD")
@@ -206,6 +209,11 @@ def stage_pending_review(decision: PendingReviewDecision, archive_path: Path,
         _revalidate_pending_review(decision, archive_path, record_dir, allowlist_source)
 
     try:
+        if complete_registration:
+            from fr_b02b_registration import RegistrationCore, build_manifest
+            core = RegistrationCore(build_manifest(evidence, pending_bytes), evidence, pending_bytes)
+            return store.stage(evidence, pending_bytes, revalidate_input=revalidate_input,
+                               restore_store=restore_store, registration_core=core)
         if restore_store is not None:
             return store.stage(evidence, pending_bytes, revalidate_input=revalidate_input,
                                restore_store=restore_store)

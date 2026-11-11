@@ -220,7 +220,7 @@ class MirroredEvidenceStore:
     def stage(self, evidence: VerifiedObservation, pending_bytes: bytes, *,
               revalidate_input: Callable[[], None],
               restore_store: ProtectedEvidenceStore | None = None,
-              inventory_store=None) -> MirroredStagedReview:
+              inventory_store=None, registration_core=None) -> MirroredStagedReview:
         files = _validated_files(evidence, pending_bytes)
         if (not isinstance(self.primary, ProtectedEvidenceStore)
                 or not isinstance(self.backup, ProtectedEvidenceStore)
@@ -237,6 +237,11 @@ class MirroredEvidenceStore:
         if any(not isinstance(store, ProtectedEvidenceStore) for store in all_stores):
             raise StagingError("invalid restore store; HOLD")
         providers = tuple(store._native_boundary for store in all_stores)
+        if registration_core is not None:
+            from fr_b02b_registration import RegistrationCore
+            if not isinstance(registration_core, RegistrationCore):
+                raise StagingError("unverified registration completion plan; HOLD")
+            registration_core.require_environment(stores, restore_store, evidence, pending_bytes)
         if any(provider is not None for provider in providers):
             provider = next(item for item in providers if item is not None)
             if (any(item is not provider for item in providers)
@@ -330,6 +335,8 @@ class MirroredEvidenceStore:
                 boundaries()
                 if inventory_store is not None:
                     inventory_store.preflight(event_id)
+                if registration_core is not None:
+                    registration_core.preflight(stores, restore_store)
                 if restorer is not None:
                     restorer.preflight()
                 # Check BOTH reservations before creating either one. Never reuse
@@ -357,6 +364,8 @@ class MirroredEvidenceStore:
                         inventory_store.record(evidence, pending_bytes, (*staging, restored), checkpoint)
                         checkpoint()
                         inventory_store.verify_record()
+                    if registration_core is not None:
+                        receipt = registration_core.finish(stores, staging, restore_store, checkpoint, receipt)
                 else:
                     receipt = MirroredStagedReview(*staging, digests)
             # A lock-release error prevents even a HOLD receipt being returned.
