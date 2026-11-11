@@ -114,3 +114,22 @@ coverage/
 # Metro Bundler & Cache
 # --------------------------------------------------------------------
 .metro-cache/
+
+# FR-B02b: accidental copies only; live records/configuration stay outside Git.
+# Record IDs and staging names used by the CLI / frozen registration contract.
+LOCAL-OBS-*/
+.obs-staging-*/
+.review-staging-*/
+REG-OBS-*/
+# Known protected-store candidates and the isolated ACL lab (including private evidence).
+**/TrendLeader/ProtectedReview/
+TrendLeaderProtectedReview/
+TrendLeaderPhase4B2AclLab-*/
+# Detached private artifacts copied into this tool; do not ignore generic JSON/ZIP files.
+/tools/fr_b02b_cli/**/a1_archive.zip
+/tools/fr_b02b_cli/**/observation.json
+/tools/fr_b02b_cli/**/pending_review.json
+/tools/fr_b02b_cli/**/reviewers.json
+/tools/fr_b02b_cli/**/reviewers.synthetic.json
+/tools/fr_b02b_cli/**/inventory.private.json
+/tools/fr_b02b_cli/**/native.private.json
