@@ -201,6 +201,74 @@ class WindowsStoreTests(unittest.TestCase):
             self.assertTrue(args[5] & 0x00200000)
             self.assertIsNone(args[3])
 
+    def test_gate_presence_query_never_opens_creates_or_modifies_it(self):
+        self.api.allow_changes = False
+        self.api.k.GetFileAttributesW.return_value = 0x400  # Reparse object also counts as present.
+        self.assertTrue(self.api.exists(self.path))
+        self.api.k.GetFileAttributesW.return_value = 0xFFFFFFFF
+        for code in (2, 3, 5, 32):
+            with patch.object(c, "get_last_error", return_value=code):
+                if code in (2, 3):
+                    self.assertFalse(self.api.exists(self.path))
+                else:
+                    with self.assertRaises(boundary.NativeError) as caught:
+                        self.api.exists(self.path)
+                    self.assertEqual(caught.exception.code, code)
+        self.api.k.CreateFileW.assert_not_called()
+        self.api.nt.NtCreateFile.assert_not_called()
+        self.api.k.SetFileInformationByHandle.assert_not_called()
+
+    def test_readonly_directory_listing_closes_search_handle_and_no_file_io(self):
+        self.api.allow_changes = False
+        handle = win.Handle(7, self.path.parent)
+        self.api.info = Mock(return_value=boundary.ObjectInfo(handle.path, (1, "a" * 32),
+                                                             self.acl, True, False, 1))
+
+        def first(_path, output):
+            c.cast(output, c.POINTER(win.FindData)).contents.name = "."
+            return 77
+
+        names = iter(("..", "synthetic-child"))
+
+        def following(_handle, output):
+            try:
+                c.cast(output, c.POINTER(win.FindData)).contents.name = next(names)
+                return 1
+            except StopIteration:
+                c.set_last_error(18)
+                return 0
+
+        self.api.k.FindFirstFileW.side_effect = first
+        self.api.k.FindNextFileW.side_effect = following
+        self.assertEqual(self.api.children(handle), ("synthetic-child",))
+        self.api.k.FindClose.assert_called_once_with(77)
+        self.api.k.CloseHandle.assert_not_called()
+        self.api.k.CreateFileW.assert_not_called()
+        self.api.k.ReadFile.assert_not_called()
+        self.api.k.WriteFile.assert_not_called()
+        self.assertEqual(c.sizeof(win.FindData), 592)
+        self.assertEqual(self.api.k.FindFirstFileW.restype, w.HANDLE)
+
+    def test_directory_listing_failure_and_reparse_child_are_not_empty_success(self):
+        handle = win.Handle(7, self.path.parent)
+        self.api.info = Mock(return_value=boundary.ObjectInfo(handle.path, (1, "a" * 32),
+                                                             self.acl, True, False, 1))
+        self.api.k.FindFirstFileW.return_value = c.c_void_p(-1).value
+        with patch.object(c, "get_last_error", return_value=5):
+            with self.assertRaises(boundary.NativeError) as caught:
+                self.api.children(handle)
+        self.assertEqual(caught.exception.code, 5)
+
+        def reparse(_path, output):
+            data = c.cast(output, c.POINTER(win.FindData)).contents
+            data.name, data.attributes = "reparse-child", 0x400
+            return 77
+
+        self.api.k.FindFirstFileW.side_effect = reparse
+        with self.assertRaises(boundary.NativeError):
+            self.api.children(handle)
+        self.api.k.FindClose.assert_called_once_with(77)
+
     def test_security_error_uses_dword_and_null_dacl_is_never_dereferenced(self):
         self.api.s.GetSecurityInfo.return_value = 5
         with patch.object(c, "get_last_error", return_value=32):

@@ -51,6 +51,14 @@ class FileInfo(c.Structure):
                 ("links", w.DWORD), ("index_hi", w.DWORD), ("index_lo", w.DWORD)]
 
 
+class FindData(c.Structure):
+    _fields_ = [("attributes", w.DWORD), ("created", w.FILETIME),
+                ("accessed", w.FILETIME), ("written", w.FILETIME),
+                ("size_hi", w.DWORD), ("size_lo", w.DWORD),
+                ("reserved0", w.DWORD), ("reserved1", w.DWORD),
+                ("name", w.WCHAR * 260), ("alternate", w.WCHAR * 14)]
+
+
 class AclSize(c.Structure):
     _fields_ = [("count", w.DWORD), ("used", w.DWORD), ("free", w.DWORD)]
 
@@ -94,6 +102,10 @@ class Win32StoreNative:
         self._bind(self.k, {
             "CreateFileW": ([w.LPCWSTR, w.DWORD, w.DWORD, ptr, w.DWORD, w.DWORD, w.HANDLE], w.HANDLE),
             "CloseHandle": ([w.HANDLE], w.BOOL), "LocalFree": ([ptr], ptr),
+            "GetFileAttributesW": ([w.LPCWSTR], w.DWORD),
+            "FindFirstFileW": ([w.LPCWSTR, c.POINTER(FindData)], w.HANDLE),
+            "FindNextFileW": ([w.HANDLE, c.POINTER(FindData)], w.BOOL),
+            "FindClose": ([w.HANDLE], w.BOOL),
             "GetFileInformationByHandle": ([w.HANDLE, c.POINTER(FileInfo)], w.BOOL),
             "GetFileInformationByHandleEx": ([w.HANDLE, c.c_int, ptr, w.DWORD], w.BOOL),
             "GetFinalPathNameByHandleW": ([w.HANDLE, w.LPWSTR, w.DWORD, w.DWORD], w.DWORD),
@@ -183,6 +195,55 @@ class Win32StoreNative:
         access = 0x1200A1 if directory else (0x120089 if content else 0x120080)
         return self._open(path, access,
                           1 if content else 3, directory)
+
+    def exists(self, path):
+        """Attributes only, including a symlink itself; NEVER open a leftover Gate.
+
+        https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfileattributesw
+        """
+        attributes = self.k.GetFileAttributesW(str(path))
+        if attributes == 0xFFFFFFFF:
+            code = c.get_last_error()
+            if code in (2, 3):
+                return False
+            raise NativeError(code)
+        return True
+
+    def children(self, handle):
+        """Bounded names under a pinned directory; metadata is NOT an ACL proof.
+
+        https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-findfirstfilew
+        Search handles require FindClose, never CloseHandle. Callers must check
+        Gate absence/identity again: enumeration is not a serialized snapshot.
+        """
+        before = self.info(handle)
+        if before.path != handle.path or not before.directory or before.reparse:
+            raise NativeError(87)
+        data = FindData()
+        found = self.k.FindFirstFileW(str(handle.path / "*"), c.byref(data))
+        if found in (None, 0, -1, c.c_void_p(-1).value):
+            code = c.get_last_error()
+            if code == 2:
+                if self.info(handle) != before:
+                    raise NativeError(87)
+                return ()
+            raise NativeError(code)
+        try:
+            names = []
+            while True:
+                if data.name not in (".", ".."):
+                    if data.attributes & 0x400 or len(names) >= 1024:
+                        raise NativeError(87)
+                    names.append(data.name)
+                if not self.k.FindNextFileW(found, c.byref(data)):
+                    if c.get_last_error() != 18:
+                        raise NativeError(c.get_last_error())
+                    break
+            if self.info(handle) != before:
+                raise NativeError(87)
+            return tuple(names)
+        finally:
+            self._ok(self.k.FindClose(found))
 
     @contextmanager
     def _descriptor(self, acl):

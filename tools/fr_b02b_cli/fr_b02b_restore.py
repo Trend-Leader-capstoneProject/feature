@@ -12,6 +12,22 @@ from fr_b02b_a1_adapter import _load_a1_snapshot_bytes
 from fr_b02b_protected_store import ProtectedEvidenceStore, StagingError, _validated_files
 
 
+def validate_stored_files(files, event_id):
+    """Rebuild A1/4A/pending links from stored bytes, without accepting a registration."""
+    try:
+        if set(files) != {"a1_archive.zip", "observation.json", "index.json", "pending_review.json"}:
+            raise ValueError("incomplete stored snapshot")
+        snapshot = _load_a1_snapshot_bytes(files["a1_archive.zip"])
+        record = observation._validate_records(snapshot, files["observation.json"],
+                                                files["index.json"], event_id)
+        evidence = observation.VerifiedObservation(snapshot, record, files["observation.json"],
+                                                    files["index.json"])
+        if _validated_files(evidence, files["pending_review.json"]) != files:
+            raise ValueError("stored link mismatch")
+    except (ValueError, KeyError):
+        raise StagingError("stored snapshot/metadata links invalid; HOLD") from None
+
+
 class BackupRestoreVerifier:
     def __init__(self, target, evidence, pending_bytes, source_roots):
         if not isinstance(target, ProtectedEvidenceStore):
@@ -109,13 +125,7 @@ class BackupRestoreVerifier:
                     for name, raw in self.files.items()}
         # Rebuild validation input solely from RESTORED bytes and verify the
         # A1/4A/index/local_evidence_id/pending metadata links again.
-        snapshot = _load_a1_snapshot_bytes(restored["a1_archive.zip"])
-        record = observation._validate_records(snapshot, restored["observation.json"],
-                                                restored["index.json"], self.event_id)
-        evidence = observation.VerifiedObservation(snapshot, record, restored["observation.json"],
-                                                    restored["index.json"])
-        if _validated_files(evidence, restored["pending_review.json"]) != self.files:
-            raise StagingError("restored metadata link mismatch; HOLD")
+        validate_stored_files(restored, self.event_id)
         self._sources(stores, folders)
         checkpoint()
         self.check()
