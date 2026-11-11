@@ -1,13 +1,14 @@
 """Native HOLD boundary. Trusted private policy is required; no operating defaults.
 
 Policy is supplied by a trusted bootstrap, never derived from the settings being
-verified. No CLI/config loader, ACL repair, restore or completed registration.
+verified. No CLI/config loader, ACL repair or completed registration.
 All handles are retained without delete sharing. Local administrators can still
 change ACLs/restore them (ABA); this is not an independent immutable seal.
 """
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 import re
 
@@ -21,6 +22,18 @@ class NativeError(StagingError):
     def __init__(self, code):
         self.code = int(code)
         super().__init__("native protected operation failed; HOLD")
+
+
+def _guarded(operation):
+    @wraps(operation)
+    def guarded(self, *args, **kwargs):
+        try:
+            self._require_gate()
+            return operation(self, *args, **kwargs)
+        except BaseException:
+            self.failed = True
+            raise
+    return guarded
 
 
 @dataclass(frozen=True, repr=False)
@@ -148,6 +161,8 @@ class NativeStoreBoundary:
         self.policy, self.api = policy, api
         self.pins = {}
         self.active = self.spent = False
+        self.failed = False
+        self.created_dirs = set()
         self.gate = policy.control / "global.gate"
 
     def mirrored_store(self):
@@ -178,7 +193,23 @@ class NativeStoreBoundary:
             self.api.close(handle)  # Preserve object; never delete a failed creation.
             raise
 
+    def _require_gate(self):
+        if not self.active or self.failed or self.gate not in self.pins:
+            raise StagingError("Native global Gate is absent or attempt failed; HOLD")
+        handle, initial = self.pins[self.gate]
+        self._verify(self.api.info(handle), self.gate, initial.acl, False, initial.identity)
+
     def checkpoint(self):
+        try:
+            self._checkpoint()
+        except BaseException:
+            if self.active:
+                self.failed = True
+            raise
+
+    def _checkpoint(self):
+        if self.failed:
+            raise StagingError("failed Native attempt cannot release Gate normally; HOLD")
         if self.api.sid() != self.policy.reviewer_sid:
             raise StagingError("native reviewer identity changed; HOLD")
         folder = self.api.known_folder()
@@ -266,6 +297,7 @@ class NativeStoreBoundary:
             self.active = False
             self._close(tuple(self.pins))  # No deletion disposition on failure.
 
+    @_guarded
     def checked(self, path, directory):
         if not self.active or path not in self.pins:
             raise StagingError("unverified or inactive Native object; HOLD")
@@ -273,18 +305,24 @@ class NativeStoreBoundary:
         self._verify(self.api.info(handle), path, initial.acl, directory, initial.identity)
         return path
 
+    @_guarded
     def create_staging(self, root, path):
         self.checkpoint()
-        if path.parent != root or not path.name.startswith(".review-staging-"):
+        prefixes = (".review-staging-", ".review-restore-")
+        prefix = next((value for value in prefixes if path.name.startswith(value)), None)
+        if root not in (self.policy.primary, self.policy.backup) or path.parent != root or prefix is None:
             raise StagingError("unapproved Native staging name; HOLD")
-        observation._event_id(path.name.removeprefix(".review-staging-"))
+        observation._event_id(path.name.removeprefix(prefix))
         handle = self.api.create(path, self.policy.staging_acl, directory=True,
                                  parent=self.pins[root][0])
         self._adopt(path, handle, self.policy.staging_acl, True)
+        self.created_dirs.add(path)
         self.checkpoint()
 
+    @_guarded
     def write_file(self, root, path, raw):
-        if (path.parent.parent != root or path.parent not in self.pins
+        if (root not in (self.policy.primary, self.policy.backup)
+                or path.parent.parent != root or path.parent not in self.created_dirs
                 or path.name not in {"a1_archive.zip", "observation.json", "index.json", "pending_review.json"}):
             raise StagingError("unapproved Native file name; HOLD")
         self.checkpoint()
@@ -297,11 +335,22 @@ class NativeStoreBoundary:
             raise StagingError("Native saved bytes mismatch; HOLD")
         self.checkpoint()
 
+    @_guarded
+    def read_copy(self, path, limit):
+        self.checked(path, directory=False)
+        raw = self.api.read(self.pins[path][0], limit)
+        self.checked(path, directory=False)
+        return raw
+
 
 class NativeProtectedStore(ProtectedEvidenceStore):
     def __init__(self, root, boundary):
         super().__init__(root, None)
         self.boundary = boundary
+
+    @property
+    def _native_boundary(self):
+        return self.boundary
 
     def _checked(self, path, *, directory):
         return self.boundary.checked(path, directory)
@@ -313,10 +362,7 @@ class NativeProtectedStore(ProtectedEvidenceStore):
         self.boundary.write_file(self.root, path, raw)
 
     def _read_copy(self, path, limit):
-        self._checked(path, directory=False)
-        raw = self.boundary.api.read(self.boundary.pins[path][0], limit)
-        self._checked(path, directory=False)
-        return raw
+        return self.boundary.read_copy(path, limit)
 
 
 def build_native_store(policy=None, *, api=None):

@@ -119,6 +119,71 @@ class NativeBoundaryTests(unittest.TestCase):
     def stage(self):
         return self.base.stage(store=self.store)
 
+    def test_mutating_hook_cannot_create_under_config_even_inside_gate(self):
+        config = self.api.folder / self.policy.config_relative
+        path = config / (".review-staging-" + self.base.pending.local_evidence_id)
+        with self.assertRaises(storage.StagingError):
+            with self.boundary.exclusive_section():
+                try:
+                    self.boundary.create_staging(config, path)
+                except storage.StagingError:
+                    pass  # Caught failures must still poison normal Gate release.
+        self.assertFalse(path.exists())
+        self.assertTrue(self.gate.exists())
+
+    def test_caught_partial_native_write_still_poisoned_and_keeps_gate(self):
+        path = self.base.expected_dir
+        with self.assertRaises(storage.StagingError):
+            with self.boundary.exclusive_section():
+                self.boundary.create_staging(self.policy.primary, path)
+                self.api.partial = True
+                with self.assertRaises(native.NativeError):
+                    self.boundary.write_file(self.policy.primary, path / "index.json", b"synthetic")
+        self.assertTrue(self.gate.exists())
+        self.assertFalse(self.api.deleted)
+
+    def test_native_mirror_rejects_python_backup_before_native_calls(self):
+        self.store.backup = storage.ProtectedEvidenceStore(self.policy.backup, lambda path: True)
+        with self.assertRaises(service.ReviewBlocked):
+            self.stage()
+        self.assertFalse(self.api.calls)
+
+    def test_native_restore_uses_same_boundary_and_gate_without_python_writer(self):
+        original = self.store.stage
+
+        def restoring(*args, **kwargs):
+            return original(*args, **kwargs, restore_store=self.store.primary)
+
+        with patch.object(self.store, "stage", side_effect=restoring), \
+                patch.object(storage, "_write_exclusive", side_effect=AssertionError("Python write bypass")):
+            out = self.stage()
+        folder = self.policy.primary / (".review-restore-" + self.base.pending.local_evidence_id)
+        self.assertEqual(out.restored_staging_dir, folder)
+        self.assertEqual(out.state, "HOLD")
+        self.assertEqual(len([c for c in self.api.calls if c[0] == "write"]), 12)
+        self.assertEqual(self.api.deleted, [self.gate])
+
+    def test_native_partial_restore_retains_gate_and_both_valid_source_copies(self):
+        original, write = self.store.stage, self.api.write
+
+        def restoring(*args, **kwargs):
+            return original(*args, **kwargs, restore_store=self.store.primary)
+
+        def partial_restore(handle, raw):
+            if handle.parent.name.startswith(".review-restore-"):
+                self.api.partial = True
+            write(handle, raw)
+
+        self.api.write = partial_restore
+        with patch.object(self.store, "stage", side_effect=restoring):
+            with self.assertRaises(service.ReviewBlocked):
+                self.stage()
+        self.assertTrue(self.gate.exists())
+        self.assertFalse(self.api.deleted)
+        for source in (self.base.expected_dir, self.backup_dir):
+            self.assertEqual((source / "index.json").read_bytes(), self.base.pending.evidence.index_bytes)
+        self.assertTrue(self.boundary.failed)
+
     def test_native_hooks_keep_core_receipt_hold_and_write_only_after_verification(self):
         with patch.object(storage, "_write_exclusive", side_effect=AssertionError("Python writer forbidden")):
             out = self.stage()

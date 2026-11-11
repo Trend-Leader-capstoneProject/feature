@@ -105,6 +105,24 @@ class WindowsStoreTests(unittest.TestCase):
         self.api.k.CreateFileW.assert_not_called()
         self.api.k.WriteFile.assert_not_called()  # Creation never writes private bytes.
 
+    def test_restore_directory_uses_relative_create_without_overwrite_or_fallback(self):
+        parent = win.Handle(8, Path(r"C:\synthetic-only"))
+        path = parent.path / ".review-restore-LOCAL-OBS-test"
+
+        def create(output, access, attributes, io, _size, _flags, share, disposition, options, *_rest):
+            data = c.cast(attributes, c.POINTER(win.ObjectAttributes)).contents
+            self.assertEqual(data.root, 8)
+            self.assertEqual(data.name.contents.buffer, path.name)
+            self.assertEqual((share, disposition, options), (3, 2, 0x21))
+            c.cast(output, c.POINTER(w.HANDLE))[0] = 9
+            c.cast(io, c.POINTER(win.IoStatus)).contents.information = 2
+            return 0
+
+        self.api.nt.NtCreateFile.side_effect = create
+        handle = self.api.create(path, self.acl, directory=True, parent=parent)
+        self.assertEqual(handle.kind, "directory")
+        self.api.k.CreateFileW.assert_not_called()
+
     def test_missing_native_symbol_has_no_fallback(self):
         with self.assertRaises(boundary.NativeError) as caught:
             win.Win32StoreNative._bind(object(), {"Missing": ([], w.BOOL)})

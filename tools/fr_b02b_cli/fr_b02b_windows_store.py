@@ -212,7 +212,7 @@ class Win32StoreNative:
             with self._descriptor(acl) as descriptor:
                 if directory or not gate:
                     if (parent is None or Path(path).parent != parent.path
-                            or (directory and not re.fullmatch(r"\.review-staging-[A-Za-z0-9-]+", Path(path).name))
+                            or (directory and not re.fullmatch(r"\.review-(?:staging|restore)-[A-Za-z0-9-]+", Path(path).name))
                             or (not directory and Path(path).name not in {
                                 "a1_archive.zip", "observation.json", "index.json", "pending_review.json"})):
                         raise NativeError(87)

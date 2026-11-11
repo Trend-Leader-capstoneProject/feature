@@ -41,6 +41,13 @@ class MirroredStagedReview:
     publish_authorization: str = field(default="NONE", init=False)
 
 
+@dataclass(frozen=True)
+class RestoredStagedReview(MirroredStagedReview):
+    """Verified internal round trip; still HOLD, never a valid registration."""
+
+    restored_staging_dir: Path
+
+
 def _validated_files(evidence: VerifiedObservation, pending_bytes: bytes) -> dict[str, bytes]:
     """Do not trust the snapshot type/name as proof of validation."""
     try:
@@ -93,6 +100,8 @@ class ProtectedEvidenceStore:
     automatic cleanup/recovery is provided. Path checks do not certify all hostile
     filesystem races; native protection/locking must be proven before deployment.
     """
+
+    _native_boundary = None
 
     def __init__(self, root: Path, verify_protection: Callable[[Path], bool]):
         self.root = root
@@ -191,7 +200,7 @@ class MirroredEvidenceStore:
     None is inferred from a drive letter or provisioned here. Tests inject those
     proofs; temporary I/O does not prove Windows ACLs or hostile-race resistance.
     The existing path-based primitive still requires a proven native boundary
-    before deployment. Neither restore validation nor registration is implemented.
+    before deployment. Optional restore verification never completes registration.
     """
 
     def __init__(self, primary: ProtectedEvidenceStore | None = None,
@@ -209,7 +218,8 @@ class MirroredEvidenceStore:
         return (self.primary.root, self.backup.root)
 
     def stage(self, evidence: VerifiedObservation, pending_bytes: bytes, *,
-              revalidate_input: Callable[[], None]) -> MirroredStagedReview:
+              revalidate_input: Callable[[], None],
+              restore_store: ProtectedEvidenceStore | None = None) -> MirroredStagedReview:
         files = _validated_files(evidence, pending_bytes)
         if (not isinstance(self.primary, ProtectedEvidenceStore)
                 or not isinstance(self.backup, ProtectedEvidenceStore)
@@ -222,6 +232,22 @@ class MirroredEvidenceStore:
             raise StagingError("overlapping or unconfigured protected roots; HOLD")
         event_id = observation._event_id(evidence.record["evidence_id"])
         staging = tuple(root / (".review-staging-" + event_id) for root in roots)
+        all_stores = (*stores, restore_store) if restore_store is not None else stores
+        if any(not isinstance(store, ProtectedEvidenceStore) for store in all_stores):
+            raise StagingError("invalid restore store; HOLD")
+        providers = tuple(store._native_boundary for store in all_stores)
+        if any(provider is not None for provider in providers):
+            provider = next(item for item in providers if item is not None)
+            if (any(item is not provider for item in providers)
+                    or self.exclusive_section != provider.exclusive_section
+                    or self.verify_layout != provider.verify_layout
+                    or roots != (provider.policy.primary, provider.policy.backup)
+                    or any(store.root not in roots for store in all_stores)):
+                raise StagingError("mixed Native I/O or bypassed global Gate; HOLD")
+        restorer = None
+        if restore_store is not None:
+            from fr_b02b_restore import BackupRestoreVerifier
+            restorer = BackupRestoreVerifier(restore_store, evidence, pending_bytes, roots)
         digests = tuple((name, observation.digest(raw)) for name, raw in files.items())
         identities = {}
 
@@ -236,6 +262,11 @@ class MirroredEvidenceStore:
             return current
 
         def boundaries():
+            if any(item is not None for item in providers):
+                if (any(store._native_boundary is not provider for store in all_stores)
+                        or self.exclusive_section != provider.exclusive_section
+                        or self.verify_layout != provider.verify_layout):
+                    raise StagingError("Native I/O/Gate binding changed during operation; HOLD")
             for store, root in zip(stores, roots):
                 if store.root != root:
                     raise StagingError("protected root configuration changed; HOLD")
@@ -280,6 +311,8 @@ class MirroredEvidenceStore:
             ProtectedEvidenceStore._revalidate(revalidate_input)
             boundaries()
             check_copies()
+            if restorer is not None:
+                restorer.check()
             ProtectedEvidenceStore._revalidate(revalidate_input)
             boundaries()
 
@@ -287,6 +320,8 @@ class MirroredEvidenceStore:
         try:
             with self.exclusive_section():
                 boundaries()
+                if restorer is not None:
+                    restorer.preflight()
                 # Check BOTH reservations before creating either one. Never reuse
                 # a partial attempt or invent another evidence identifier.
                 for folder in staging:
@@ -303,7 +338,13 @@ class MirroredEvidenceStore:
                     checkpoint()
                 check_copies(complete=True)
                 checkpoint()
-                receipt = MirroredStagedReview(*staging, digests)
+                if restorer is not None:
+                    restored = restorer.run(stores, staging, checkpoint)
+                    check_copies(complete=True)
+                    checkpoint()
+                    receipt = RestoredStagedReview(*staging, digests, restored)
+                else:
+                    receipt = MirroredStagedReview(*staging, digests)
             # A lock-release error prevents even a HOLD receipt being returned.
             if receipt is None:
                 raise StagingError("protected exclusive section incomplete; HOLD")

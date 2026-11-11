@@ -171,15 +171,22 @@ def review_register(archive_path: Path, record_dir: Path, *,
 def stage_pending_review(decision: PendingReviewDecision, archive_path: Path,
                          record_dir: Path, *,
                          store: ProtectedEvidenceStore | MirroredEvidenceStore | None = None,
-                         allowlist_source: AllowlistSource | None = None
+                         allowlist_source: AllowlistSource | None = None,
+                         restore_store: ProtectedEvidenceStore | None = None
                          ) -> StagedReview | MirroredStagedReview:
     """Internal synthetic staging entry; no operational destination is assumed."""
     if store is None:
         raise ReviewBlocked("protected review registration is not configured")
-    from fr_b02b_protected_store import StagingError
+    from fr_b02b_protected_store import MirroredEvidenceStore, ProtectedEvidenceStore, StagingError
+
+    if restore_store is not None and (not isinstance(store, MirroredEvidenceStore)
+                                     or not isinstance(restore_store, ProtectedEvidenceStore)):
+        raise ReviewBlocked("restore requires configured mirrored protected storage; HOLD")
 
     evidence = _revalidate_pending_review(decision, archive_path, record_dir, allowlist_source)
     roots = store.staging_roots
+    if restore_store is not None:
+        roots = (*roots, restore_store.root)
     if not roots or any(not isinstance(root, Path) or not root.is_absolute()
             or archive_path.absolute().is_relative_to(root)
             or record_dir.absolute().is_relative_to(root)
@@ -199,6 +206,9 @@ def stage_pending_review(decision: PendingReviewDecision, archive_path: Path,
         _revalidate_pending_review(decision, archive_path, record_dir, allowlist_source)
 
     try:
+        if restore_store is not None:
+            return store.stage(evidence, pending_bytes, revalidate_input=revalidate_input,
+                               restore_store=restore_store)
         return store.stage(evidence, pending_bytes, revalidate_input=revalidate_input)
     except StagingError as exc:
         raise ReviewBlocked(str(exc)) from None
