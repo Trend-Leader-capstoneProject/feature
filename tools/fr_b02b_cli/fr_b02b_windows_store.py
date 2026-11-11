@@ -155,6 +155,13 @@ class Win32StoreNative:
         if not self.allow_changes:
             raise NativeError(5)
 
+    def final_creation_available(self):
+        """No approved final-object authority is installed by this adapter."""
+        return False
+
+    def create_final(self, *_args, **_kwargs):
+        raise NativeError(50)
+
     def inventory_creation_available(self):
         # No approved creation + post-write modification-prevention authority
         # exists in this adapter. NEVER substitute reviewer-owned writable files,

@@ -187,6 +187,16 @@ class InventoryTests(unittest.TestCase):
             with self.subTest(), self.assertRaises(native.StagingError):
                 inventory.decode_inventory(raw, policy, self.protection, event)
 
+    def test_hold_loader_keeps_its_contract_when_final_namespace_is_present(self):
+        self.stage()
+        raw = self.path.read_bytes()
+        # Recognize the namespace, but do not parse/attest final objects here.
+        # The final-object validator independently rejects this partial record.
+        (self.protection.root.path / ("final-REG-OBS-" + "a" * 32 + ".json")).write_bytes(b"partial")
+        loaded = inventory.load_inventory(self.policy, self.protection, self.event, api=self.reader())
+        self.assertEqual(len(loaded.expected_objects), 15)
+        self.assertEqual(self.path.read_bytes(), raw)
+
     def test_new_inventory_acl_is_verified_before_private_payload(self):
         create = self.fixture.api.create_inventory
 

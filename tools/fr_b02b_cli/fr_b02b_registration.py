@@ -1,7 +1,7 @@
 """Frozen registration bytes and internal C/E completion, never a CLI success.
 
-Generic I/O is exercised only in isolated stores. Native final registration is
-blocked until its final-object inventory/protected creation is implemented. The
+Generic I/O is exercised only in isolated stores. Native final registration
+requires a separate final-object inventory and protected creation authority. The
 existing HOLD inventory is never accepted as completion evidence. History is
 verified afresh inside the caller's Gate; no cleanup, recovery or
 operating defaults are supplied.
@@ -73,16 +73,23 @@ class InternalRevocation:
 
 
 def _history_operation(mirror, registration_id, *, allowlist_source, reason=None):
-    """Isolated Core only: hold the same Gate across auth, history, writes and verdict."""
+    """Internal Core: hold the same Gate across auth, history, writes and verdict."""
     from fr_b02b_review_service import require_process_sid
     from fr_b02b_reviewer_allowlist import require_authorized_sid
 
     try:
         _id(registration_id)
         stores = (mirror.primary, mirror.backup)
-        if (any(not isinstance(s, ProtectedEvidenceStore) or s._native_boundary is not None for s in stores)
+        if (any(not isinstance(s, ProtectedEvidenceStore) for s in stores)
                 or not callable(mirror.verify_layout) or not callable(mirror.exclusive_section)):
             raise StagingError("Core history environment unavailable; HOLD")
+        provider = _native_provider(stores)
+        final = _final_inventory(provider)
+        if provider is not None and (final is None or mirror.verify_layout != provider.verify_layout
+                                    or mirror.exclusive_section != provider.exclusive_section):
+            raise StagingError("Native final history/Gate binding unavailable; HOLD")
+        if final is not None and reason is not None:
+            final.ensure_creation_available()
         roots = tuple(s.root for s in stores)
         layout, gate = mirror.verify_layout, mirror.exclusive_section
         sid = None
@@ -92,7 +99,8 @@ def _history_operation(mirror, registration_id, *, allowlist_source, reason=None
             nonlocal sid, last_clock
             if (stores != (mirror.primary, mirror.backup) or tuple(s.root for s in stores) != roots
                     or mirror.verify_layout != layout or mirror.exclusive_section != gate
-                    or any(s._native_boundary is not None for s in stores)
+                    or _native_provider(stores) is not provider
+                    or (provider is not None and provider.final_inventory is not final)
                     or layout(*roots) is not True):
                 raise StagingError("history protection/layout changed; HOLD")
             current = require_authorized_sid(require_process_sid(), allowlist_source)
@@ -152,6 +160,11 @@ def _history_operation(mirror, registration_id, *, allowlist_source, reason=None
                         history.saved[path] = (store, raw)
                         history.names[directory] = frozenset({path.name})
                         history.check()
+                    if final is not None:
+                        paths = [path for store in stores
+                                 for path in (store.root / "registrations" / registration_id / "revocations",
+                                     store.root / "registrations" / registration_id / "revocations" / (event["event_id"] + ".json"))]
+                        final.record("REVOCATION", registration_id, event["event_id"], paths)
                     # New independent scan validates C/E event sets/bytes/links.
                     verified = RegistrationHistory(stores, revalidate_input=environment)
                     if verified.revocations[registration_id] != {event["event_id"] + ".json": raw}:
@@ -171,6 +184,36 @@ def _id(value):
     if parsed.version != 4:
         raise StagingError("registration identifier is not UUID4; HOLD")
     return value
+
+
+def _native_provider(stores):
+    providers = [store._native_boundary for store in stores]
+    if not any(provider is not None for provider in providers):
+        return None
+    provider = providers[0]
+    if provider is None or any(item is not provider for item in providers):
+        raise StagingError("mixed Native final-object boundaries; HOLD")
+    if tuple(store.root for store in stores) != (provider.policy.primary, provider.policy.backup):
+        raise StagingError("Native final copy roots changed; HOLD")
+    return provider
+
+
+def _names(store, folder):
+    provider = store._native_boundary
+    if provider is not None:
+        store._checked(folder, directory=True)
+        return _final_inventory(provider)._names(folder)
+    return frozenset(path.name for path in folder.iterdir())
+
+
+def _final_inventory(provider):
+    if provider is None:
+        return None
+    from fr_b02b_inventory import FinalObjectInventory
+    final = provider.final_inventory
+    if not isinstance(final, FinalObjectInventory) or final.boundary is not provider:
+        raise StagingError("Native final inventory/Gate binding unavailable; HOLD")
+    return final
 
 
 def _now():
@@ -332,8 +375,8 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
         if root_ids[0] == root_ids[1]:
             raise ValueError("two paths reference one copy root")
         expected = _validated_files(evidence, pending_bytes)
-        def file_set(folder):
-            names = {path.name for path in folder.iterdir()}
+        def file_set(store, folder):
+            names = _names(store, folder)
             if names != REGISTRATION_FILES and not (allow_revocations and names == REGISTRATION_FILES | {"revocations"}):
                 raise ValueError("incomplete/unexpected registration set")
             return names
@@ -344,7 +387,7 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
             revalidate_input()
             store._checked(folder, directory=True)
             pin(folder)
-            names = file_set(folder)
+            names = file_set(store, folder)
             namespaces.append(names)
             saved = {}
             for name in sorted(REGISTRATION_FILES):
@@ -364,7 +407,7 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
             validate_complete_marker(saved["registration_complete.json"], saved["registration.json"], evidence, pending_bytes)
             copies.append(saved)
             store._checked(folder, directory=True)
-            if file_set(folder) != names:
+            if file_set(store, folder) != names:
                 raise ValueError("registration set changed")
         if copies[0] != copies[1]:
             raise ValueError("two-copy disagreement")
@@ -372,7 +415,7 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
             revalidate_input()
             store._checked(store.root, directory=True)
             store._checked(folder, directory=True)
-            if file_set(folder) != names:
+            if file_set(store, folder) != names:
                 raise ValueError("registration set changed before verdict")
             for name, raw in saved.items():
                 path = store._checked(folder / name, directory=False)
@@ -408,12 +451,12 @@ def _stored_review(files):
 class RegistrationHistory:
     """Ephemeral verified snapshot, NOT a persisted Native trust inventory.
 
-    Generic I/O is for isolated Core stores only. Native final-object trust
-    remains unavailable and therefore fails closed.
+    Generic I/O is for isolated Core stores only. Native trust is loaded from
+    separate protected records before any discovered history is consumed.
     """
     def __init__(self, stores, *, revalidate_input):
         if (len(stores) != 2 or any(not isinstance(store, ProtectedEvidenceStore)
-                or store._native_boundary is not None or not isinstance(store.root, Path)
+                or not isinstance(store.root, Path)
                 or not store.root.is_absolute() for store in stores)
                 or stores[0].root.is_relative_to(stores[1].root)
                 or stores[1].root.is_relative_to(stores[0].root)
@@ -424,14 +467,20 @@ class RegistrationHistory:
         self.names, self.saved, self.identities = {}, {}, {}
         self.manifests, self.completions = {}, {}
         self.revocations = {}
+        provider = _native_provider(stores)
+        self.final_inventory = _final_inventory(provider)
+        if provider is not None and self.final_inventory is None:
+            raise StagingError("Native final-object inventory unavailable; HOLD")
         try:
+            if self.final_inventory is not None:
+                self.final_inventory.verify_existing()
             names = []
             for store in stores:
                 store._checked(store.root, directory=True)
                 self._pin(store.root)
                 container = store._checked(store.root / "registrations", directory=True)
                 self._pin(container)
-                current = frozenset(p.name for p in container.iterdir())
+                current = _names(store, container)
                 if len(current) > 1024:
                     raise ValueError("history size limit")
                 for rid in current:
@@ -448,7 +497,7 @@ class RegistrationHistory:
                 for store, folder in zip(stores, folders):
                     store._checked(folder, directory=True)
                     self._pin(folder)
-                    members = frozenset(p.name for p in folder.iterdir())
+                    members = _names(store, folder)
                     if members not in (REGISTRATION_FILES, REGISTRATION_FILES | {"revocations"}):
                         raise ValueError("incomplete/unexpected registration or revocation")
                     self.names[folder] = members
@@ -477,7 +526,7 @@ class RegistrationHistory:
                     if "revocations" in self.names[folder]:
                         directory = store._checked(folder / "revocations", directory=True)
                         self._pin(directory)
-                        names = frozenset(p.name for p in directory.iterdir())
+                        names = _names(store, directory)
                         if not names or len(names) > 1024:
                             raise ValueError("empty/oversized revocations")
                         self.names[directory] = names
@@ -514,18 +563,22 @@ class RegistrationHistory:
 
     def check(self, additional=()):
         self.revalidate_input()
+        if self.final_inventory is not None:
+            if _final_inventory(_native_provider(self.stores)) is not self.final_inventory:
+                raise StagingError("Native final inventory binding changed; HOLD")
+            self.final_inventory.check()
         if tuple(store.root for store in self.stores) != self.roots:
             raise StagingError("registration history roots changed; HOLD")
         for store in self.stores:
             store._checked(store.root, directory=True)
             container = store._checked(store.root / "registrations", directory=True)
             extra = {path.name for path in additional if path.parent == container}
-            if {p.name for p in container.iterdir()} != self.names[container] | extra:
+            if _names(store, container) != self.names[container] | extra:
                 raise StagingError("registration history namespace changed; HOLD")
             for path, names in self.names.items():
                 if path != container and path.is_relative_to(container):
                     store._checked(path, directory=True)
-                    if {p.name for p in path.iterdir()} != names:
+                    if _names(store, path) != names:
                         raise StagingError("registration history file set changed; HOLD")
         for path, (store, raw) in self.saved.items():
             store._checked(path, directory=False)
@@ -565,10 +618,16 @@ class RegistrationCore:
     def require_environment(self, stores, restore_store, evidence, pending_bytes):
         if evidence != self.evidence or pending_bytes != self.pending_bytes:
             raise StagingError("registration plan does not match current review; HOLD")
-        if restore_store is None or any(store._native_boundary is not None for store in (*stores, restore_store)):
-            # Current protected inventory describes HOLD objects only. It cannot
-            # attest a final registration graph, and its Native creator is OFF.
+        if restore_store is None:
             raise StagingError("Native final-registration inventory/protection not configured; HOLD")
+        provider = _native_provider(stores)
+        self.final_inventory = _final_inventory(provider)
+        if provider is not None:
+            if restore_store._native_boundary is not provider or self.final_inventory is None:
+                raise StagingError("Native final inventory/restore boundary unavailable; HOLD")
+            self.final_inventory.ensure_creation_available()
+        elif restore_store._native_boundary is not None:
+            raise StagingError("mixed final restore boundary; HOLD")
 
     def _pin(self, path):
         stat_result = path.lstat()
@@ -631,7 +690,7 @@ class RegistrationCore:
             self.history.check({folder for folder in self.written if folder in self.folders})
         for folder, (store, names) in self.written.items():
             store._checked(folder, directory=True)
-            if {path.name for path in folder.iterdir()} != names:
+            if _names(store, folder) != names:
                 raise StagingError("partial/unexpected registration file set; HOLD")
             for name in names:
                 path = store._checked(folder / name, directory=False)
@@ -686,6 +745,12 @@ class RegistrationCore:
             self._write(store, folder, "registration_complete.json", self.marker)
             self._check(checkpoint)
         completion = self.verify_completed(checkpoint)
+        if self.final_inventory is not None:
+            paths = [path for folder, (_, names) in self.written.items()
+                     for path in (folder, *(folder / name for name in names))]
+            self.final_inventory.record("REGISTRATION", self.registration_id, self.registration_id, paths)
+            # Full trusted C/E history re-scan after the append-only seal.
+            RegistrationHistory(stores, revalidate_input=checkpoint).check()
         if staged_receipt is None:
             return InternalHistoryReview(completion)
         return CompletedStagedReview(staged_receipt.primary_staging_dir, staged_receipt.backup_staging_dir,

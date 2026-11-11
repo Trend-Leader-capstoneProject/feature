@@ -1,7 +1,7 @@
-"""Native HOLD boundary. Trusted private policy is required; no operating defaults.
+"""Native protected boundary. Trusted private policy required; no operating defaults.
 
 Policy is supplied by a trusted bootstrap, never derived from the settings being
-verified. No CLI/config loader, ACL repair or completed registration.
+verified. No CLI/config loader, ACL repair or operational creation authority.
 All handles are retained without delete sharing. Local administrators can still
 change ACLs/restore them (ABA); this is not an independent immutable seal.
 """
@@ -163,6 +163,7 @@ class NativeStoreBoundary:
         self.active = self.spent = False
         self.failed = False
         self.created_dirs = set()
+        self.final_inventory = None
         self.gate = policy.control / "global.gate"
 
     def mirrored_store(self):
@@ -308,6 +309,11 @@ class NativeStoreBoundary:
     @_guarded
     def create_staging(self, root, path):
         self.checkpoint()
+        if self.final_inventory is not None and self.final_inventory.is_final_path(path, directory=True):
+            if root not in (self.policy.primary, self.policy.backup) or not path.is_relative_to(root):
+                raise StagingError("final directory outside requested Native root; HOLD")
+            self.final_inventory.create(path, directory=True)
+            return
         prefixes = (".review-staging-", ".review-restore-")
         prefix = next((value for value in prefixes if path.name.startswith(value)), None)
         if root not in (self.policy.primary, self.policy.backup) or path.parent != root or prefix is None:
@@ -321,6 +327,18 @@ class NativeStoreBoundary:
 
     @_guarded
     def write_file(self, root, path, raw):
+        if self.final_inventory is not None and self.final_inventory.is_final_path(path, directory=False):
+            if (root not in (self.policy.primary, self.policy.backup) or not path.is_relative_to(root)
+                    or path.parent not in self.created_dirs):
+                raise StagingError("final file parent was not created by this attempt; HOLD")
+            self.final_inventory.create(path, directory=False)
+            handle = self.pins[path][0]
+            self.api.write(handle, raw)
+            self.api.flush(handle)
+            if self.api.read(handle, len(raw) + 1) != raw:
+                raise StagingError("Native final saved bytes mismatch; HOLD")
+            self.checkpoint()
+            return
         if (root not in (self.policy.primary, self.policy.backup)
                 or path.parent.parent != root or path.parent not in self.created_dirs
                 or path.name not in {"a1_archive.zip", "observation.json", "index.json", "pending_review.json"}):
