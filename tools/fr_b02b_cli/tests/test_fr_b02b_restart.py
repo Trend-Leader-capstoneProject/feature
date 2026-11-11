@@ -215,6 +215,11 @@ class RestartTests(unittest.TestCase):
         (folders[0] / "registration_complete.json").write_bytes(b'{}')
         self.assertEqual(self.scan(inventory).reason, "UNSUPPORTED_COMPLETION")
 
+    def test_final_registration_namespace_cannot_use_hold_native_inventory(self):
+        inventory, _ = self.stage()
+        (self.policy.primary / "registrations").mkdir()
+        self.assertEqual(self.scan(inventory).reason, "FINAL_REGISTRATION_INVENTORY_REQUIRED")
+
     def test_root_identity_change_and_unreadable_gate_never_report_empty(self):
         api = self.view()
         api.identity_overrides[self.policy.primary] = (1, "f" * 32)

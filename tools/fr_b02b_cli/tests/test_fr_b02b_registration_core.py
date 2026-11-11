@@ -163,7 +163,7 @@ class RegistrationCoreTests(unittest.TestCase):
             self.call()
         self.assertFalse(self.folders[0].exists())
         self.assertEqual((self.folders[1] / "sentinel").read_bytes(), b"preserve")
-        self.assertEqual(registration.uuid4.call_count, 1)
+        self.assertEqual(registration.uuid4.call_count, 0)  # Reject unverified history before allocating.
 
     def test_gate_release_failure_cannot_return_internal_completion(self):
         @contextmanager

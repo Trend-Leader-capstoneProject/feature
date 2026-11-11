@@ -23,6 +23,62 @@ SCHEMA = "PHASE4B2_TRUST_INVENTORY_V1"
 ADMINS = frozenset({"S-1-5-32-544", "S-1-5-18"})
 
 
+def registration_history_tip(manifests, event):
+    """Check a graph of ALREADY verified manifests; this creates no trust seal.
+
+    The HOLD Native inventory format below remains unchanged and cannot attest
+    final registrations. Callers must verify both protected copies first.
+    """
+    from fr_b02b_registration import KEYS, _id
+
+    try:
+        event = _event(event)
+        rows = {}
+        source_keys = KEYS - {"registration_id", "supersedes_registration_id", "reviewer_sid",
+                              "reviewed_at_utc", "registration_recorded_at_utc",
+                              "review_result", "decision_reason"}
+        fingerprint = None
+        for row in manifests:
+            if not isinstance(row, dict) or set(row) != KEYS or row["local_evidence_id"] != event:
+                raise ValueError("invalid history member")
+            rid = _id(row["registration_id"])
+            if rid in rows or row["review_result"] not in ("ACCEPTED", "HOLD", "REJECTED"):
+                raise ValueError("duplicate/invalid history member")
+            current = tuple(row[key] for key in sorted(source_keys))
+            if fingerprint is not None and current != fingerprint:
+                raise ValueError("conflicting evidence for observation")
+            fingerprint = current
+            rows[rid] = row
+        if not rows:
+            return None
+        children, roots = {}, []
+        for rid, row in rows.items():
+            parent = row["supersedes_registration_id"]
+            if parent is None:
+                roots.append(rid)
+                continue
+            _id(parent)
+            if (parent not in rows or parent == rid or parent in children
+                    or rows[parent]["review_result"] not in ("HOLD", "REJECTED")
+                    or observation._timestamp(row["reviewed_at_utc"])
+                    < observation._timestamp(rows[parent]["registration_recorded_at_utc"])):
+                raise ValueError("missing/branched/accepted/nonchronological parent")
+            children[parent] = rid
+        if len(roots) != 1:
+            raise ValueError("ambiguous history root")
+        seen, tip = set(), roots[0]
+        while tip not in seen:
+            seen.add(tip)
+            if tip not in children:
+                break
+            tip = children[tip]
+        if len(seen) != len(rows) or tip in children:
+            raise ValueError("disconnected/cyclic history")
+        return tip
+    except (ValueError, TypeError, KeyError):
+        raise StagingError("registration history conflict; HOLD") from None
+
+
 @dataclass(frozen=True, repr=False)
 class InventoryPolicy:
     root: ApprovedObject

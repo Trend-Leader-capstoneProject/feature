@@ -156,6 +156,10 @@ def _inspect(view, expected_objects):
     groups, event_ids = {}, set()
     for root, names in namespace.items():
         for name in names:
+            if name == "registrations":
+                # The Native inventory below attests HOLD staging only. Final
+                # objects must never approve themselves from discovered bytes.
+                raise _Issue("FINAL_REGISTRATION_INVENTORY_REQUIRED")
             if name in COMPLETION:
                 raise _Issue("UNSUPPORTED_COMPLETION")
             match = re.fullmatch(r"\.review-(staging|restore)-(LOCAL-OBS-[0-9a-f]{32})", name)
@@ -239,3 +243,22 @@ def inspect_restart(policy=None, *, api=None, expected_objects=None):
         reason = "UNVERIFIED_ENVIRONMENT"
     return RestartAssessment("HOLD", reason, view.gate_status if view else "UNKNOWN",
                              view.scope if view else "NONE")
+
+
+def inspect_registration_history(stores, *, revalidate_environment):
+    """Read-only generic Core inspection; never a Native/CLI write permit.
+
+    Isolated tests supply fresh protection/layout facts. A successful scan still
+    requires another full check under the registration Gate before reuse.
+    """
+    from fr_b02b_registration import RegistrationHistory
+
+    try:
+        if not callable(revalidate_environment):
+            raise StagingError("unverified history environment; HOLD")
+        history = RegistrationHistory(stores, revalidate_input=revalidate_environment)
+        history.check()
+        return RestartAssessment("HOLD", "REGISTRATION_HISTORY_VERIFIED_RECHECK_REQUIRED",
+                                 "UNKNOWN", "CONTENT_VERIFIED")
+    except (StagingError, OSError, TypeError):
+        return RestartAssessment("HOLD", "REGISTRATION_HISTORY_UNVERIFIED", "UNKNOWN", "NONE")

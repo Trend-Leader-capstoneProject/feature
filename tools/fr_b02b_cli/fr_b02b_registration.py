@@ -2,8 +2,9 @@
 
 Generic I/O is exercised only in isolated stores. Native final registration is
 blocked until its final-object inventory/protected creation is implemented. The
-existing HOLD inventory is never accepted as completion evidence. No history,
-revocation, restart acceptance, cleanup, recovery or operating defaults.
+existing HOLD inventory is never accepted as completion evidence. History is
+verified afresh inside the caller's Gate; no revocation, cleanup, recovery or
+operating defaults are supplied.
 """
 
 from dataclasses import dataclass, field
@@ -85,13 +86,13 @@ def _base(evidence, pending_bytes):
     return value
 
 
-def build_manifest(evidence, pending_bytes):
+def build_manifest(evidence, pending_bytes, *, supersedes_registration_id=None):
     """All source/decision fields are derived; only a provisional UUID is allocated."""
     try:
         value = _base(evidence, pending_bytes)
         value.update(registration_id="REG-OBS-" + uuid4().hex,
                      registration_recorded_at_utc=_now().isoformat().replace("+00:00", "Z"),
-                     supersedes_registration_id=None)
+                     supersedes_registration_id=supersedes_registration_id)
         raw = observation.canonical_bytes(value)
         validate_manifest(raw, evidence, pending_bytes)
         return raw
@@ -149,7 +150,23 @@ class CompletedStagedReview(RestoredStagedReview):
     completion: InternalCompletion
 
 
+@dataclass(frozen=True, repr=False)
+class InternalHistoryReview:
+    """No invented staging/restore receipt when reusing an existing history."""
+    completion: InternalCompletion
+    state: str = field(default="HOLD", init=False)
+    publish_authorization: str = field(default="NONE", init=False)
+
+
 def verify_registration_copies(stores, folders, evidence, pending_bytes, *, revalidate_input):
+    completion, data = _verify_registration_copies(
+        stores, folders, evidence, pending_bytes, revalidate_input=revalidate_input)
+    if data["supersedes_registration_id"] is not None:
+        raise StagingError("registration history must be verified as a whole; HOLD")
+    return completion
+
+
+def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, revalidate_input):
     """Caller holds Gate. Copy-integrity only; no history/restart/operating authorization."""
     try:
         identities = {}
@@ -225,24 +242,151 @@ def verify_registration_copies(stores, folders, evidence, pending_bytes, *, reva
             pin(path)
         revalidate_input()
         data = validate_manifest(copies[0]["registration.json"], evidence, pending_bytes)
-        if data["supersedes_registration_id"] is not None:
-            raise ValueError("history not verified")
-        return InternalCompletion(data["registration_id"], observation.digest(copies[0]["registration.json"]))
+        return InternalCompletion(data["registration_id"], observation.digest(copies[0]["registration.json"])), data
     except (ValueError, OSError):
         raise StagingError("registration completion verification blocked; HOLD") from None
 
 
+def _stored_review(files):
+    """Rebuild old decision metadata, never substitute the current decision."""
+    from fr_b02b_a1_adapter import _load_a1_snapshot_bytes
+
+    value = _parse(files["registration.json"], KEYS)
+    snapshot = _load_a1_snapshot_bytes(files["a1_archive.zip"])
+    record = observation._validate_records(snapshot, files["observation.json"], files["index.json"],
+                                           value["local_evidence_id"])
+    evidence = observation.VerifiedObservation(snapshot, record, files["observation.json"], files["index.json"])
+    from fr_b02b_protected_store import PENDING_KEYS
+    pending = observation.canonical_bytes({key: value[key] for key in PENDING_KEYS})
+    validate_manifest(files["registration.json"], evidence, pending)
+    return evidence, pending
+
+
+class RegistrationHistory:
+    """Ephemeral verified snapshot, NOT a persisted Native trust inventory.
+
+    Generic I/O is for isolated Core stores only. Native final-object trust and
+    revocations remain unavailable and therefore fail closed.
+    """
+    def __init__(self, stores, *, revalidate_input):
+        if (len(stores) != 2 or any(not isinstance(store, ProtectedEvidenceStore)
+                or store._native_boundary is not None or not isinstance(store.root, Path)
+                or not store.root.is_absolute() for store in stores)
+                or stores[0].root.is_relative_to(stores[1].root)
+                or stores[1].root.is_relative_to(stores[0].root)
+                or not callable(revalidate_input)):
+            raise StagingError("final-registration history environment unavailable; HOLD")
+        self.stores, self.revalidate_input = stores, revalidate_input
+        self.roots = tuple(store.root for store in stores)
+        self.names, self.saved, self.identities = {}, {}, {}
+        self.manifests, self.completions = {}, {}
+        try:
+            names = []
+            for store in stores:
+                store._checked(store.root, directory=True)
+                self._pin(store.root)
+                container = store._checked(store.root / "registrations", directory=True)
+                self._pin(container)
+                current = frozenset(p.name for p in container.iterdir())
+                if len(current) > 1024:
+                    raise ValueError("history size limit")
+                for rid in current:
+                    _id(rid)
+                self.names[container] = current
+                names.append(current)
+            if self.identities[stores[0].root][:2] == self.identities[stores[1].root][:2]:
+                raise ValueError("same physical copy root")
+            if names[0] != names[1]:
+                raise ValueError("one-sided history")
+            for rid in sorted(names[0]):
+                folders = tuple(store.root / "registrations" / rid for store in stores)
+                copies = []
+                for store, folder in zip(stores, folders):
+                    store._checked(folder, directory=True)
+                    self._pin(folder)
+                    if {p.name for p in folder.iterdir()} != REGISTRATION_FILES:
+                        raise ValueError("incomplete/unexpected registration or revocation")
+                    files = {}
+                    for name in sorted(REGISTRATION_FILES):
+                        self.revalidate_input()
+                        path = store._checked(folder / name, directory=False)
+                        self._pin(path)
+                        limit = 20 * 1024 * 1024 if name == "a1_archive.zip" else observation.MAX_RECORD_BYTES
+                        raw = store._read_copy(path, limit + 1)
+                        if not isinstance(raw, bytes) or len(raw) > limit:
+                            raise ValueError("history file size")
+                        files[name] = raw
+                        self.saved[path] = (store, raw)
+                    copies.append(files)
+                if copies[0] != copies[1]:
+                    raise ValueError("history copies disagree")
+                evidence, pending = _stored_review(copies[0])
+                completion, data = _verify_registration_copies(
+                    stores, folders, evidence, pending, revalidate_input=self.revalidate_input)
+                self.manifests[rid], self.completions[rid] = data, completion
+            from fr_b02b_inventory import registration_history_tip
+            self.tips = {}
+            for event in {row["local_evidence_id"] for row in self.manifests.values()}:
+                self.tips[event] = registration_history_tip(
+                    [row for row in self.manifests.values() if row["local_evidence_id"] == event], event)
+            self.check()
+        except (ValueError, OSError, KeyError):
+            raise StagingError("registration history verification blocked; HOLD") from None
+
+    def _pin(self, path):
+        info = path.lstat()
+        identity = info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+        if stat.S_ISREG(info.st_mode):
+            identity += (info.st_size, info.st_mtime_ns)
+        if not info.st_ino or identity != self.identities.setdefault(path, identity):
+            raise StagingError("registration history identity changed; HOLD")
+
+    def check(self, additional=()):
+        self.revalidate_input()
+        if tuple(store.root for store in self.stores) != self.roots:
+            raise StagingError("registration history roots changed; HOLD")
+        for store in self.stores:
+            store._checked(store.root, directory=True)
+            container = store._checked(store.root / "registrations", directory=True)
+            extra = {path.name for path in additional if path.parent == container}
+            if {p.name for p in container.iterdir()} != self.names[container] | extra:
+                raise StagingError("registration history namespace changed; HOLD")
+            for rid in self.names[container]:
+                folder = store._checked(container / rid, directory=True)
+                if {p.name for p in folder.iterdir()} != REGISTRATION_FILES:
+                    raise StagingError("registration history file set changed; HOLD")
+        for path, (store, raw) in self.saved.items():
+            store._checked(path, directory=False)
+            self._pin(path)
+            if store._read_copy(path, len(raw) + 1) != raw:
+                raise StagingError("registration history bytes changed; HOLD")
+        for path in self.identities:
+            self._pin(path)
+        self.revalidate_input()
+
+    def tip_for(self, evidence, pending_bytes):
+        current = _base(evidence, pending_bytes)
+        tip = self.tips.get(current["local_evidence_id"])
+        if tip is not None:
+            row = self.manifests[tip]
+            decision_keys = {"reviewer_sid", "reviewed_at_utc", "review_result", "decision_reason"}
+            if any(row[key] != value for key, value in current.items() if key not in decision_keys):
+                raise StagingError("observation already bound to different evidence; HOLD")
+        return tip
+
+
 class RegistrationCore:
     def __init__(self, manifest, evidence, pending_bytes):
-        value = validate_manifest(manifest, evidence, pending_bytes)
-        if value["supersedes_registration_id"] is not None:
+        value = validate_manifest(manifest, evidence, pending_bytes) if manifest is not None else None
+        if value is not None and value["supersedes_registration_id"] is not None:
             raise StagingError("supersession history validation not configured; HOLD")
         self.manifest, self.evidence, self.pending_bytes = manifest, evidence, pending_bytes
-        self.registration_id = value["registration_id"]
+        self.registration_id = value["registration_id"] if value is not None else None
         self.files = {key: raw for key, raw in _validated_files(evidence, pending_bytes).items() if key in SOURCE_FILES}
         self.files["registration.json"] = manifest
         self.identities = {}
         self.written = {}
+        self.history = None
 
     def require_environment(self, stores, restore_store, evidence, pending_bytes):
         if evidence != self.evidence or pending_bytes != self.pending_bytes:
@@ -258,8 +402,23 @@ class RegistrationCore:
         if not stat_result.st_ino or identity != self.identities.setdefault(path, identity):
             raise StagingError("registration object identity changed; HOLD")
 
-    def preflight(self, stores, restore_store):
+    def preflight(self, stores, restore_store, *, revalidate_input):
         self.stores, self.restore_store = stores, restore_store
+        self.history = RegistrationHistory(stores, revalidate_input=revalidate_input)
+        tip = self.history.tip_for(self.evidence, self.pending_bytes)
+        if tip is not None and self.history.manifests[tip]["review_result"] == "ACCEPTED":
+            self.history.check()
+            return InternalHistoryReview(self.history.completions[tip])
+        if tip is not None:
+            reviewed = observation._timestamp(json.loads(self.pending_bytes)["reviewed_at_utc"])
+            if reviewed < observation._timestamp(self.history.manifests[tip]["registration_recorded_at_utc"]):
+                raise StagingError("review clock predates prior registration; HOLD")
+        if self.manifest is None:
+            self.manifest = build_manifest(self.evidence, self.pending_bytes, supersedes_registration_id=tip)
+            self.registration_id = json.loads(self.manifest)["registration_id"]
+            self.files["registration.json"] = self.manifest
+        elif tip is not None:
+            raise StagingError("preallocated plan cannot supersede existing history; HOLD")
         self.folders = tuple(store.root / "registrations" / self.registration_id for store in stores)
         self.restore_folder = restore_store.root / (".review-registration-restore-" + self.registration_id)
         self.roots = tuple(store.root for store in (*stores, restore_store))
@@ -270,13 +429,20 @@ class RegistrationCore:
         for store, folder in zip(stores, self.folders):
             container = store._checked(folder.parent, directory=True)  # Pre-managed; never auto-created.
             self._pin(container)
-            if any(container.iterdir()):
-                raise StagingError("registration collision/history requires separate validation; HOLD")
+            if self.registration_id in self.history.names[container]:
+                raise StagingError("registration identifier collision; HOLD")
         try:
             self.restore_folder.lstat()
         except FileNotFoundError:
-            return
-        raise StagingError("registration restore target collision; HOLD")
+            pass
+        else:
+            raise StagingError("registration restore target collision; HOLD")
+        if tip is not None:
+            # Previous COMPLETE sources have already passed C/E validation. Do
+            # not reuse or overwrite their old pending-decision staging files.
+            sources = tuple(store.root / "registrations" / tip for store in stores)
+            return self.finish(stores, sources, restore_store, revalidate_input, None)
+        return None
 
     def _check(self, checkpoint):
         checkpoint()  # Original bytes, SID, Allowlist, HOLD copies/restore and Gate.
@@ -287,6 +453,8 @@ class RegistrationCore:
             store._checked(store.root, directory=True)
         for path in tuple(self.identities):
             self._pin(path)
+        if self.history is not None:
+            self.history.check({folder for folder in self.written if folder in self.folders})
         for folder, (store, names) in self.written.items():
             store._checked(folder, directory=True)
             if {path.name for path in folder.iterdir()} != names:
@@ -344,13 +512,20 @@ class RegistrationCore:
             self._write(store, folder, "registration_complete.json", self.marker)
             self._check(checkpoint)
         completion = self.verify_completed(checkpoint)
+        if staged_receipt is None:
+            return InternalHistoryReview(completion)
         return CompletedStagedReview(staged_receipt.primary_staging_dir, staged_receipt.backup_staging_dir,
                                       staged_receipt.sha256, staged_receipt.restored_staging_dir, completion)
 
     def verify_completed(self, checkpoint):
         self._check(checkpoint)
-        completion = verify_registration_copies(
+        completion, data = _verify_registration_copies(
             self.stores, self.folders, self.evidence, self.pending_bytes,
             revalidate_input=lambda: self._check(checkpoint))
+        from fr_b02b_inventory import registration_history_tip
+        rows = [row for row in self.history.manifests.values()
+                if row["local_evidence_id"] == data["local_evidence_id"]] if self.history is not None else []
+        if registration_history_tip([*rows, data], data["local_evidence_id"]) != self.registration_id:
+            raise StagingError("new registration is not the unique history tip; HOLD")
         self._check(checkpoint)
         return completion

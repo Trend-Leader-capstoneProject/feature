@@ -210,8 +210,9 @@ def stage_pending_review(decision: PendingReviewDecision, archive_path: Path,
 
     try:
         if complete_registration:
-            from fr_b02b_registration import RegistrationCore, build_manifest
-            core = RegistrationCore(build_manifest(evidence, pending_bytes), evidence, pending_bytes)
+            from fr_b02b_registration import RegistrationCore
+            # Resolve duplicate/history inside the existing Gate before UUID allocation.
+            core = RegistrationCore(None, evidence, pending_bytes)
             return store.stage(evidence, pending_bytes, revalidate_input=revalidate_input,
                                restore_store=restore_store, registration_core=core)
         if restore_store is not None:
