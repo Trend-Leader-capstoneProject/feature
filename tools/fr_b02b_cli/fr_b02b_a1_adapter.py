@@ -370,6 +370,13 @@ def load_a1_snapshot(archive_path: Path) -> A1Snapshot:
     not authenticate approvals, execute ZIP code, or modify the original A1 hash.
     """
     raw = read_a1_archive(archive_path)
+    return _load_a1_snapshot_bytes(raw)
+
+
+def _load_a1_snapshot_bytes(raw: bytes) -> A1Snapshot:
+    """Internal reuse for staging; identical A1 rules and content_ref algorithm."""
+    if not isinstance(raw, bytes) or len(raw) > MAX_ARCHIVE_BYTES:
+        raise A1InspectionError("invalid or oversized A1 archive bytes")
     try:
         with ZipFile(BytesIO(raw), "r") as archive:
             names = archive.namelist()

@@ -133,3 +133,4 @@ TrendLeaderPhase4B2AclLab-*/
 /tools/fr_b02b_cli/**/reviewers.synthetic.json
 /tools/fr_b02b_cli/**/inventory.private.json
 /tools/fr_b02b_cli/**/native.private.json
+/tools/fr_b02b_cli/**/*.patch

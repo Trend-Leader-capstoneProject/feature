@@ -13,8 +13,11 @@ import re
 import stat
 import tempfile
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from fr_b02b_a1_adapter import A1Snapshot, load_a1_snapshot, read_a1_archive
@@ -51,6 +54,16 @@ UTC_TIMESTAMP = re.compile(
 
 class ObservationError(ValueError):
     """Fail closed without modifying approval inputs or promoting a local draft."""
+
+
+@dataclass(frozen=True)
+class VerifiedObservation:
+    """Internal read-only view and exact bytes from one validated evidence set."""
+
+    a1_snapshot: A1Snapshot
+    record: Mapping[str, str]
+    record_bytes: bytes
+    index_bytes: bytes
 
 
 def canonical_bytes(value: dict[str, Any]) -> bytes:
@@ -240,18 +253,25 @@ def _load_verified_observation(archive_path: Path, record_dir: Path) -> dict[str
     Never reopen JSON to extract candidate values after verification. The final
     ZIP read only detects changes; it is not a second source of candidate data.
     """
+    return dict(_load_verified_observation_snapshot(archive_path, record_dir).record)
+
+
+def _load_verified_observation_snapshot(archive_path: Path,
+                                       record_dir: Path) -> VerifiedObservation:
+    """Retain validated display values and bytes without changing 4A/4B-1 output."""
     folder = _safe_local_path(record_dir)
     _event_id(folder.name)
     if not stat.S_ISDIR(folder.lstat().st_mode):
         raise ObservationError("local record directory missing")
     snapshot = load_a1_snapshot(archive_path)
+    record_bytes = _read_record_file(folder / "observation.json")
+    index_bytes = _read_record_file(folder / "index.json")
     result = _validate_records(
-        snapshot, _read_record_file(folder / "observation.json"),
-        _read_record_file(folder / "index.json"), folder.name,
+        snapshot, record_bytes, index_bytes, folder.name,
     )
     if read_a1_archive(archive_path) != snapshot.archive_bytes:
         raise ObservationError("A1 ZIP changed during verification")
-    return result
+    return VerifiedObservation(snapshot, MappingProxyType(result), record_bytes, index_bytes)
 
 
 def verify_observation(archive_path: Path, record_dir: Path) -> dict[str, str]:

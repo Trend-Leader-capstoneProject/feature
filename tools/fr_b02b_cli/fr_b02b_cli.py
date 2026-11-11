@@ -296,7 +296,47 @@ def run_cli(argv: list[str] | None = None, *, input_func: Callable[[str], str] =
     )
     candidate_cmd.add_argument("--zip", type=Path, required=True)
     candidate_cmd.add_argument("--record-dir", type=Path, required=True)
+    register_cmd = sub.add_parser(
+        "review-register", help="review registration preflight; no publication"
+    )
+    register_cmd.add_argument("--zip", type=Path, required=True)
+    register_cmd.add_argument("--record-dir", type=Path, required=True)
     args = parser.parse_args(argv)
+
+    if args.command == "review-register":
+        # Keep OS identity dependencies out of the legacy read-only commands.
+        from fr_b02b_review_service import (
+            ReviewBlocked, ReviewCancelled, review_register, validate_review_choice,
+        )
+
+        def request_decision(preview):
+            print(f"Title: {preview.title}")
+            print(f"Summary: {preview.summary}")
+            print(f"Approved HTTPS URL: {preview.source_url}")
+            print(f"Confirmed at (local UTC): {preview.confirmed_at_utc}")
+            print(f"Record created at (local UTC): {preview.record_created_at_utc}")
+            print(f"Observer: {preview.observer_ref}; assurance: {preview.actor_assurance}")
+            print("검토 결정은 보호 등록·게시 승인이 아닙니다. publish_authorization=NONE; G5/G6 HOLD.")
+            choice = validate_review_choice(input_func(
+                "검토 결정 (ACCEPTED / HOLD / REJECTED, 빈 입력: 취소): "
+            ))
+            reason = input_func("자체 작성 검토 사유 (원문·개인정보·비밀 제외, 최대 500자, ACCEPTED는 선택): ")
+            return choice, reason
+
+        try:
+            review_register(args.zip, args.record_dir, request_decision=request_decision)
+        except (ReviewCancelled, EOFError, KeyboardInterrupt):
+            print("CANCELLED")
+            return 2
+        except ReviewBlocked as exc:
+            print(f"BLOCKED: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:
+            # Keep unexpected bugs distinct from authorization failures while
+            # preventing raw diagnostics/SIDs/paths from reaching the terminal.
+            # Service/adapter unit callers still see the original exception.
+            print(f"BLOCKED: internal review failure ({type(exc).__name__})", file=sys.stderr)
+            return 1
 
     if args.command == "review-candidate":
         try:

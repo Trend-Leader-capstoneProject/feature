@@ -13,7 +13,127 @@ G5/G6는 HOLD이며 모든 신규 성공 결과의 `publish_authorization`은 `N
 - `fr_b02b_observation.py`: 로컬 기록·시각·ID·JSON·해시·경로·저장·읽기 검증.
 - `fr_b02b_review_candidate.py`: 동일 검증 스냅샷의 연결 필드·로컬 시각을 검토 후보로 반환.
 - `fr_b02b_cli.py`: 명령·브라우저·한 번의 확인 입력·출력/종료 코드 연결.
-- `validation_report.md`와 아래 v0.3 이력은 **과거 원본 PoC 검증 기록**입니다. 이번 실행 증거로 사용하지 않습니다.
+- `docs/history/validation_report.md`와 아래 v0.3 이력은 **과거 원본 PoC 검증 기록**입니다. 이번 실행 증거로 사용하지 않습니다.
+
+## Phase 4B-2 최소 연결 — 등록 기능 미완료
+
+`review-register --zip <A1 ZIP> --record-dir <LOCAL-OBS 폴더>`는 현재
+기존 4A 입력의 읽기 전용 재검증 → Windows 프로세스 토큰 SID 조회 → 허용 목록 검증 → 명시적 검토 결정을 연결합니다.
+`fr_b02b_review_service.py`가 실패 정책을 소유하고,
+`fr_b02b_windows_auth.py`가 `TokenUser` SID를 조회하며,
+`fr_b02b_reviewer_allowlist.py`가 허용 목록 검증을 담당합니다. 추가 의존성은 없습니다.
+
+SID 조회 실패/누락은 stderr의 `BLOCKED: reviewer identity unavailable`과 종료 코드 `1`로
+차단합니다. 원시 예외·SID·개인 경로를 오류에 출력하지 않습니다. SID 조회가 성공해도
+사전 관리되는 운영 허용 목록 설정·실제 ACL 검증기는 아직 미확정이므로
+`BLOCKED: protected review registration is not configured`와 종료 코드 `1`을 반환합니다.
+필수 인자 누락은 argparse 종료 코드 `2`입니다.
+
+2026-11-10 사용자 결정에 따라 운영 허용 목록의 물리 경로·관리 책임은 이 단위에서 정하지
+않습니다. `managed_allowlist_source()`는 항상 설정 미완료로 차단하며 경로를 추측하지 않습니다.
+합성 테스트에서만 내부 `AllowlistSource`에 절대 경로와 보호 검증 대역을 주입합니다.
+CLI에는 SID·허용 목록 경로·ACL 우회 옵션을 제공하지 않으며 `USERNAME`을 인증에 사용하지 않습니다.
+설정 공급자 자체의 접근 오류도 `BLOCKED: reviewer allowlist unavailable`로 차단하며 원시 예외를 출력하지 않습니다.
+
+현재 내부 입력 형식은 65,536바이트 이하 UTF-8 JSON이며 최상위 키는 정확히
+`schema=FR_B02B_REVIEWER_ALLOWLIST_V1`, `reviewers`입니다. 각 항목은 정확히
+`sid`(SID 문자열), `active`(JSON boolean), `role=EVIDENCE_REVIEWER`를 가집니다.
+중복 JSON 키·중복 SID·미정의/누락 필드·잘못된 타입/역할/형식은 차단합니다.
+등록되지 않거나 비활성인 SID는 차단합니다. 보호 검증은 파일 및 상위 경로를 소유하는
+내부 의존성의 책임이며, 정확한 `True`가 아닌 결과나 예상 가능한 운영 오류는 차단합니다.
+프로그래밍 오류는 Allowlist/Service에서 권한 오류로 변환하지 않습니다. CLI의 최외곽에서만
+`BLOCKED: internal review failure (<예외 종류>)`와 종료 코드 1로 구분하며 원시 진단은 출력하지 않습니다.
+파일 읽기 전후 보호 상태와 열린 파일/경로의 식별자·크기·수정 시각을 대조합니다.
+이 검사는 실제 Native ACL·잠금 기반 보호 읽기의 실증을 대체하지 않습니다.
+
+허용 목록 검증 이후에는 검증된 제목·요약·출처 URL·기존 확인/생성 시각·관측자 미인증 수준을
+표시하고 `ACCEPTED`/`HOLD`/`REJECTED`를 명시적으로 선택받습니다. 대소문자·앞뒤 공백은
+정규화하되 기본 선택은 없고 `YES`는 검토 결정으로 처리하지 않습니다. 사유는 최대 500자이고
+HOLD/REJECTED에서 비공백 필수, ACCEPTED에서 선택입니다. 사유 앞뒤 공백은 저장 전 내부 값에서 제거합니다.
+빈 선택·EOF·Ctrl+C는 `CANCELLED`/2, 잘못된 선택·사유·시계는 `BLOCKED`/1입니다.
+기존 4A의 정확한 YES 입력 정책에는 이 정규화를 적용하지 않습니다.
+
+Service의 `PendingReviewDecision`은 검증된 원본 바이트와 사람의 판단을 메모리에서만 연결합니다.
+결정 이후 측정한 로컬 UTC를 reviewed_at_utc로 사용하고, 입력 전 시각/4A 생성 시각보다 빠르면 차단합니다.
+등록 ID 발급, Store 등록, 백업·철회는 아직 없습니다. ACCEPTED도 보호 등록 완료가 아니므로
+검토 입력 이후 CLI는 여전히 `BLOCKED: protected review registration is not configured`/1로 종료합니다.
+4A·4B-1 공개 계약을 유지하며 게시 권한을 부여하지 않습니다.
+운영 설정이 없는 실제 CLI는 미리보기/검토 입력 전 차단됩니다. 합성 테스트의 보호 검증 성공은
+운영 접근통제 완료 증거가 아닙니다. 운영 경로, 초기 등록 담당자, 변경·폐기 책임,
+실제 ACL·보호 저장·C/E 복원 검증은 Protected Store 통합 및 Windows 시험 대상입니다.
+
+2026-11-10 SID 조회 실패 단위의 Python 3.14 검증은 **107 tests / OK**였습니다(기존 104개 + 신규 3개).
+최소 연결 후 SID 실패 대역의 미처리 `OSError`로 Red를 확인하고, Service의 차단 처리 후
+기존 CLI 테스트와 Service 독립 테스트를 Green으로 확인했습니다. SID 실패 시 프롬프트·Store
+등록·UUID 생성 0회와 합성 원본 바이트·HOLD/NONE 불변을 검사했습니다. 실제 프로세스 토큰 SID도
+로컬 `whoami /user` 결과와 메모리에서 대조하여 일치를 확인했으며 SID 값은 출력·보관하지 않았습니다.
+이후 허용 목록 단위에서 **118 tests / OK**를 확인했습니다(기존 107개 + 허용 목록 9개 + Native 경계 2개).
+허용 목록 미구현/미연결로 Red를 확인한 뒤, 합성 파일 기반 허용 SID·미등록/비활성 SID·목록 누락/
+손상·보호 검증 실패를 각각 Green으로 확인했습니다. Native 경계 테스트는 성공 및 6개 장애
+지점의 반환값·타입·메모리/토큰 해제를 대역으로 검증합니다. 실제 SID 조회 코드는 수정하지 않았습니다.
+Windows 경로/핸들의 `st_ctime_ns` 차이에 따른 정상 파일 오탐은 파일 식별자·크기·수정 시각
+대조로 수정하고 회귀 테스트를 추가했습니다. 실제 운영 ACL/권한 시험은 아직 수행하지 않았습니다.
+Ruff는 미설치로 실행하지 않았으며, unittest 통과를 정적 검사 완료로 간주하지 않습니다.
+
+2026-11-10 B42-04 단위: Python 3.14 전체 **129 tests / OK**(기존 118개 + 리뷰 회귀 1개 + 결정 10개).
+기존 Allowlist 테스트의 허용 SID 사례만 새 검토 프롬프트 동작에 맞게 갱신했고,
+인증 실패 시 프롬프트 0회·모든 Store/ID 생성 차단 검사는 유지했습니다.
+상세 리뷰, Red 출력, 검증 범위는 [B42-04 검토·검증 보고서](docs/phase4b2/phase4b2_b42_04_review.md)에 기록합니다.
+
+## 저장 직전 재검증·합성 HOLD 스테이징 — 운영 등록 아님
+
+운영 최소 계약 보완과 Windows 읽기 전용 실측은
+[운영 보호 저장소·ACL DRAFT v0.2](../../docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_Phase4B2_운영_보호_저장소_Windows_ACL_구성_후보안_v0.2_DRAFT_20261110.md)에 기록합니다.
+ProgramData는 우선 검증 방향이며 경로·책임자·권한 마스크는 미확정입니다.
+`diagnostics/phase4b2_environment_readonly.py`와 `diagnostics/phase4b2_storage_readonly.ps1`는 비식별 조회 전용이며
+운영 CLI에 연결되지 않습니다. 조회 성공은 실제 ACL·등록·백업/복원 PASS가 아닙니다.
+
+`stage_pending_review()`는 내부 합성 시험 진입점입니다. 실제 CLI에는 Store 설정이 없으므로
+기존처럼 Fail-Closed하며 임의 루트/ACL 우회 옵션을 제공하지 않습니다.
+Service는 현재 ZIP·관측 JSON·인덱스를 재검증하고 검토 당시의 바이트/표시값과 정확히 대조합니다.
+현재 SID·Allowlist·시계·판단 필드도 재검증하며, 중간 입력/권한 변경을 복사 전후에 다시 확인합니다.
+
+신규 `fr_b02b_protected_store.py`는 합성 임시 루트와 명시적인 보호 검증 대역을 받아
+`.review-staging-<LOCAL-OBS ID>/`를 배타 생성합니다. 같은 ID의 기존 디렉터리는 재사용하지 않습니다.
+`a1_archive.zip`, `observation.json`, `index.json`, `pending_review.json`만 신규 배타 쓰기하고
+flush/fsync 후 파일 목록·저장 바이트·보호 경계를 재검사합니다. Store는 전달된 객체의 이름만
+신뢰하지 않고 A1·4A 검증기와 내부 메타데이터 지문 연결을 독립적으로 재검증합니다.
+
+`pending_review.json`은 임시 내부 판단/세 입력 해시 연결이며 FROZEN의 `registration.json`이 아닙니다.
+반환값은 항상 `StagedReview(state=HOLD, publish_authorization=NONE)`입니다.
+등록 ID, 등록 매니페스트, `registration_complete.json`, 유효 등록 성공을 생성하지 않습니다.
+실패 잔재는 조사 대상 HOLD로 남기며 자동 삭제·복구·재해시·승격하지 않습니다.
+
+Python 3.14에서 신규 15개 테스트와 기존 129개를 포함해 **144 tests / OK**를 확인했습니다.
+실제 Windows 임시 파일 생성·배타 쓰기·재읽기·fsync·심볼릭 링크·junction 차단을 실행했습니다.
+SID·Allowlist 보호·루트 ACL 판정과 쓰기/권한 장애는 합성 대역입니다. 실제 운영 경로·관리 책임·
+Native ACL/잠금, 모든 적대적 경합, C/E 백업·재시작·철회는 검증되지 않았습니다.
+fsync와 개별 파일 생성만으로 전원 장애 내구성 또는 C/E 원자성을 주장하지 않습니다.
+[검토·검증 보고서](docs/phase4b2/phase4b2_staging_review.md)를 제공합니다. Store·핵심 테스트 diff인 `phase4b2_staging_code_and_tests.patch`는 과거 로컬 검토 산출물로 보존하며 Git 커밋에는 포함하지 않습니다.
+
+후속 후보 검토에서 A1 archive_bytes의 타입·20 MiB 상한이 공유 A1 검증기에 이미 있음을 확인하고,
+6개 잘못된 입력을 ZIP 파싱/쓰기 전에 거절하는 회귀 1개를 추가했습니다. Python 3.14 전체
+**145 tests / OK**이며 런타임 소스 수정은 없습니다. Service 콜백의 동일 바이트·SID·Allowlist·
+시각 재검증도 확인했습니다. [운영 보호 저장소·Windows ACL 후보안](../../docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_Phase4B2_운영_보호_저장소_Windows_ACL_구성_후보안_v0.1_DRAFT_20261110.md)은
+설계 검토 전용이며 운영 경로·ACL·Allowlist를 생성/변경하지 않습니다. 기존 staging patch는
+144개 단계의 검토 기록으로 보존했습니다. 이번 회귀 추가의 최신 diff는 현재 테스트 파일을 기준으로 봅니다.
+
+## 독립 ACL 실험 도구 위치
+
+ACL 하네스 4개는 `labs/phase4b2_acl/`에 있습니다. 기존 CLI·Protected Store에는 연결하지 않습니다.
+저장소 루트의 PowerShell에서 기본 계획 출력만 확인하는 명령은 다음과 같습니다.
+
+```powershell
+python -B .\tools\fr_b02b_cli\labs\phase4b2_acl\phase4b2_acl_harness.py plan
+```
+
+다른 작업 디렉터리에서는 하네스 파일의 절대 경로를 사용합니다. 자식 worker도 `__file__` 기준
+같은 폴더의 하네스 절대 경로를 사용하며, 별도 cwd 시험 계약을 유지합니다.
+`tools/fr_b02b_cli/`에서는 `python -B -m labs.phase4b2_acl.phase4b2_acl_harness plan`도 사용할 수 있습니다.
+기본 plan은 Native를 생성하지 않고, 승인 플래그 없는 SYN 명령은 기존처럼 차단합니다.
+실제 ACL/SYN 시험에는 별도 실행 승인이 필요하며 디렉터리 이동으로 승인되지 않습니다.
+[하네스 검토 기록](docs/phase4b2/phase4b2_acl_harness_review.md)과
+[preflight 검토 기록](docs/phase4b2/phase4b2_acl_preflight_review.md)의 과거 실행 결과·소스 manifest·패치는 당시 기록입니다.
 
 ## 자동 테스트
 
@@ -252,7 +372,7 @@ python .\fr_b02b_cli.py verify --fixture .\fixtures\synthetic_approval.json --re
 | `fr_b02b_a1_adapter.py` | 원본 A1 v0.2의 단일 Batch item 구조·승인 레코드·해시 대조 및 ZIP의 특정 JSON 파일만 읽기 |
 | `fixtures/` | 합성 입력만 포함. 실제 승인자/콘텐츠 사본 미포함 |
 | `tests/` | 원본 구조 합성 Fixture와 안전 중단 검증, 기존 시뮬레이션 회귀 |
-| `validation_report.md` | 실제 입력과 단일 후보 판정 대조, 원본 파일 해시·범위 기록 |
+| `docs/history/validation_report.md` | 실제 입력과 단일 후보 판정 대조, 원본 파일 해시·범위 기록 |
 
 `inspect-a1` / `inspect-a1-zip`는 파일을 쓰거나 외부 URL로 요청하지 않는다. ZIP 내부 Python 코드는 실행하지 않는다. 관련 권한·원본 증거를 **인증한 것이 아니며**, 신규 시점·권리·G4/G6 상태를 만들어내지 않는다. 두 기능은 `observation_evidence_ref` 자체를 생성하거나 P4 Writer로 넘기지 않는다.
 
