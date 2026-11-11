@@ -49,6 +49,14 @@ class WindowsStoreTests(unittest.TestCase):
         self.api.k.WriteFile.assert_not_called()
         self.api.k.SetFileInformationByHandle.assert_not_called()
 
+    def test_inventory_creation_cannot_fall_back_to_mutable_native_files(self):
+        self.assertFalse(self.api.inventory_creation_available())
+        with self.assertRaises(boundary.NativeError):
+            self.api.create_inventory(self.path.with_name("inventory-LOCAL-OBS-test.json"), self.acl)
+        self.api.k.CreateFileW.assert_not_called()
+        self.api.nt.NtCreateFile.assert_not_called()
+        self.api.k.WriteFile.assert_not_called()
+
     def test_gate_create_new_share_zero_and_failure_codes_preserved(self):
         self.api.k.CreateFileW.return_value = c.c_void_p(-1).value
         for code in (5, 32, 80, 183, 112):

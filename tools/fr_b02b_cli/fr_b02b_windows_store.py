@@ -155,6 +155,15 @@ class Win32StoreNative:
         if not self.allow_changes:
             raise NativeError(5)
 
+    def inventory_creation_available(self):
+        # No approved creation + post-write modification-prevention authority
+        # exists in this adapter. NEVER substitute reviewer-owned writable files,
+        # ACL repair, automatic elevation, or a successful ordinary file create.
+        return False
+
+    def create_inventory(self, *_args, **_kwargs):
+        raise NativeError(50)
+
     @staticmethod
     def _live(handle):
         if handle.closed:

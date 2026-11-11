@@ -219,7 +219,8 @@ class MirroredEvidenceStore:
 
     def stage(self, evidence: VerifiedObservation, pending_bytes: bytes, *,
               revalidate_input: Callable[[], None],
-              restore_store: ProtectedEvidenceStore | None = None) -> MirroredStagedReview:
+              restore_store: ProtectedEvidenceStore | None = None,
+              inventory_store=None) -> MirroredStagedReview:
         files = _validated_files(evidence, pending_bytes)
         if (not isinstance(self.primary, ProtectedEvidenceStore)
                 or not isinstance(self.backup, ProtectedEvidenceStore)
@@ -244,6 +245,13 @@ class MirroredEvidenceStore:
                     or roots != (provider.policy.primary, provider.policy.backup)
                     or any(store.root not in roots for store in all_stores)):
                 raise StagingError("mixed Native I/O or bypassed global Gate; HOLD")
+        if inventory_store is not None:
+            from fr_b02b_inventory import ProtectedInventory
+            if (restore_store is None or not isinstance(inventory_store, ProtectedInventory)
+                    or not providers or providers[0] is None
+                    or inventory_store.boundary is not providers[0]):
+                raise StagingError("inventory requires restored C/E within the same Native Gate; HOLD")
+            inventory_store.ensure_creation_available()
         restorer = None
         if restore_store is not None:
             from fr_b02b_restore import BackupRestoreVerifier
@@ -320,6 +328,8 @@ class MirroredEvidenceStore:
         try:
             with self.exclusive_section():
                 boundaries()
+                if inventory_store is not None:
+                    inventory_store.preflight(event_id)
                 if restorer is not None:
                     restorer.preflight()
                 # Check BOTH reservations before creating either one. Never reuse
@@ -343,6 +353,10 @@ class MirroredEvidenceStore:
                     check_copies(complete=True)
                     checkpoint()
                     receipt = RestoredStagedReview(*staging, digests, restored)
+                    if inventory_store is not None:
+                        inventory_store.record(evidence, pending_bytes, (*staging, restored), checkpoint)
+                        checkpoint()
+                        inventory_store.verify_record()
                 else:
                     receipt = MirroredStagedReview(*staging, digests)
             # A lock-release error prevents even a HOLD receipt being returned.
