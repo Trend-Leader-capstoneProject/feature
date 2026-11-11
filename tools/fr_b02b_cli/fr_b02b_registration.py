@@ -3,7 +3,7 @@
 Generic I/O is exercised only in isolated stores. Native final registration is
 blocked until its final-object inventory/protected creation is implemented. The
 existing HOLD inventory is never accepted as completion evidence. History is
-verified afresh inside the caller's Gate; no revocation, cleanup, recovery or
+verified afresh inside the caller's Gate; no cleanup, recovery or
 operating defaults are supplied.
 """
 
@@ -27,6 +27,141 @@ KEYS = frozenset("""schema registration_id local_evidence_id a1_archive_sha256 o
 index_sha256 trend_ref content_ref review_evidence_id source_url event_kind observation_method
 confirmed_at_utc record_created_at_utc observer_ref actor_assurance reviewer_sid reviewed_at_utc
 review_result decision_reason registration_recorded_at_utc supersedes_registration_id publish_authorization""".split())
+REVOKE_KEYS = frozenset("""schema event_id registration_id registration_sha256 revoker_sid
+revoked_at_utc reason publish_authorization""".split())
+
+
+def validate_revocation(raw, manifest, registration_sha256):
+    """Validate exact frozen bytes and their binding to a COMPLETE ACCEPTED event."""
+    from fr_b02b_reviewer_allowlist import _valid_sid
+
+    try:
+        value = _parse(raw, REVOKE_KEYS)
+        event_id = value["event_id"]
+        if (not re.fullmatch(r"REV-OBS-[0-9a-f]{32}", event_id)
+                or UUID(event_id.removeprefix("REV-OBS-")).version != 4
+                or value["schema"] != "FR_B02B_REVOKE_V1"
+                or value["registration_id"] != manifest["registration_id"]
+                or value["registration_sha256"] != registration_sha256
+                or manifest["review_result"] != "ACCEPTED"
+                or value["publish_authorization"] != "NONE"
+                or not _valid_sid(value["revoker_sid"])
+                or not observation._timestamp(manifest["registration_recorded_at_utc"])
+                <= observation._timestamp(value["revoked_at_utc"]) <= _now()):
+            raise ValueError("invalid revocation binding/clock")
+        return value
+    except (ValueError, OSError, OverflowError):
+        raise StagingError("revocation verification blocked; HOLD") from None
+
+
+@dataclass(frozen=True)
+class CurrentReviewState:
+    registration_id: str
+    effective_review_state: str
+    status: str = field(default="PASS_PROTECTED_LOCAL_INTEGRITY_ONLY", init=False)
+    publish_authorization: str = field(default="NONE", init=False)
+    external_eligible: bool = field(default=False, init=False)
+
+
+@dataclass(frozen=True)
+class InternalRevocation:
+    registration_id: str
+    event_id: str
+    status: str = field(default="REVOKED_LOCAL_REGISTRATION", init=False)
+    publish_authorization: str = field(default="NONE", init=False)
+    external_eligible: bool = field(default=False, init=False)
+
+
+def _history_operation(mirror, registration_id, *, allowlist_source, reason=None):
+    """Isolated Core only: hold the same Gate across auth, history, writes and verdict."""
+    from fr_b02b_review_service import require_process_sid
+    from fr_b02b_reviewer_allowlist import require_authorized_sid
+
+    try:
+        _id(registration_id)
+        stores = (mirror.primary, mirror.backup)
+        if (any(not isinstance(s, ProtectedEvidenceStore) or s._native_boundary is not None for s in stores)
+                or not callable(mirror.verify_layout) or not callable(mirror.exclusive_section)):
+            raise StagingError("Core history environment unavailable; HOLD")
+        roots = tuple(s.root for s in stores)
+        layout, gate = mirror.verify_layout, mirror.exclusive_section
+        sid = None
+        last_clock = None
+
+        def environment():
+            nonlocal sid, last_clock
+            if (stores != (mirror.primary, mirror.backup) or tuple(s.root for s in stores) != roots
+                    or mirror.verify_layout != layout or mirror.exclusive_section != gate
+                    or any(s._native_boundary is not None for s in stores)
+                    or layout(*roots) is not True):
+                raise StagingError("history protection/layout changed; HOLD")
+            current = require_authorized_sid(require_process_sid(), allowlist_source)
+            if sid is not None and current != sid:
+                raise StagingError("revoker identity changed; HOLD")
+            sid = current
+            clock = _now()
+            if last_clock is not None and clock < last_clock:
+                raise StagingError("history operation clock regressed; HOLD")
+            last_clock = clock
+
+        with gate():
+            environment()
+            history = RegistrationHistory(stores, revalidate_input=environment)
+            if registration_id not in history.manifests:
+                raise StagingError("registration not found; HOLD")
+            manifest = history.manifests[registration_id]
+            events = history.revocations[registration_id]
+            if reason is None:
+                history.check()
+                state = "REVOKED" if events else manifest["review_result"]
+                result = CurrentReviewState(registration_id, state)
+            else:
+                if not isinstance(reason, str) or not reason.strip():
+                    raise StagingError("revocation reason required; HOLD")
+                if manifest["review_result"] != "ACCEPTED":
+                    raise StagingError("only ACCEPTED registrations can be revoked; HOLD")
+                if events:
+                    # Multiple valid historical events are ordered by time then ID;
+                    # repeated requests never allocate or append another event.
+                    event = max((validate_revocation(raw, manifest,
+                        history.completions[registration_id].registration_sha256) for raw in events.values()),
+                        key=lambda value: (observation._timestamp(value["revoked_at_utc"]), value["event_id"]))
+                else:
+                    event = dict(schema="FR_B02B_REVOKE_V1", event_id="REV-OBS-" + uuid4().hex,
+                        registration_id=registration_id,
+                        registration_sha256=history.completions[registration_id].registration_sha256,
+                        revoker_sid=sid, revoked_at_utc=_now().isoformat().replace("+00:00", "Z"),
+                        reason=reason.strip(), publish_authorization="NONE")
+                    raw = observation.canonical_bytes(event)
+                    validate_revocation(raw, manifest, event["registration_sha256"])
+                    for store in stores:
+                        history.check()
+                        validate_revocation(raw, manifest, event["registration_sha256"])
+                        folder = store.root / "registrations" / registration_id
+                        directory = folder / "revocations"
+                        store._create_staging(directory)  # Exclusive; never adopt residue.
+                        store._checked(directory, directory=True)
+                        history._pin(directory)
+                        history.names[folder] = history.names[folder] | {"revocations"}
+                        history.names[directory] = frozenset()
+                        history.check()
+                        path = directory / (event["event_id"] + ".json")
+                        store._write_file(path, raw)
+                        store._checked(path, directory=False)
+                        history._pin(path)
+                        history.saved[path] = (store, raw)
+                        history.names[directory] = frozenset({path.name})
+                        history.check()
+                    # New independent scan validates C/E event sets/bytes/links.
+                    verified = RegistrationHistory(stores, revalidate_input=environment)
+                    if verified.revocations[registration_id] != {event["event_id"] + ".json": raw}:
+                        raise StagingError("revocation final mismatch; HOLD")
+                    verified.check()
+                history.check()
+                result = InternalRevocation(registration_id, event["event_id"])
+        return result  # Gate release failure suppresses success.
+    except (ValueError, OSError, TypeError, OverflowError):
+        raise StagingError("protected history operation blocked; HOLD") from None
 
 
 def _id(value):
@@ -166,7 +301,8 @@ def verify_registration_copies(stores, folders, evidence, pending_bytes, *, reva
     return completion
 
 
-def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, revalidate_input):
+def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, revalidate_input,
+                                allow_revocations=False):
     """Caller holds Gate. Copy-integrity only; no history/restart/operating authorization."""
     try:
         identities = {}
@@ -196,13 +332,20 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
         if root_ids[0] == root_ids[1]:
             raise ValueError("two paths reference one copy root")
         expected = _validated_files(evidence, pending_bytes)
+        def file_set(folder):
+            names = {path.name for path in folder.iterdir()}
+            if names != REGISTRATION_FILES and not (allow_revocations and names == REGISTRATION_FILES | {"revocations"}):
+                raise ValueError("incomplete/unexpected registration set")
+            return names
+
         copies = []
+        namespaces = []
         for store, folder in zip(stores, folders):
             revalidate_input()
             store._checked(folder, directory=True)
             pin(folder)
-            if {path.name for path in folder.iterdir()} != REGISTRATION_FILES:
-                raise ValueError("incomplete registration set")
+            names = file_set(folder)
+            namespaces.append(names)
             saved = {}
             for name in sorted(REGISTRATION_FILES):
                 revalidate_input()
@@ -221,15 +364,15 @@ def _verify_registration_copies(stores, folders, evidence, pending_bytes, *, rev
             validate_complete_marker(saved["registration_complete.json"], saved["registration.json"], evidence, pending_bytes)
             copies.append(saved)
             store._checked(folder, directory=True)
-            if {path.name for path in folder.iterdir()} != REGISTRATION_FILES:
+            if file_set(folder) != names:
                 raise ValueError("registration set changed")
         if copies[0] != copies[1]:
             raise ValueError("two-copy disagreement")
-        for store, folder, saved in zip(stores, folders, copies):
+        for store, folder, saved, names in zip(stores, folders, copies, namespaces):
             revalidate_input()
             store._checked(store.root, directory=True)
             store._checked(folder, directory=True)
-            if {path.name for path in folder.iterdir()} != REGISTRATION_FILES:
+            if file_set(folder) != names:
                 raise ValueError("registration set changed before verdict")
             for name, raw in saved.items():
                 path = store._checked(folder / name, directory=False)
@@ -265,8 +408,8 @@ def _stored_review(files):
 class RegistrationHistory:
     """Ephemeral verified snapshot, NOT a persisted Native trust inventory.
 
-    Generic I/O is for isolated Core stores only. Native final-object trust and
-    revocations remain unavailable and therefore fail closed.
+    Generic I/O is for isolated Core stores only. Native final-object trust
+    remains unavailable and therefore fails closed.
     """
     def __init__(self, stores, *, revalidate_input):
         if (len(stores) != 2 or any(not isinstance(store, ProtectedEvidenceStore)
@@ -280,6 +423,7 @@ class RegistrationHistory:
         self.roots = tuple(store.root for store in stores)
         self.names, self.saved, self.identities = {}, {}, {}
         self.manifests, self.completions = {}, {}
+        self.revocations = {}
         try:
             names = []
             for store in stores:
@@ -304,8 +448,10 @@ class RegistrationHistory:
                 for store, folder in zip(stores, folders):
                     store._checked(folder, directory=True)
                     self._pin(folder)
-                    if {p.name for p in folder.iterdir()} != REGISTRATION_FILES:
+                    members = frozenset(p.name for p in folder.iterdir())
+                    if members not in (REGISTRATION_FILES, REGISTRATION_FILES | {"revocations"}):
                         raise ValueError("incomplete/unexpected registration or revocation")
+                    self.names[folder] = members
                     files = {}
                     for name in sorted(REGISTRATION_FILES):
                         self.revalidate_input()
@@ -322,8 +468,33 @@ class RegistrationHistory:
                     raise ValueError("history copies disagree")
                 evidence, pending = _stored_review(copies[0])
                 completion, data = _verify_registration_copies(
-                    stores, folders, evidence, pending, revalidate_input=self.revalidate_input)
+                    stores, folders, evidence, pending, revalidate_input=self.revalidate_input,
+                    allow_revocations=True)
                 self.manifests[rid], self.completions[rid] = data, completion
+                events = []
+                for store, folder in zip(stores, folders):
+                    current = {}
+                    if "revocations" in self.names[folder]:
+                        directory = store._checked(folder / "revocations", directory=True)
+                        self._pin(directory)
+                        names = frozenset(p.name for p in directory.iterdir())
+                        if not names or len(names) > 1024:
+                            raise ValueError("empty/oversized revocations")
+                        self.names[directory] = names
+                        for name in sorted(names):
+                            self.revalidate_input()
+                            path = store._checked(directory / name, directory=False)
+                            self._pin(path)
+                            raw = store._read_copy(path, observation.MAX_RECORD_BYTES + 1)
+                            event = validate_revocation(raw, data, completion.registration_sha256)
+                            if name != event["event_id"] + ".json":
+                                raise ValueError("revocation filename mismatch")
+                            current[name] = raw
+                            self.saved[path] = (store, raw)
+                    events.append(current)
+                if events[0] != events[1]:
+                    raise ValueError("revocation copies disagree")
+                self.revocations[rid] = events[0]
             from fr_b02b_inventory import registration_history_tip
             self.tips = {}
             for event in {row["local_evidence_id"] for row in self.manifests.values()}:
@@ -351,10 +522,11 @@ class RegistrationHistory:
             extra = {path.name for path in additional if path.parent == container}
             if {p.name for p in container.iterdir()} != self.names[container] | extra:
                 raise StagingError("registration history namespace changed; HOLD")
-            for rid in self.names[container]:
-                folder = store._checked(container / rid, directory=True)
-                if {p.name for p in folder.iterdir()} != REGISTRATION_FILES:
-                    raise StagingError("registration history file set changed; HOLD")
+            for path, names in self.names.items():
+                if path != container and path.is_relative_to(container):
+                    store._checked(path, directory=True)
+                    if {p.name for p in path.iterdir()} != names:
+                        raise StagingError("registration history file set changed; HOLD")
         for path, (store, raw) in self.saved.items():
             store._checked(path, directory=False)
             self._pin(path)
@@ -369,6 +541,8 @@ class RegistrationHistory:
         tip = self.tips.get(current["local_evidence_id"])
         if tip is not None:
             row = self.manifests[tip]
+            if self.revocations[tip]:
+                raise StagingError("revoked observation cannot be registered again; HOLD")
             decision_keys = {"reviewer_sid", "reviewed_at_utc", "review_result", "decision_reason"}
             if any(row[key] != value for key, value in current.items() if key not in decision_keys):
                 raise StagingError("observation already bound to different evidence; HOLD")

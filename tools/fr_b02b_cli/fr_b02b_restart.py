@@ -27,6 +27,7 @@ class RestartAssessment:
     gate_status: str
     inspection_scope: str
     may_attempt_new_work: bool = False
+    effective_review_state: str | None = None
     valid_registration: bool = field(default=False, init=False)
     publish_authorization: str = field(default="NONE", init=False)
     requires_gate_recheck: bool = field(default=True, init=False)
@@ -245,7 +246,7 @@ def inspect_restart(policy=None, *, api=None, expected_objects=None):
                              view.scope if view else "NONE")
 
 
-def inspect_registration_history(stores, *, revalidate_environment):
+def inspect_registration_history(stores, *, revalidate_environment, registration_id=None):
     """Read-only generic Core inspection; never a Native/CLI write permit.
 
     Isolated tests supply fresh protection/layout facts. A successful scan still
@@ -258,7 +259,13 @@ def inspect_registration_history(stores, *, revalidate_environment):
             raise StagingError("unverified history environment; HOLD")
         history = RegistrationHistory(stores, revalidate_input=revalidate_environment)
         history.check()
+        state = None
+        if registration_id is not None:
+            from fr_b02b_registration import _id
+            _id(registration_id)
+            row = history.manifests[registration_id]
+            state = "REVOKED" if history.revocations[registration_id] else row["review_result"]
         return RestartAssessment("HOLD", "REGISTRATION_HISTORY_VERIFIED_RECHECK_REQUIRED",
-                                 "UNKNOWN", "CONTENT_VERIFIED")
-    except (StagingError, OSError, TypeError):
+                                 "UNKNOWN", "CONTENT_VERIFIED", effective_review_state=state)
+    except (StagingError, OSError, TypeError, KeyError):
         return RestartAssessment("HOLD", "REGISTRATION_HISTORY_UNVERIFIED", "UNKNOWN", "NONE")

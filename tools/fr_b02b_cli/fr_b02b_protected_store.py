@@ -217,6 +217,18 @@ class MirroredEvidenceStore:
             return ()
         return (self.primary.root, self.backup.root)
 
+    def verify_current(self, registration_id, *, allowlist_source=None):
+        """Internal Core integrity/state query under Gate; Native remains disabled."""
+        from fr_b02b_registration import _history_operation
+        return _history_operation(self, registration_id, allowlist_source=allowlist_source)
+
+    def revoke(self, registration_id, *, reason, allowlist_source=None):
+        """Append-only Core revocation; no public CLI or operational defaults."""
+        from fr_b02b_registration import _history_operation
+        if reason is None:
+            raise StagingError("revocation reason required; HOLD")
+        return _history_operation(self, registration_id, allowlist_source=allowlist_source, reason=reason)
+
     def stage(self, evidence: VerifiedObservation, pending_bytes: bytes, *,
               revalidate_input: Callable[[], None],
               restore_store: ProtectedEvidenceStore | None = None,
