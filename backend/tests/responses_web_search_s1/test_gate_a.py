@@ -1,4 +1,4 @@
-"""First Red slice of frozen v0.2.2 (synthetic compatibility only).
+"""Red slices 1 and 2 of frozen v0.2.2 (synthetic compatibility only).
 
 Test binding for the document's proposed internal interface:
 app.responses_web_search.normalizer.normalize_response(response, config),
@@ -7,16 +7,16 @@ execution_evidence has the attributes named in frozen section 2.2.
 This is a project test binding, not an SDK/public API contract.
 Imports are deferred to test execution; missing S1 must never break collection.
 
-Covered Gate A portions: A-01/A-04, B-01/B-02/B-06, C-03/C-05a/C-05b,
-D-05, L-01..L-06. S1 Preview and production orchestration are NOT tested by
+Covered Gate A portions: A-01..A-06, B-01..B-06, C-03/C-05a/C-05b,
+D-05, L-01..L-06, X-06. S1 Preview and production orchestration are NOT tested by
 the S0 integration helper below; their Gate B assertions remain pending.
 
-Remaining Gate A/B AC IDs (59 of 74; no implicit coverage claims):
-A-02/A-03/A-05..A-09; B-03..B-05/B-07..B-09;
+Remaining Gate A/B AC IDs (51 of 74; no implicit coverage claims):
+A-07..A-09; B-07..B-09;
 C-01/C-02/C-04/C-05c/C-06..C-08; D-01..D-04/D-06..D-09;
 E-01..E-03/E-04a..E-04c/E-05..E-07/E-09/E-10;
-F-01..F-06; P-01..P-08; X-01..X-06.
-Also pending: Gate B Preview assertions for the 15 selected AC IDs,
+F-01..F-06; P-01..P-08; X-01..X-05.
+Also pending: Gate B Preview assertions for the 23 selected AC IDs,
 citation_trace diagnostics, and full production S0 non-call orchestration.
 E-08 belongs exclusively to Gate C; Gate C/D remain unverified.
 """
@@ -250,3 +250,121 @@ def test_l05_l06_annotation_count_without_truncation(count, monkeypatch):
         assert_accepted(result)
     else:
         assert_rejected(result, "S1_ANNOTATIONS_LIMIT_EXCEEDED")
+
+
+def assert_search_not_executed(result, calls):
+    assert result.outcome == "NORMALIZED"
+    assert result.execution_evidence.response_status == "completed"
+    assert result.execution_evidence.web_search_calls_observed == calls
+    assert result.execution_evidence.completed_search_actions == 0
+    assert result.execution_evidence.assistant_messages_observed == 1
+    parsed, accepted, issues = s0(result)
+    assert parsed.status == "SEARCH_NOT_EXECUTED"
+    assert parsed.tool_calls_observed == calls
+    assert parsed.simulated_web_search_executed is False
+    assert parsed.candidates == accepted == issues == ()
+    parser = importlib.import_module("app.responses_web_search.parser")
+    validator = importlib.import_module("app.responses_web_search.validator")
+    parser.parse_response.assert_called_once()
+    validator.validate_candidates.assert_not_called()
+
+
+def test_a02_absent_search_is_not_fabricated(monkeypatch):
+    payload = response()
+    del payload["output"][0]
+    assert [item["type"] for item in payload["output"]] == ["message"]
+    result = normalize(payload, monkeypatch)
+    assert_search_not_executed(result, calls=0)
+    assert [item["type"] for item in result.parser_input["output"]] == ["message"]
+    assert result.parser_input["output"][0]["content"] == [content(response())]
+
+
+def test_a03_open_page_is_not_search_evidence(monkeypatch):
+    payload = response()
+    payload["output"][0]["action"]["type"] = "open_page"
+    result = normalize(payload, monkeypatch)
+    assert_search_not_executed(result, calls=1)
+    projected = result.parser_input["output"]
+    assert [item["type"] for item in projected] == ["web_search_call", "message"]
+    assert projected[0]["status"] == "completed"
+    assert projected[0]["action"]["type"] == "open_page"
+    assert projected[1]["content"] == [content(response())]
+
+
+def test_a05_failed_tool_is_not_promoted_to_completed(monkeypatch):
+    payload = response()
+    payload["output"][0]["status"] = "failed"
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result, calls=1, searches=0)
+
+
+def test_a06_incomplete_response_is_rejected(monkeypatch):
+    payload = response()
+    payload["status"] = "incomplete"
+    result = normalize(payload, monkeypatch)
+    # Top-level rejection does not invent an observation-count policy.
+    assert result.outcome == "REJECTED"
+    assert result.parser_input is None
+
+
+def test_b03_explicit_incomplete_reasoning_cannot_be_discarded(monkeypatch):
+    payload = response()
+    auxiliary = reasoning()
+    auxiliary["status"] = "incomplete"
+    payload["output"].append(auxiliary)
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+
+
+def test_b04_two_assistant_messages_cannot_be_selected_or_merged(monkeypatch):
+    payload = response()
+    second = copy.deepcopy(payload["output"][1])
+    second["id"] = "msg_synthetic_second"
+    payload["output"].append(second)
+    assert sum(item["type"] == "message" for item in payload["output"]) == 2
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+    assert result.execution_evidence.assistant_messages_observed == 2
+
+
+def test_b05_two_output_text_blocks_cannot_be_selected_or_merged(monkeypatch):
+    payload = response()
+    payload["output"][1]["content"].append(copy.deepcopy(content(payload)))
+    assert len(payload["output"][1]["content"]) == 2
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+
+
+def test_x06_original_evidence_overrides_one_call_projection(monkeypatch):
+    payload = response()
+    second = copy.deepcopy(payload["output"][0])
+    second["id"] = "ws_synthetic_second"
+    payload["output"].append(second)
+    original = copy.deepcopy(payload)
+    assert sum(item["type"] == "web_search_call" for item in original["output"]) == 2
+
+    # Independent counterexample: S0 alone cannot detect a call hidden upstream.
+    # This is a deliberately altered fixture, never a fake Normalizer result.
+    truncated = copy.deepcopy(original)
+    del truncated["output"][-1]
+    assert sum(item["type"] == "web_search_call" for item in truncated["output"]) == 1
+    parser = importlib.import_module("app.responses_web_search.parser")
+    validator = importlib.import_module("app.responses_web_search.validator")
+    config = importlib.import_module("app.responses_web_search.types").SearchRunConfig()
+    raw_parsed = parser.parse_response(original, config)
+    assert raw_parsed.status == "INVALID_OR_INCOMPLETE_RESPONSE"
+    assert raw_parsed.reason_codes == ("TOOL_CALL_LIMIT_EXCEEDED",)
+    assert raw_parsed.tool_calls_observed == 2
+    assert raw_parsed.candidates == ()
+    truncated_parsed = parser.parse_response(truncated, config)
+    assert truncated_parsed.status is None
+    assert truncated_parsed.tool_calls_observed == 1
+    accepted, issues = validator.validate_candidates(truncated_parsed)
+    assert len(accepted) == 1
+    assert accepted[0].source_url == URL
+    assert issues == ()
+
+    # Pass the complete original, never the truncated counterpart, to S1.
+    result = normalize(payload, monkeypatch)
+    assert payload == original
+    assert_rejected(result, "TOOL_CALL_LIMIT_EXCEEDED", calls=2, searches=2)
