@@ -91,8 +91,17 @@ def pipeline(monkeypatch, isolated_session):
     validator = importlib.import_module("app.responses_web_search.validator")
     service = importlib.import_module("app.responses_web_search.service")
     types = importlib.import_module("app.responses_web_search.types")
+    normalization_results = []
+
+    def observe_normalization(*args, **kwargs):
+        result = normalizer_impl(*args, **kwargs)
+        normalization_results.append(result)
+        return result
+
+    normalizer_impl = normalizer.normalize_response
     spies = SimpleNamespace(
-        normalize=Mock(wraps=normalizer.normalize_response),
+        normalize=Mock(wraps=observe_normalization),
+        normalization_results=normalization_results,
         parse=Mock(wraps=parser.parse_response),
         validate=Mock(wraps=validator.validate_candidates),
         fixture_service=Mock(side_effect=AssertionError("S0 service is forbidden")),
@@ -138,8 +147,12 @@ def assert_flow(pipeline, payload, *, normalized):
         return
     projected = pipeline.parse.call_args.args[0]
     pipeline.parse.assert_called_once_with(projected, pipeline.config)
-    # Selected responses project unchanged; no test-side normalization replica.
-    assert projected == payload
+    result, = pipeline.normalization_results
+    assert result.outcome == "NORMALIZED"
+    assert projected is result.parser_input
+    # F-BASE variants preserve status/output, not all top-level metadata (id).
+    assert projected["status"] == payload["status"]
+    assert projected["output"] == payload["output"]
     pipeline.validate.assert_called_once()
     parsed_input = pipeline.validate.call_args.args[0]
     assert parsed_input.status is None
