@@ -10,13 +10,15 @@ Imports are deferred to test execution; missing S1 must never break collection.
 Covered Gate A portions: A-01..A-09, B-01..B-09, C-03/C-05a/C-05b/C-08,
 D-01/D-02/D-05, L-01..L-06, X-06. Preview and orchestration are NOT tested by
 the S0 integration helper below; their Gate B assertions remain pending.
+Follow-up module additionally covers C-02/C-04/C-05c/C-06, D-03/D-04/D-07,
+F-05/F-06, X-03 and original citation_trace coordinates (42 AC portions total).
 
-Remaining Gate A/B AC IDs (42 of 74; no implicit coverage claims):
-C-01/C-02/C-04/C-05c/C-06/C-07; D-03/D-04/D-06..D-09;
+Remaining Gate A/B AC IDs (32 of 74; no implicit coverage claims):
+C-01/C-07; D-06/D-08/D-09;
 E-01..E-03/E-04a..E-04c/E-05..E-07/E-09/E-10;
-F-01..F-06; P-01..P-08; X-01..X-05.
-Also pending: Gate B Preview assertions for the 32 selected AC IDs,
-citation_trace diagnostics, and full production S0 non-call orchestration.
+F-01..F-04; P-01..P-08; X-01/X-02/X-04/X-05.
+Also pending: Gate B Preview assertions for the 42 selected AC IDs,
+remaining citation diagnostics and full production S0 non-call orchestration.
 E-08 belongs exclusively to Gate C; Gate C/D remain unverified.
 """
 
