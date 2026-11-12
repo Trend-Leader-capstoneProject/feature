@@ -207,7 +207,7 @@ def test_candidate_needs_matching_citation_not_just_sources(kind):
 
 
 @pytest.mark.parametrize("url", [
-    "", "relative/path", "javascript:alert(1)", "file:///C:/private",
+    "relative/path", "javascript:alert(1)", "file:///C:/private",
     "https://user:pass@vendor.example.test/", "http://localhost/",
     "http://127.0.0.1/", "http://[::1]/", "http://2130706433/",
     "https://vendor.example.test:444/", "https://vendor.example.test:/",
@@ -311,3 +311,57 @@ def test_fixture_adapter_reads_exactly_once():
     adapter = module.FixtureAdapter(response=response())
     module.run_preview(config=module.SearchRunConfig(), adapter=adapter)
     assert adapter.calls == 1
+
+
+@pytest.mark.parametrize("field", [
+    "topic_draft", "source_url", "source_title_reference",
+])
+@pytest.mark.parametrize("value", [None, "", " \t\n", 42, False, True])
+def test_r01_required_fields_reject_invalid_values(field, value):
+    item = candidate()
+    item[field] = value
+    # Keep annotation structure valid: R-01 changes only the candidate field.
+    payload = response()
+    content(payload)["text"] = json.dumps({"candidates": [item]})
+    preview = run(payload)
+    assert preview["status"] == "NO_VALID_CANDIDATES"
+    assert preview["candidates"] == []
+    assert preview["issues"] == [{
+        "candidate_index": 0, "code": "CANDIDATE_FIELDS_INVALID",
+    }]
+    assert_safety(preview)
+
+
+@pytest.mark.parametrize("annotations", [
+    None, {}, "invalid", [None], [42], [{}],
+    [{"type": "url_citation"}],
+    [{"type": "url_citation", "url": None}],
+    [{"type": "url_citation", "url": 42}],
+    [{"type": "url_citation", "url": False}],
+    [{"type": "url_citation", "url": ""}],
+    [{"type": "url_citation", "url": "  "}],
+    [{"type": "unknown", "url": candidate()["source_url"]}],
+])
+@pytest.mark.parametrize("mixed", [False, True])
+def test_r02_malformed_annotations_fail_closed_even_with_valid_citation(
+    annotations, mixed,
+):
+    payload = response()
+    if mixed and isinstance(annotations, list):
+        annotations = content(payload)["annotations"] + annotations
+    content(payload)["annotations"] = annotations
+    preview = run(payload)
+    assert preview["status"] == "INVALID_OR_INCOMPLETE_RESPONSE"
+    assert preview["candidates"] == []
+    assert_safety(preview)
+
+
+def test_r02_valid_and_nonmatching_string_citations_can_coexist():
+    payload = response()
+    content(payload)["annotations"].append({
+        "type": "url_citation", "url": "https://other.example.test/",
+    })
+    preview = run(payload)
+    assert preview["status"] == "PREVIEW_READY"
+    assert len(preview["candidates"]) == 1
+    assert_safety(preview)
