@@ -341,50 +341,57 @@ class MirroredEvidenceStore:
             ProtectedEvidenceStore._revalidate(revalidate_input)
             boundaries()
 
+        def stage_in_scope():
+            # Keep this operation local: only the owning Wrapper invokes it,
+            # synchronously inside its verified Gate. No Session escapes.
+            receipt = None
+            boundaries()
+            if inventory_store is not None:
+                inventory_store.preflight(event_id)
+            if registration_core is not None:
+                def history_checkpoint():
+                    ProtectedEvidenceStore._revalidate(revalidate_input)
+                    boundaries()
+                receipt = registration_core.preflight(
+                    stores, restore_store, revalidate_input=history_checkpoint)
+            if receipt is None:
+                if restorer is not None:
+                    restorer.preflight()
+                # Check BOTH reservations before creating either one. Never
+                # adopt partial staging or invent another evidence ID.
+                for folder in staging:
+                    try:
+                        folder.lstat()
+                    except FileNotFoundError:
+                        continue
+                    raise StagingError("protected staging collision; HOLD")
+                checkpoint()
+                for store, expected_dir in zip(stores, staging):
+                    staged = store.stage(evidence, pending_bytes, revalidate_input=checkpoint)
+                    if staged.staging_dir != expected_dir or staged.state != "HOLD":
+                        raise StagingError("unexpected staging receipt; HOLD")
+                    checkpoint()
+                check_copies(complete=True)
+                checkpoint()
+                if restorer is not None:
+                    restored = restorer.run(stores, staging, checkpoint)
+                    check_copies(complete=True)
+                    checkpoint()
+                    receipt = RestoredStagedReview(*staging, digests, restored)
+                    if inventory_store is not None:
+                        inventory_store.record(evidence, pending_bytes, (*staging, restored), checkpoint)
+                        checkpoint()
+                        inventory_store.verify_record()
+                    if registration_core is not None:
+                        receipt = registration_core.finish(stores, staging, restore_store, checkpoint, receipt)
+                else:
+                    receipt = MirroredStagedReview(*staging, digests)
+            return receipt
+
         receipt = None
         try:
             with self.exclusive_section():
-                boundaries()
-                if inventory_store is not None:
-                    inventory_store.preflight(event_id)
-                if registration_core is not None:
-                    def history_checkpoint():
-                        ProtectedEvidenceStore._revalidate(revalidate_input)
-                        boundaries()
-                    receipt = registration_core.preflight(
-                        stores, restore_store, revalidate_input=history_checkpoint)
-                if receipt is None:
-                    if restorer is not None:
-                        restorer.preflight()
-                    # Check BOTH reservations before creating either one. Never
-                    # adopt partial staging or invent another evidence ID.
-                    for folder in staging:
-                        try:
-                            folder.lstat()
-                        except FileNotFoundError:
-                            continue
-                        raise StagingError("protected staging collision; HOLD")
-                    checkpoint()
-                    for store, expected_dir in zip(stores, staging):
-                        staged = store.stage(evidence, pending_bytes, revalidate_input=checkpoint)
-                        if staged.staging_dir != expected_dir or staged.state != "HOLD":
-                            raise StagingError("unexpected staging receipt; HOLD")
-                        checkpoint()
-                    check_copies(complete=True)
-                    checkpoint()
-                    if restorer is not None:
-                        restored = restorer.run(stores, staging, checkpoint)
-                        check_copies(complete=True)
-                        checkpoint()
-                        receipt = RestoredStagedReview(*staging, digests, restored)
-                        if inventory_store is not None:
-                            inventory_store.record(evidence, pending_bytes, (*staging, restored), checkpoint)
-                            checkpoint()
-                            inventory_store.verify_record()
-                        if registration_core is not None:
-                            receipt = registration_core.finish(stores, staging, restore_store, checkpoint, receipt)
-                    else:
-                        receipt = MirroredStagedReview(*staging, digests)
+                receipt = stage_in_scope()
             # A lock-release error prevents even a HOLD receipt being returned.
             if receipt is None:
                 raise StagingError("protected exclusive section incomplete; HOLD")

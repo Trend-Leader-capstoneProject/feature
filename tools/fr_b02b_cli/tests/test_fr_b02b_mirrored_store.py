@@ -45,6 +45,56 @@ class MirroredStoreTests(unittest.TestCase):
                 "index.json": evidence.index_bytes,
                 "pending_review.json": self.base.metadata()}
 
+    def test_standalone_owns_one_gate_across_checks_and_both_copies(self):
+        events = []
+
+        @contextmanager
+        def gate():
+            events.append("acquire")
+            with self.exclusive_section():
+                yield
+                events.append("release")
+
+        def layout(*roots):
+            self.assertTrue(self.locked)
+            events.append("check")
+            return True
+
+        self.store.exclusive_section = gate
+        self.layout.side_effect = layout
+        result = self.stage()
+        events.append("returned")
+        self.assertEqual(events.count("acquire"), 1)
+        self.assertGreater(events.count("check"), 0)
+        self.assertEqual(events[0], "acquire")
+        self.assertEqual(events[-2:], ["release", "returned"])
+        self.assertEqual(result.state, "HOLD")
+        self.assertFalse(self.locked)
+
+    def test_gate_acquisition_failure_never_checks_layout_or_writes(self):
+        @contextmanager
+        def denied():
+            raise OSError("synthetic Gate denial")
+            yield
+
+        self.store.exclusive_section = Mock(side_effect=denied)
+        with patch.object(storage, "_write_exclusive") as writes:
+            with self.assertRaises(service.ReviewBlocked):
+                self.stage()
+        self.store.exclusive_section.assert_called_once_with()
+        self.layout.assert_not_called()
+        writes.assert_not_called()
+        self.assertEqual(list(self.base.root.iterdir()), [])
+        self.assertEqual(list(self.backup_root.iterdir()), [])
+
+    def test_invalid_input_is_rejected_before_gate_acquisition(self):
+        self.store.exclusive_section = Mock()
+        forged = replace(self.base.pending.evidence, index_bytes=b"invalid")
+        with self.assertRaises(storage.StagingError):
+            self.store.stage(forged, self.base.metadata(), revalidate_input=Mock())
+        self.store.exclusive_section.assert_not_called()
+        self.layout.assert_not_called()
+
     def test_both_copies_match_original_bytes_and_sha256_but_remain_hold(self):
         before = self.base.originals()
         writer = storage._write_exclusive

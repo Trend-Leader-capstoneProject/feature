@@ -41,6 +41,38 @@ class RegistrationCoreTests(unittest.TestCase):
     def manifest(self):
         return registration.build_manifest(self.base.pending.evidence, self.base.metadata())
 
+    def test_standalone_preflight_and_finish_share_one_gate_and_release_before_return(self):
+        events = []
+        fixture = self.fixture.fixture
+        preflight = registration.RegistrationCore.preflight
+        finish = registration.RegistrationCore.finish
+
+        @contextmanager
+        def gate():
+            events.append("acquire")
+            with fixture.exclusive_section():
+                yield
+                events.append("release")
+
+        def checked_preflight(core, *args, **kwargs):
+            self.assertTrue(fixture.locked)
+            events.append("preflight")
+            return preflight(core, *args, **kwargs)
+
+        def checked_finish(core, *args, **kwargs):
+            self.assertTrue(fixture.locked)
+            events.append("finish")
+            return finish(core, *args, **kwargs)
+
+        self.mirror.exclusive_section = gate
+        with patch.object(registration.RegistrationCore, "preflight", checked_preflight), \
+                patch.object(registration.RegistrationCore, "finish", checked_finish):
+            result = self.call()
+        events.append("returned")
+        self.assertEqual(events, ["acquire", "preflight", "finish", "release", "returned"])
+        self.assertTrue(result.completion.copies_complete)
+        self.assertFalse(fixture.locked)
+
     def call(self):
         with patch.object(auth, "get_current_process_sid", return_value=self.base.pending.reviewer_sid):
             return service.stage_pending_review(
