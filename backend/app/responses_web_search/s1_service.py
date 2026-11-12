@@ -6,6 +6,16 @@ from .types import SearchRunConfig
 from .validator import validate_candidates
 
 
+class SyntheticUpstreamError(Exception):
+    """S1 합성 Adapter 전용 오류. 실제 SDK·S0 Fixture 오류와 독립적이다."""
+
+    def __init__(self, kind: str) -> None:
+        if not isinstance(kind, str) or kind not in {"401", "403", "429", "5xx"}:
+            raise ValueError("invalid synthetic upstream error kind")
+        self.kind = kind
+        super().__init__("synthetic upstream failure")
+
+
 def _safety() -> dict[str, object]:
     return {
         "review_status": "REVIEW_REQUIRED",
@@ -34,7 +44,7 @@ def run_synthetic_preview(
     }
     try:
         response = adapter.read()
-    except TimeoutError:
+    except (TimeoutError, SyntheticUpstreamError):
         # 예외 원문이나 임의의 신규 진단 코드를 Preview에 복사하지 않는다.
         return preview
 
