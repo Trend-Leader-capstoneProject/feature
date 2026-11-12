@@ -13,12 +13,12 @@ the S0 integration helper below; their Gate B assertions remain pending.
 Follow-up module additionally covers C-02/C-04/C-05c/C-06, D-03/D-04/D-07,
 F-05/F-06, X-03 and original citation_trace coordinates (42 AC portions total).
 
-Remaining Gate A/B AC IDs (32 of 74; no implicit coverage claims):
-C-01/C-07; D-06/D-08/D-09;
-E-01..E-03/E-04a..E-04c/E-05..E-07/E-09/E-10;
-F-01..F-04; P-01..P-08; X-01/X-02/X-04/X-05.
-Also pending: Gate B Preview assertions for the 42 selected AC IDs,
-remaining citation diagnostics and full production S0 non-call orchestration.
+Closeout module records exact existing-test mappings and the remaining cases.
+All 55 A/B/C/D/F/L/X AC IDs now have their Gate A portions covered; this does
+not complete their Preview/execution/security assertions or Gate A/B overall.
+Remaining Gate B AC IDs (19 of 74): E-01..E-03/E-04a..E-04c/E-05..E-07/
+E-09/E-10 and P-01..P-08. Gate B Preview assertions for Gate A IDs and full
+production S0 non-call orchestration remain pending as well.
 E-08 belongs exclusively to Gate C; Gate C/D remain unverified.
 """
 
@@ -157,10 +157,12 @@ def test_b06_refusal_blocks_otherwise_valid_candidates(monkeypatch):
     assert "SYNTHETIC_REFUSAL_PRIVATE_MARKER" not in repr(result.reason_codes)
 
 
-def test_c03_sources_cannot_replace_annotations(monkeypatch):
+@pytest.mark.parametrize("with_sources", [True, False], ids=["C-03", "F-02"])
+def test_c03_sources_cannot_replace_annotations(with_sources, monkeypatch):
     payload = response()
     content(payload)["annotations"] = []
-    payload["output"][0]["action"]["sources"] = [{"type": "url", "url": URL}]
+    if with_sources:
+        payload["output"][0]["action"]["sources"] = [{"type": "url", "url": URL}]
     result = normalize(payload, monkeypatch)
     assert_normalized(result, content(payload))
     parsed, accepted, issues = s0(result)
