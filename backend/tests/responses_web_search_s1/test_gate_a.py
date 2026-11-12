@@ -1,4 +1,4 @@
-"""Red slices 1 and 2 of frozen v0.2.2 (synthetic compatibility only).
+"""Red slices 1 through 3 of frozen v0.2.2 (synthetic compatibility only).
 
 Test binding for the document's proposed internal interface:
 app.responses_web_search.normalizer.normalize_response(response, config),
@@ -7,16 +7,15 @@ execution_evidence has the attributes named in frozen section 2.2.
 This is a project test binding, not an SDK/public API contract.
 Imports are deferred to test execution; missing S1 must never break collection.
 
-Covered Gate A portions: A-01..A-06, B-01..B-06, C-03/C-05a/C-05b,
-D-05, L-01..L-06, X-06. S1 Preview and production orchestration are NOT tested by
+Covered Gate A portions: A-01..A-09, B-01..B-09, C-03/C-05a/C-05b/C-08,
+D-01/D-02/D-05, L-01..L-06, X-06. Preview and orchestration are NOT tested by
 the S0 integration helper below; their Gate B assertions remain pending.
 
-Remaining Gate A/B AC IDs (51 of 74; no implicit coverage claims):
-A-07..A-09; B-07..B-09;
-C-01/C-02/C-04/C-05c/C-06..C-08; D-01..D-04/D-06..D-09;
+Remaining Gate A/B AC IDs (42 of 74; no implicit coverage claims):
+C-01/C-02/C-04/C-05c/C-06/C-07; D-03/D-04/D-06..D-09;
 E-01..E-03/E-04a..E-04c/E-05..E-07/E-09/E-10;
 F-01..F-06; P-01..P-08; X-01..X-05.
-Also pending: Gate B Preview assertions for the 23 selected AC IDs,
+Also pending: Gate B Preview assertions for the 32 selected AC IDs,
 citation_trace diagnostics, and full production S0 non-call orchestration.
 E-08 belongs exclusively to Gate C; Gate C/D remain unverified.
 """
@@ -368,3 +367,103 @@ def test_x06_original_evidence_overrides_one_call_projection(monkeypatch):
     result = normalize(payload, monkeypatch)
     assert payload == original
     assert_rejected(result, "TOOL_CALL_LIMIT_EXCEEDED", calls=2, searches=2)
+
+
+def test_a07_missing_action_type_cannot_be_inferred(monkeypatch):
+    payload = response()
+    del payload["output"][0]["action"]["type"]
+    result = normalize(payload, monkeypatch)
+    assert result.outcome == "REJECTED"
+    assert result.parser_input is None
+    assert result.execution_evidence.web_search_calls_observed == 1
+
+
+def test_a08_unknown_output_cannot_be_silently_removed(monkeypatch):
+    payload = response()
+    payload["output"].append({
+        "id": "unknown_synthetic_output", "type": "synthetic_unsupported_output",
+        "status": "completed",
+    })
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+
+
+def test_a09_find_in_page_is_not_search_evidence(monkeypatch):
+    payload = response()
+    payload["output"][0]["action"]["type"] = "find_in_page"
+    result = normalize(payload, monkeypatch)
+    assert_search_not_executed(result, calls=1)
+    projected = result.parser_input["output"]
+    assert [item["type"] for item in projected] == ["web_search_call", "message"]
+    assert projected[0]["status"] == "completed"
+    assert projected[0]["action"]["type"] == "find_in_page"
+    assert projected[1]["content"] == [content(response())]
+
+
+def test_b07_missing_assistant_message_is_not_empty_success(monkeypatch):
+    payload = response()
+    del payload["output"][1]
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+    assert result.execution_evidence.assistant_messages_observed == 0
+
+
+def test_b08_unknown_content_cannot_be_silently_removed(monkeypatch):
+    payload = response()
+    payload["output"][1]["content"].append({"type": "synthetic_unsupported_content"})
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+
+
+@pytest.mark.parametrize(
+    "phase", [None, "final_answer"], ids=["absent", "final_answer"],
+)
+def test_b09_single_message_phase_is_optional(phase, monkeypatch):
+    payload = response()
+    if phase is not None:
+        payload["output"][1]["phase"] = phase
+    result = normalize(payload, monkeypatch)
+    assert_normalized(result, content(response()))
+    assert_accepted(result)
+
+
+def test_c08_mixed_unsupported_annotation_cannot_be_discarded(monkeypatch):
+    payload = response()
+    content(payload)["annotations"].append({"type": "synthetic_unsupported_annotation"})
+    assert content(payload)["annotations"][0] == content(response())["annotations"][0]
+    result = normalize(payload, monkeypatch)
+    assert_rejected(result)
+
+
+def test_d01_empty_candidates_preserve_successful_search(monkeypatch):
+    payload = response()
+    content(payload)["text"] = '{"candidates":[]}'
+    result = normalize(payload, monkeypatch)
+    assert_normalized(result, content(payload))
+    parsed, accepted, issues = s0(result)
+    # EMPTY_RESULT is a Gate B Preview status; S0 parsing itself succeeds.
+    assert parsed.status is None
+    assert parsed.simulated_web_search_executed is True
+    assert parsed.tool_calls_observed == 1
+    assert parsed.citation_urls == frozenset({URL})
+    assert parsed.reason_codes == ()
+    assert parsed.candidates == accepted == issues == ()
+    validator = importlib.import_module("app.responses_web_search.validator")
+    validator.validate_candidates.assert_called_once_with(parsed)
+
+
+def test_d02_file_url_rejected_by_s0_without_rewriting_citation(monkeypatch):
+    payload = response()
+    content(payload)["text"] = TEXT.replace(URL, "file:///private")
+    assert content(payload)["annotations"] == content(response())["annotations"]
+    result = normalize(payload, monkeypatch)
+    assert_normalized(result, content(payload))
+    parsed, accepted, issues = s0(result)
+    assert parsed.status is None
+    assert parsed.simulated_web_search_executed is True
+    assert parsed.candidates[0]["source_url"] == "file:///private"
+    assert parsed.citation_urls == frozenset({URL})
+    assert accepted == ()
+    assert [(issue.candidate_index, issue.code) for issue in issues] == [
+        (0, "SOURCE_URL_INVALID"),
+    ]
