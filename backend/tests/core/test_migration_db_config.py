@@ -55,7 +55,7 @@ def test_secret_special_characters_and_no_password_in_repr(monkeypatch, tmp_path
     assert url.query["charset"] == "utf8mb4"
     assert "p@ss" not in str(url)
     assert "p@ss" not in repr(settings)
-    assert str(secret) in repr(settings)
+    assert settings.password_file == secret
 
 
 @pytest.mark.parametrize("missing", ["HOST", "PORT", "NAME", "USER", "PASSWORD_FILE"])
