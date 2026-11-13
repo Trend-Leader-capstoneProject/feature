@@ -69,24 +69,48 @@ def test_database_url() -> str:
 @pytest.fixture(scope="session")
 def migrated_test_database(
     test_database_url: str,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> str:
-    """테스트 DB를 최신 Alembic Revision까지 마이그레이션한다."""
+    """전용 Migration 설정으로 테스트 DB만 Alembic 적용."""
+    parsed_url = make_url(test_database_url)
+    if (
+        parsed_url.database != "trend_leader_test"
+        or not parsed_url.host
+        or not parsed_url.username
+        or parsed_url.password is None
+    ):
+        raise RuntimeError("Migration test database credentials are incomplete")
 
-    process_environment = os.environ.copy()
-    process_environment["DATABASE_URL"] = test_database_url
+    secret_dir = tmp_path_factory.mktemp("migration_test_secret")
+    secret_file = secret_dir / "db_password"
+    secret_file.write_text(parsed_url.password, encoding="utf-8")
+    if os.name == "posix":
+        secret_file.chmod(0o600)
 
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "alembic",
-            "upgrade",
-            "head",
-        ],
-        cwd=BACKEND_DIR,
-        env=process_environment,
-        check=True,
+    process_environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("MIGRATION_DB_") and key != "DATABASE_URL"
+    }
+    process_environment.update(
+        {
+            "MIGRATION_DB_HOST": parsed_url.host,
+            "MIGRATION_DB_PORT": str(parsed_url.port or 3306),
+            "MIGRATION_DB_NAME": "trend_leader_test",
+            "MIGRATION_DB_USER": parsed_url.username,
+            "MIGRATION_DB_PASSWORD_FILE": str(secret_file),
+        }
     )
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=BACKEND_DIR,
+            env=process_environment,
+            check=True,
+        )
+    finally:
+        secret_file.unlink(missing_ok=True)
 
     return test_database_url
 
