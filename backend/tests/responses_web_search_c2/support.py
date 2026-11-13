@@ -32,7 +32,7 @@ HTTP_CASES = [
 ]
 CONNECTION_CASES = [
     (httpx2.ReadTimeout, openai.APITimeoutError, "TIMEOUT"),
-    (httpx2.ConnectError, openai.APIConnectionError, "CONNECTION_FAILED"),
+    (httpx2.ConnectError, openai.APIConnectionError, "CONNECTION_ERROR"),
 ]
 
 

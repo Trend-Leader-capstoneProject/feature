@@ -33,9 +33,9 @@ class C2TransportError(Exception):
 ```
 
 `C2ErrorCode`는 다음 문자열로 제한하는 안이다:
-`INVALID_CONFIGURATION`, `TIMEOUT`, `CONNECTION_FAILED`,
+`INVALID_CONFIGURATION`, `TIMEOUT`, `CONNECTION_ERROR`,
 `AUTHENTICATION_FAILED`, `PERMISSION_DENIED`, `RATE_LIMITED`,
-`UPSTREAM_SERVER_ERROR`, `REQUEST_REJECTED`, `RESPONSE_VALIDATION_FAILED`.
+`UPSTREAM_SERVER_ERROR`, `REQUEST_REJECTED`, `SDK_RESPONSE_INVALID`.
 사용자가 지정한 HTTP 분류를 그대로 쓰고, 나머지는 내부 오류 이름의 제안이다.
 공개 API Schema나 Frozen Preview 계약을 새로 정의하는 것이 아니다.
 
@@ -75,7 +75,7 @@ strict 옵션은 검증 오류 경계 테스트에서만 주입하며 C2 운영 
 | C2-11 | 키·본문·원문 예외 비노출 | R-02~05 / str·repr·표준 traceback·수집 로그·stdout/stderr 합성 마커 검사 |
 | C2-12 | SDK 허용·외부 I/O/비밀/DB 차단, 기존 격리 보존 | `test_isolation_controls`, 패키지 import 통제, 별도 회귀 실행 |
 
-## 실행 명령과 결과
+## 최초 Slice 실행 명령과 결과
 
 모든 pytest는 `backend/`에서 Backend 가상환경으로 별도 프로세스 실행했다.
 
@@ -126,3 +126,39 @@ C2 자체는 미구현이라 26건 모두 전송 전에 실패한다. **C2의 E-
 - **Red Slice 준비 완료, 별도 승인된 Green으로 진입 가능**.
   C2 기능 완료나 Gate D 실검색 승인은 아니다. Green에서는 모든 C2 단언이 실제로
   실행된 뒤 결과를 확인해야 한다. 원격 상태는 작업 재개 시 재확인한다.
+
+## Red Slice 1 정합성 보완 결과 — 2026-11-13 KST
+
+- 작업 브랜치는 동일하며 시작 HEAD는 `98bc1a5ffe6341d07662157bdb58a20acf6131f8`이다.
+  시작 시 미커밋 변경 없음. 다른 worktree 두 곳도 변경 없음.
+  원격 HTTPS 연결은 실패하여 최신 원격 HEAD는 미확인이다.
+- 설치된 SDK 3.50.0의 `SyncAPIResource._client`와 Client의 수신 검증 경로를
+  재확인했다. R-04 주입을 리소스 자체의 속성 설정에서
+  `resource._client._strict_response_validation = True`로 수정했다.
+  제품 SDK 기본 설정은 변경하지 않았다.
+- 독립 통제 테스트 1건을 추가했다. 기본 strict=False에서 같은 리소스 wrapper를
+  통해 실제 Client를 strict=True로 바꾸고, HTTP 200 Mock 응답이 실제
+  `APIResponseValidationError`를 발생시킴을 확인했다. HTTP 상태 예외와 구별되며
+  Mock 전송은 정확히 1회다.
+- 연결 오류 코드는 `CONNECTION_ERROR`, SDK 수신 검증 오류는 `SDK_RESPONSE_INVALID`로
+  테스트·설명을 통일했다. `INVALID_CONFIGURATION` 등 다른 코드는 유지했다.
+
+Backend 가상환경에서 별도 프로세스로 실행한 명령:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests/responses_web_search_c2/test_sdk_controls.py --confcutdir=tests/responses_web_search_c2 -q -p no:cacheprovider --tb=short
+.\venv\Scripts\python.exe -m pytest tests/responses_web_search_c2/test_transport_red.py --confcutdir=tests/responses_web_search_c2 -q -p no:cacheprovider --tb=line
+.\venv\Scripts\python.exe -m ruff check tests/responses_web_search_c2
+git diff --check
+git diff --cached --check
+```
+
+- SDK·Mock 통제: **20 PASS** (기존 19건 + strict 주입 통제 1건).
+- C2 Red: **26 FAIL**, 모두 정확히 `app.responses_web_search.c2_transport` 부재.
+  환경·Fixture·Mock 오류로 발생한 실패는 없다.
+- Ruff·공백 검사 PASS. 각 pytest의 기존 anyio `CallSpec2` 경고 1건은 유지된다.
+- 변경 파일은 `test_transport_red.py`, `test_sdk_controls.py`, `support.py`,
+  이 README의 4개다. 기존 격리·S0/S1/C1·Frozen·의존성·제품 코드는 변경하지 않았다.
+  S0/S1/C1은 이번 최소 보완에서 재실행하지 않았으며 위 수치는 최초 실행 기록이다.
+- 정상 Red 재확인 후 중단한다. 별도 Green 승인·검토로 진행 가능하며,
+  Green 구현·실 API·DB/Redis/Writer/게시·커밋·푸시·PR·병합은 수행하지 않았다.

@@ -87,18 +87,18 @@ def test_r04_sdk_validation_error_is_separate(
     module = transport_module()
     original_create = openai.resources.responses.Responses.create
 
-    def strict_create(client, *args, **kwargs):
+    def strict_create(resource, *args, **kwargs):
         # Exercise real SDK validation, not a fabricated HTTP status exception.
         # Test-only injection: strict mode is NOT required of production C2.
-        client._strict_response_validation = True
-        return original_create(client, *args, **kwargs)
+        resource._client._strict_response_validation = True
+        return original_create(resource, *args, **kwargs)
 
     endpoint.payload = {"id": MARKER, "output": {"bad": MARKER}}
     monkeypatch.setattr(openai.resources.responses.Responses, "create", strict_create)
     with pytest.raises(module.C2TransportError) as caught:
         invoke(module, http_client)
     assert_request(endpoint)
-    assert_safe(caught.value, "RESPONSE_VALIDATION_FAILED", caplog, capsys)
+    assert_safe(caught.value, "SDK_RESPONSE_INVALID", caplog, capsys)
 
 
 @pytest.mark.parametrize("overrides", [

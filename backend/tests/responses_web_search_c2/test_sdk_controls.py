@@ -75,6 +75,27 @@ def test_sdk_response_validation_control(endpoint, http_client, strict):
     assert_request(endpoint)
 
 
+def test_sdk_resource_strict_injection_control(endpoint, http_client, monkeypatch):
+    """The R-04 resource wrapper must configure the actual SDK client."""
+    original_create = openai.resources.responses.Responses.create
+
+    def strict_create(resource, *args, **kwargs):
+        resource._client._strict_response_validation = True
+        return original_create(resource, *args, **kwargs)
+
+    endpoint.payload = {"id": "resp_malformed", "output": {"unexpected": True}}
+    monkeypatch.setattr(openai.resources.responses.Responses, "create", strict_create)
+    with sdk_client(http_client) as client:
+        assert client.responses._client is client
+        assert client._strict_response_validation is False
+        with pytest.raises(openai.APIResponseValidationError) as caught:
+            client.responses.create(**OPTIONS)
+        assert client._strict_response_validation is True
+        assert caught.value.status_code == 200
+        assert not isinstance(caught.value, openai.APIStatusError)
+    assert_request(endpoint)
+
+
 def test_retry_counter_detects_sdk_default(endpoint, http_client, monkeypatch):
     """Sensitivity control: default retries really cause three Mock sends."""
     endpoint.status = 429
