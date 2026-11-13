@@ -21,6 +21,7 @@
 2. [운영 Compose 구성 리뷰 v0.5](production-compose-v0.5-DRAFT.md): 서비스·파일·네트워크·Secret·기동 순서.
 3. [일회성 Migration 서비스 리뷰 v0.6](migration-oneoff-v0.6-DRAFT.md): M-A1 선택 방향, 오작동 방지, Alembic 설정 분리.
 4. [Account Provisioning SQL·Preflight v0.1](account-provisioning-sql-preflight-v0.1-DRAFT.md): 검토용 GRANT, 운영 시작 전 확인 및 실패 차단.
+5. [M-A1 실행 설계 확정안 v1.0](Trend_Leader_Phase_3-B-2_M-A1_Design_Decision_v1.0_20261113.md): 확정된 구조적 선택과 미검증 실행 전제. **구현 기준 우선 문서**.
 
 ## 검증 전 해결해야 하는 항목
 
