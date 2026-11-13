@@ -278,7 +278,12 @@ def build_manifest(evidence, pending_bytes, *, supersedes_registration_id=None):
         raise StagingError("registration manifest construction blocked; HOLD") from None
 
 
-def validate_manifest(raw, evidence, pending_bytes):
+def _validate_manifest_bindings(raw, evidence, pending_bytes):
+    """Internal byte/link/order checks without reading the current clock.
+
+    Does not verify current registration validity, C/E copies or revocations.
+    Operational callers must continue to use validate_manifest/history checks.
+    """
     try:
         value = _parse(raw, KEYS)
         _id(value["registration_id"])
@@ -294,7 +299,17 @@ def validate_manifest(raw, evidence, pending_bytes):
         created = observation._timestamp(value["record_created_at_utc"])
         reviewed = observation._timestamp(value["reviewed_at_utc"])
         recorded = observation._timestamp(value["registration_recorded_at_utc"])
-        if not created <= reviewed <= recorded <= _now():
+        if not created <= reviewed <= recorded:
+            raise ValueError("registration clock order")
+        return value
+    except (ValueError, OSError, OverflowError):
+        raise StagingError("registration manifest fields/links/clock invalid; HOLD") from None
+
+
+def validate_manifest(raw, evidence, pending_bytes):
+    value = _validate_manifest_bindings(raw, evidence, pending_bytes)
+    try:
+        if observation._timestamp(value["registration_recorded_at_utc"]) > _now():
             raise ValueError("registration clock order")
         return value
     except (ValueError, OSError, OverflowError):
