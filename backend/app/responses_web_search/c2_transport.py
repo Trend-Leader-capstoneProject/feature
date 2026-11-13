@@ -41,6 +41,7 @@ def request_response(
     input_text: str,
     timeout: float,
     http_client: httpx2.Client,
+    max_output_tokens: int | None = None,
 ) -> Response:
     """재시도 없이 전송하고 SDK Response를 변경하지 않고 반환한다."""
     if (
@@ -49,9 +50,16 @@ def request_response(
         or not isinstance(input_text, str) or not input_text.strip()
         or isinstance(timeout, bool) or not isinstance(timeout, (int, float))
         or timeout <= 0 or not math.isfinite(timeout)
+        or (
+            max_output_tokens is not None
+            and (type(max_output_tokens) is not int or max_output_tokens < 16)
+        )
     ):
         raise C2TransportError("INVALID_CONFIGURATION")
 
+    output_options = (
+        {} if max_output_tokens is None else {"max_output_tokens": max_output_tokens}
+    )
     try:
         with OpenAI(
             api_key=api_key,
@@ -68,6 +76,7 @@ def request_response(
                 tool_choice="required",
                 max_tool_calls=1,
                 include=["web_search_call.action.sources"],
+                **output_options,
             )
     except APITimeoutError:
         # APITimeoutError는 APIConnectionError의 하위 타입이다.

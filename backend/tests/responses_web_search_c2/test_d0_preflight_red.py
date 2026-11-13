@@ -89,6 +89,16 @@ def assert_plan(plan, start, end):
     assert "대한민국" in plan.input_text
     assert "IT" in plan.input_text and "디지털" in plan.input_text
     assert "3" in plan.input_text
+    assert "최대 3건" in plan.input_text
+    assert '{"candidates":[' in plan.input_text
+    for field in ("topic_draft", "source_url", "source_title_reference"):
+        assert field in plan.input_text
+    assert "JSON 본문만" in plan.input_text
+    assert "설명문" in plan.input_text and "Markdown 코드 블록" in plan.input_text
+    assert "포함하지" in plan.input_text
+    assert "source_url과 인용 URL" in plan.input_text and "동일" in plan.input_text
+    assert "인기도·랭킹·출처 게시일" in plan.input_text
+    assert "생성하지" in plan.input_text
     # Requested candidate fields must not demand invented metrics or dates.
     for field in ("popularity_score", "rank", "source_published_at"):
         assert field not in plan.input_text
