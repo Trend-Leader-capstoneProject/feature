@@ -59,7 +59,7 @@ export function SessionRestoreErrorScreen() {
       <ErrorView
         title="로그인 상태를 확인할 수 없습니다."
         message={
-          "네트워크 상태 또는 서버 연결을 확인한 뒤 다시 시도해 주세요."
+          "기기 저장소 또는 네트워크·서버 연결을 확인한 뒤 다시 시도해 주세요. 로그인 확인 전에는 보호 화면에 접근할 수 없습니다."
         }
         onRetry={handleRetry}
         retryLabel="다시 시도"

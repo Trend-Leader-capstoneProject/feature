@@ -28,6 +28,7 @@ from app.services.auth_service import AuthService
 
 INVALID_LOGIN_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니다."
 
+
 @pytest.fixture
 def auth_service_mock() -> Mock:
     """Router 테스트용 AuthService Mock을 생성한다."""
@@ -51,9 +52,7 @@ def client(
             auth_service_mock,
         )
 
-    application.dependency_overrides[
-        get_auth_service
-    ] = override_auth_service
+    application.dependency_overrides[get_auth_service] = override_auth_service
 
     try:
         with TestClient(application) as test_client:
@@ -69,6 +68,9 @@ def test_login_returns_success_response(
     """로그인 성공 시 200 공통 응답과 로그인 데이터를 반환한다."""
 
     auth_service_mock.login.return_value = LoginData(
+        refresh_token="test-refresh-token",
+        access_expires_at="2030-01-01T00:15:00Z",
+        refresh_expires_at="2030-01-31T00:00:00Z",
         access_token="test-access-token",
         user=LoginUserData(
             user_id=100,
@@ -95,6 +97,9 @@ def test_login_returns_success_response(
         "statusCode": 200,
         "message": "로그인에 성공했습니다.",
         "data": {
+            "refresh_token": "test-refresh-token",
+            "access_expires_at": "2030-01-01T00:15:00Z",
+            "refresh_expires_at": "2030-01-31T00:00:00Z",
             "access_token": "test-access-token",
             "token_type": "Bearer",
             "user": {
@@ -110,21 +115,14 @@ def test_login_returns_success_response(
 
     auth_service_mock.login.assert_called_once()
 
-    login_request = (
-        auth_service_mock.login.call_args.kwargs[
-            "login_request"
-        ]
-    )
+    login_request = auth_service_mock.login.call_args.kwargs["login_request"]
 
     assert isinstance(
         login_request,
         LoginRequest,
     )
     assert login_request.login_id == "trend_user"
-    assert (
-        login_request.password.get_secret_value()
-        == "correct-password"
-    )
+    assert login_request.password.get_secret_value() == "correct-password"
 
 
 def test_login_returns_401_when_authentication_fails(
@@ -207,6 +205,9 @@ def test_signup_returns_created_response(
     """회원가입 성공 시 201과 초기 인증 세션을 반환한다."""
 
     auth_service_mock.signup.return_value = SignupData(
+        refresh_token="signup-refresh-token",
+        access_expires_at="2030-01-01T00:15:00Z",
+        refresh_expires_at="2030-01-31T00:00:00Z",
         access_token="signup-access-token",
         user=LoginUserData(
             user_id=200,
@@ -223,6 +224,7 @@ def test_signup_returns_created_response(
         json={
             "login_id": "signup_user",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
             "name": "회원가입 사용자",
             "email": None,
@@ -243,11 +245,7 @@ def test_signup_returns_created_response(
 
     auth_service_mock.signup.assert_called_once()
 
-    signup_request = (
-        auth_service_mock.signup.call_args.kwargs[
-            "signup_request"
-        ]
-    )
+    signup_request = auth_service_mock.signup.call_args.kwargs["signup_request"]
 
     assert isinstance(
         signup_request,
@@ -397,6 +395,7 @@ def test_signup_returns_409_for_duplicate_conflict(
         json={
             "login_id": "signup_user",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
             "name": "회원가입 사용자",
             "email": "signup@example.com",
@@ -423,35 +422,41 @@ def test_signup_returns_409_for_duplicate_conflict(
     [
         {
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
             "name": "회원가입 사용자",
         },
         {
             "login_id": "Bad-User",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
             "name": "회원가입 사용자",
         },
         {
             "login_id": "signup_user",
             "password": "a" * 7,
+            "nickname": "TestMember",
             "password_confirm": "a" * 7,
             "name": "회원가입 사용자",
         },
         {
             "login_id": "signup_user",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "different-password",
             "name": "회원가입 사용자",
         },
         {
             "login_id": "signup_user",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
         },
         {
             "login_id": "signup_user",
             "password": "signup-password",
+            "nickname": "TestMember",
             "password_confirm": "signup-password",
             "name": "회원가입 사용자",
             "email": "not-an-email",

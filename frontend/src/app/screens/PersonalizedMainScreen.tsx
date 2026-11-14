@@ -42,6 +42,7 @@ import type { AppStackParamList } from "../navigation/AppNavigator";
 import { isAxiosError } from "axios";
 import type { CommonErrorResponse } from "../../shared/types/api";
 import { useAuth } from "../providers/AuthProvider";
+import { AccountHeader } from "../../features/account/components/AccountHeader";
 
 type PersonalizedMainScreenProps = NativeStackScreenProps<
   AppStackParamList,
@@ -280,96 +281,18 @@ function renderHomeHeader() {
   return (
     <>
       <View style={styles.header}>
-        <View style={styles.topBar} testID="home-top-bar">
-          <Text accessibilityRole="header" style={styles.title}>
-            Trend Leader
-          </Text>
-
-          <Pressable
-            accessibilityLabel="로그아웃"
-            accessibilityRole="button"
-            accessibilityState={{
-              busy: isLoggingOut,
-              disabled: isLoggingOut,
-            }}
-            disabled={isLoggingOut}
-            onPress={() => {
-              void handleLogout();
-            }}
-            style={({ pressed }) => [
-              styles.logoutButton,
-              pressed && !isLoggingOut && styles.secondaryPressed,
-            ]}
-          >
-            {isLoggingOut && (
-              <ActivityIndicator
-                color={colors.textSecondary}
-                size="small"
-              />
-            )}
-            <Text style={styles.logoutButtonText}>
-              로그아웃
-            </Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.description}>
-          {userName
-            ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
-            : "관심 분야의 최신 흐름을 확인해 보세요."}
-        </Text>
+        <Text accessibilityRole="header" style={styles.title}>Trend Leader</Text>
+        <Text style={styles.description}>{userName
+          ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
+          : "관심 분야의 최신 흐름을 확인해 보세요."}</Text>
       </View>
-
-      <View
-        style={styles.personalizedSection}
-        testID="home-personalized-section"
-      >
-        <View
-          style={styles.actions}
-          testID="home-quick-actions"
-        >
-          {showStandardInterestEditAction && (
-            <View style={styles.sectionHeadingRow}>
-              <Text
-                accessibilityRole="header"
-                style={styles.personalizedSectionTitle}
-              >
-                관심사 맞춤 트렌드
-              </Text>
-
-              <Pressable
-                accessibilityLabel="관심사 수정하기"
-                accessibilityRole="button"
-                onPress={() => {
-                  navigation.navigate("InterestEdit");
-                }}
-                style={({ pressed }) => [
-                  styles.interestEditButton,
-                  pressed && styles.secondaryPressed,
-                ]}
-              >
-                <Text style={styles.interestEditText}>
-                  관심사 수정
-                </Text>
-              </Pressable>
-            </View>
-          )}
-
+      <View style={styles.personalizedSection} testID="home-personalized-section">
+        <View style={styles.actions} testID="home-quick-actions">
+          <Text accessibilityRole="header" style={styles.personalizedSectionTitle}>관심사 맞춤 트렌드</Text>
           <View style={styles.latestActionRow}>
-            <Pressable
-              accessibilityLabel="최신 트렌드 보기"
-              accessibilityRole="button"
-              onPress={() => {
-                navigation.navigate("LatestTrend");
-              }}
-              style={({ pressed }) => [
-                styles.latestTrendButton,
-                pressed && styles.secondaryPressed,
-              ]}
-            >
-              <Text style={styles.latestTrendText}>
-                전체 최신 보기 ↗
-              </Text>
+            <Pressable accessibilityLabel="최신 트렌드 보기" accessibilityRole="button"
+              onPress={() => navigation.navigate("LatestTrend")} style={styles.latestTrendButton}>
+              <Text style={styles.latestTrendText}>전체 최신 보기 ↗</Text>
             </Pressable>
           </View>
         </View>
@@ -377,7 +300,6 @@ function renderHomeHeader() {
     </>
   );
 }
-
   function renderContent() {
     // Phase 5-3A: 관심사 미초기화 시 Session 재검증 우선
 
@@ -479,6 +401,7 @@ function renderHomeHeader() {
 
   return (
     <ScreenContainer>
+      <AccountHeader />
       {!isScrollableHome && renderHomeHeader()}
 
       <View style={styles.contentRegion}>{renderContent()}</View>

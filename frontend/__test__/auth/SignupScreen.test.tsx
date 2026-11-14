@@ -33,6 +33,9 @@ import type {
     SignupResponse,
 } from "../../src/features/auth/types/auth";
 
+import { checkNickname } from "../../src/features/account/api/accountApi";
+jest.mock("../../src/features/account/api/accountApi", () => ({ checkNickname: jest.fn() }));
+
 jest.mock(
   "../../src/app/providers/AuthProvider",
   () => ({
@@ -91,6 +94,9 @@ const VALID_EMAIL =
   "trend@example.com";
 
 const SIGNUP_RESPONSE: SignupResponse = {
+  refresh_token: "SIGNUP_REFRESH_TOKEN",
+  access_expires_at: "2030-01-01T00:15:00Z",
+  refresh_expires_at: "2030-01-31T00:00:00Z",
   access_token: "SIGNUP_ACCESS_TOKEN",
   token_type: "Bearer",
   user: {
@@ -225,6 +231,9 @@ async function fillRemainingValidFields({
   email?: string;
 } = {}): Promise<void> {
   const view = getRendered();
+  await fireEvent.changeText(view.getByLabelText("닉네임"), "테스트닉");
+  await fireEvent.press(view.getByRole("button", { name: "닉네임 중복 확인" }));
+  await waitFor(() => expect(view.getByText("사용 가능한 닉네임입니다.")).toBeTruthy());
 
   await fireEvent.changeText(
     view.getByLabelText("비밀번호"),
@@ -352,6 +361,7 @@ describe(
 
     beforeEach(() => {
       jest.resetAllMocks();
+      jest.mocked(checkNickname).mockImplementation(async nickname => ({ nickname, is_available: true, reason: null }));
 
       rendered = null;
 
@@ -379,6 +389,7 @@ describe(
           ),
         completeInterestSelection:
           jest.fn(),
+        clearLocalSession: jest.fn(async () => undefined),
         logout:
           jest.fn(
             async (): Promise<void> =>
@@ -741,7 +752,7 @@ describe(
         await waitFor(() => {
           expect(
             view.getByText(
-              "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+              "가입 결과를 확인하지 못했습니다. 자동 재가입은 하지 않습니다. 연결을 확인한 뒤 로그인 화면에서 가입 여부를 확인해 주세요.",
             ),
           ).toBeTruthy();
         });
@@ -840,6 +851,7 @@ describe(
               VALID_PASSWORD,
             password_confirm:
               VALID_PASSWORD,
+            nickname: "테스트닉",
             name: VALID_NAME,
             email: VALID_EMAIL,
           });

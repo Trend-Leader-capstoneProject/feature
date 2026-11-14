@@ -46,6 +46,8 @@ import type {
     SignupErrorResponse,
 } from "../types/auth";
 
+import { normalizeNickname, useNicknameDraft } from "../../account/hooks/useNicknameDraft";
+
 type SignupScreenProps =
   NativeStackScreenProps<
     AuthStackParamList,
@@ -53,6 +55,7 @@ type SignupScreenProps =
   >;
 
 type SignupField =
+  | "nickname"
   | "loginId"
   | "password"
   | "passwordConfirm"
@@ -176,6 +179,8 @@ function mapBackendValidationField(
       : field;
 
   switch (normalizedField) {
+    case "nickname":
+      return "nickname";
     case "login_id":
       return "loginId";
 
@@ -200,6 +205,8 @@ function getBackendValidationMessage(
   field: SignupField,
 ): string {
   switch (field) {
+    case "nickname":
+      return "닉네임 형식과 중복 확인을 확인해 주세요.";
     case "loginId":
       return "아이디 형식을 확인해 주세요.";
 
@@ -226,6 +233,8 @@ export function SignupScreen({
 
   const checkLoginIdMutation =
     useCheckLoginId();
+
+  const nickname = useNicknameDraft();
 
   const signupMutation =
     useSignup();
@@ -444,7 +453,7 @@ export function SignupScreen({
 
     if (!error.response) {
       setFormErrorMessage(
-        "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+        "가입 결과를 확인하지 못했습니다. 자동 재가입은 하지 않습니다. 연결을 확인한 뒤 로그인 화면에서 가입 여부를 확인해 주세요.",
       );
       return;
     }
@@ -456,6 +465,11 @@ export function SignupScreen({
       case 409: {
         const conflictData =
           errorResponse.data;
+        if (conflictData.field === "nickname") {
+          nickname.invalidate("이미 사용 중인 닉네임입니다.");
+          setFieldErrors(current => ({ ...current, nickname: "이미 사용 중인 닉네임입니다." }));
+          return;
+        }
 
         if (
           conflictData.field ===
@@ -566,6 +580,11 @@ export function SignupScreen({
           : "아이디 중복 확인을 완료해 주세요.";
     }
 
+    let normalizedNickname = "";
+    try { normalizedNickname = normalizeNickname(nickname.value); }
+    catch (error) { errors.nickname = (error as Error).message; }
+    if (normalizedNickname && nickname.available !== normalizedNickname) errors.nickname = "닉네임 중복 확인을 완료해 주세요.";
+
     setFieldErrors(errors);
 
     if (
@@ -577,6 +596,7 @@ export function SignupScreen({
     try {
       const signupResponse =
         await signupMutation.mutateAsync({
+          nickname: normalizedNickname,
           login_id: loginId,
           password,
           password_confirm:
@@ -991,6 +1011,20 @@ export function SignupScreen({
                   }
                 </Text>
               )}
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>닉네임</Text>
+              <TextInput accessibilityLabel="닉네임" value={nickname.value}
+                onChangeText={(value) => { nickname.update(value); clearFieldError("nickname"); clearFormError(); }}
+                editable={!isFormInteractionDisabled} autoCapitalize="none" autoCorrect={false}
+                placeholder="다른 회원에게 표시할 닉네임" style={styles.input} />
+              <PrimaryButton label="닉네임 중복 확인" loading={nickname.checking}
+                disabled={isFormInteractionDisabled || nickname.checking}
+                onPress={() => void nickname.check()} />
+              <Text accessibilityLiveRegion="polite" style={fieldErrors.nickname ? styles.errorText : styles.helperText}>
+                {fieldErrors.nickname ?? nickname.feedback ?? "2~10자 한글·영문·숫자·밑줄"}
+              </Text>
             </View>
 
             <View style={styles.fieldGroup}>

@@ -52,9 +52,13 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(
-        default=60,
+        default=15,
         ge=1,
     )
+
+    # 프로필 파일은 공개 정적 경로와 분리된 영구 저장 루트다.
+    profile_image_root: Path = BASE_DIR / "var" / "profile-images"
+    maintenance_enabled: bool = False
 
     # OAuth
     google_client_id: str | None = None

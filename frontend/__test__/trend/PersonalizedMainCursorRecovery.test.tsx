@@ -1,3 +1,4 @@
+jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   fireEvent,

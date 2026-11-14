@@ -1,3 +1,4 @@
+jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
 import { fireEvent, render } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
