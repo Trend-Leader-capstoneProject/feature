@@ -38,6 +38,8 @@
 
 ## 5. dev 통합 검증 게이트
 
+> **운영 Guard와 Alembic의 구분:** 검토 당시 dev의 backend/scripts/migration_guard.py는 preflight·apply를 모두 MODE_NOT_ENABLED로 거부한다. B-2 운영 Preflight/승인/적용은 완료되지 않았다. 신규 Revision이 코드상 연결된 것만으로 운영 적용 승인이 되지 않는다. 최신 dev의 backend/alembic/env.py 및 backend/tests/conftest.py는 MIGRATION_DB_* 설정을 사용하므로 기능 브랜치의 이전 DATABASE_URL 기반 테스트 결과를 통합 후 성공으로 간주하지 않는다.
+
 | 검증 항목 | 현재 판정 | 완료 전 확인 |
 | --- | --- | --- |
 | 정책 충돌 | **해결** — MVP Hard Delete 확정 | 최초 SD-005는 역사적 기록으로 유지 |
