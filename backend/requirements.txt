@@ -10,3 +10,4 @@ pwdlib[argon2]>=0.3,<1.0
 python-jose[cryptography]>=3.5,<4.0
 httpx2>=2.0,<3.0
 defusedxml==0.7.1
+Pillow>=13,<14

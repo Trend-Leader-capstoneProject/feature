@@ -12,6 +12,7 @@ def make_signup_request(
     """정상 회원가입 요청 데이터를 생성한다."""
 
     request: dict[str, object] = {
+        "nickname": "테스트회원",
         "login_id": "trend_user01",
         "password": VALID_PASSWORD,
         "password_confirm": VALID_PASSWORD,
@@ -93,10 +94,7 @@ def test_signup_request_accepts_password_length_boundaries(
         )
     )
 
-    assert (
-        request.password.get_secret_value()
-        == password
-    )
+    assert request.password.get_secret_value() == password
 
 
 @pytest.mark.parametrize(
@@ -132,10 +130,7 @@ def test_signup_request_does_not_trim_password() -> None:
         )
     )
 
-    assert (
-        request.password.get_secret_value()
-        == password
-    )
+    assert request.password.get_secret_value() == password
 
 
 def test_signup_request_rejects_password_confirm_mismatch() -> None:
@@ -150,10 +145,7 @@ def test_signup_request_rejects_password_confirm_mismatch() -> None:
             )
         )
 
-    assert (
-        exc_info.value.errors()[0]["loc"]
-        == ("password_confirm",)
-    )
+    assert exc_info.value.errors()[0]["loc"] == ("password_confirm",)
 
 
 def test_signup_request_trims_name() -> None:
@@ -230,9 +222,7 @@ def test_signup_request_allows_omitted_email() -> None:
     request_data = make_signup_request()
     del request_data["email"]
 
-    request = SignupRequest.model_validate(
-        request_data
-    )
+    request = SignupRequest.model_validate(request_data)
 
     assert request.email is None
 
@@ -246,10 +236,7 @@ def test_signup_request_normalizes_email() -> None:
         )
     )
 
-    assert (
-        str(request.email)
-        == "trend.user@example.com"
-    )
+    assert str(request.email) == "trend.user@example.com"
 
 
 def test_signup_request_rejects_invalid_email() -> None:

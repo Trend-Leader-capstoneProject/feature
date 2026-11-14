@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import (
@@ -10,6 +11,7 @@ from pydantic import (
 )
 
 from app.models.db_enums import UserStatus
+from app.schemas.account_schema import Nickname
 
 AuthNextStep = Literal[
     "MAIN",
@@ -17,11 +19,13 @@ AuthNextStep = Literal[
 ]
 
 SignupConflictField = Literal[
+    "nickname",
     "login_id",
     "email",
 ]
 
 SignupConflictReason = Literal[
+    "DUPLICATED_NICKNAME",
     "DUPLICATED_LOGIN_ID",
     "DUPLICATED_EMAIL",
 ]
@@ -44,6 +48,8 @@ class LoginRequest(BaseModel):
 
 
 class SignupRequest(BaseModel):
+    nickname: Nickname
+
     """일반 회원가입 요청 Schema."""
 
     login_id: str = Field(
@@ -160,11 +166,21 @@ class SessionData(BaseModel):
     next_step: AuthNextStep
 
 
-class LoginData(BaseModel):
+class RefreshRequest(BaseModel):
+    refresh_token: SecretStr
+
+
+class TokenPair(BaseModel):
+    access_token: str = Field(repr=False)
+    refresh_token: str = Field(repr=False)
+    token_type: Literal["Bearer"] = "Bearer"
+    access_expires_at: datetime
+    refresh_expires_at: datetime
+
+
+class LoginData(TokenPair):
     """로그인 성공 응답의 실제 데이터."""
 
-    access_token: str
-    token_type: Literal["Bearer"] = "Bearer"
     user: LoginUserData
     has_selected_interests: bool
     next_step: AuthNextStep

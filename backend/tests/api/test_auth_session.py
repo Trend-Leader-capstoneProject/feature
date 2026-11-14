@@ -9,20 +9,26 @@ from httpx2 import Response
 from jose import jwt
 
 from app.api.dependencies.auth_dependency import (
+    get_session_service,
     get_user_repository,
 )
 from app.api.dependencies.interest_dependency import (
     get_interest_repository,
 )
 from app.core.config import get_settings
-from app.core.security import create_access_token
+from app.core.security import create_access_token as _create_access_token
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.interest_repository import InterestRepository
 from app.repositories.user_repository import UserRepository
+from tests.auth_helpers import SESSION_ID, session_service_for_user
 
 settings = get_settings()
+
+
+def create_access_token(user_id):
+    return _create_access_token(user_id, SESSION_ID)
 
 
 def make_user(
@@ -48,6 +54,7 @@ def make_expired_access_token(
     return jwt.encode(
         {
             "sub": str(user_id),
+            "sid": SESSION_ID,
             "exp": datetime.now(UTC)
             - timedelta(
                 minutes=1,
@@ -65,7 +72,15 @@ def assert_unauthorized_response(
 
     assert response.status_code == 401
 
-    assert response.json() == {
+    assert response.json()["data"]["reason"] in {
+        "ACCESS_TOKEN_REQUIRED",
+        "ACCESS_TOKEN_INVALID",
+        "ACCESS_TOKEN_EXPIRED",
+        "SESSION_REVOKED",
+        "SESSION_EXPIRED",
+        "ACCOUNT_UNAVAILABLE",
+    }
+    assert {**response.json(), "data": None} == {
         "success": False,
         "statusCode": 401,
         "message": "로그인이 필요합니다.",
@@ -99,6 +114,9 @@ def client(
     """실제 Auth Dependency와 AuthService를 사용하는 TestClient를 생성한다."""
 
     application = create_app()
+    application.dependency_overrides[get_session_service] = lambda: (
+        session_service_for_user(user_repository_mock.find_by_id)
+    )
 
     def override_user_repository() -> UserRepository:
         return cast(
@@ -112,13 +130,11 @@ def client(
             interest_repository_mock,
         )
 
-    application.dependency_overrides[
-        get_user_repository
-    ] = override_user_repository
+    application.dependency_overrides[get_user_repository] = override_user_repository
 
-    application.dependency_overrides[
-        get_interest_repository
-    ] = override_interest_repository
+    application.dependency_overrides[get_interest_repository] = (
+        override_interest_repository
+    )
 
     try:
         with TestClient(application) as test_client:
@@ -154,9 +170,7 @@ def test_session_returns_current_session(
 
     user_repository_mock.find_by_id.return_value = make_user()
 
-    interest_repository_mock.exists_by_user_id.return_value = (
-        has_selected_interests
-    )
+    interest_repository_mock.exists_by_user_id.return_value = has_selected_interests
 
     access_token = create_access_token(
         user_id=100,
@@ -247,9 +261,7 @@ def test_session_rejects_expired_token(
     response = client.get(
         "/api/auth/session",
         headers={
-            "Authorization": (
-                f"Bearer {make_expired_access_token(100)}"
-            ),
+            "Authorization": (f"Bearer {make_expired_access_token(100)}"),
         },
     )
 
@@ -257,7 +269,7 @@ def test_session_rejects_expired_token(
         response,
     )
 
-    user_repository_mock.find_by_id.assert_not_called()
+    user_repository_mock.find_by_id.assert_called_once_with(100)
     interest_repository_mock.exists_by_user_id.assert_not_called()
 
 

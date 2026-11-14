@@ -1,350 +1,181 @@
 import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import {
-  createContext,
-  type PropsWithChildren,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+  createContext, type PropsWithChildren, useCallback, useContext,
+  useEffect, useMemo, useRef, useState,
 } from "react";
-
 import { Alert } from "react-native";
 import { getAuthSession } from "../../features/auth/api/getAuthSession";
-import type {
-  AuthSuccessResponse,
-  SessionResponse
-} from "../../features/auth/types/auth";
+import type { AuthSuccessResponse, SessionResponse } from "../../features/auth/types/auth";
 import { registerAuthFailureHandler } from "../../shared/handler/authFailureHandler";
 import {
-  allowAuthenticatedRequests,
-  blockAuthenticatedRequests,
+  advanceAuthEpoch, allowAuthenticatedRequests, assertAuthEpoch,
+  blockAuthenticatedRequests, getAuthEpoch, StaleAuthOperationError,
 } from "../../shared/handler/authRequestGate";
+import { registerAuthStorageFailureHandler } from "../../shared/handler/authStorageFailureHandler";
 import {
-  deleteAccessToken,
-  getAccessToken,
-  saveAccessToken,
+  AuthStorageError, cleanLegacyAccessToken, clearAuthBundle, markAuthPhase,
+  readAuthBundle, saveTokenPair,
 } from "../../shared/storage/tokenStorage";
+import { publicApiClient } from "../../shared/api/publicApiClient";
 
 export type AuthState =
-  | {
-      status: "RESTORING";
-    }
-  | {
-      status: "UNAUTHENTICATED";
-    }
-  | {
-      status: "AUTHENTICATED";
-      session: SessionResponse;
-    }
-  | {
-      status: "RESTORE_ERROR";
-    };
-
+  | { status: "RESTORING" }
+  | { status: "UNAUTHENTICATED" }
+  | { status: "AUTHENTICATED"; session: SessionResponse }
+  | { status: "RESTORE_ERROR"; kind?: "STORAGE" | "NETWORK" };
 interface AuthContextValue {
   authState: AuthState;
-  establishSession: (
-    authResponse: AuthSuccessResponse,
-  ) => Promise<void>;
+  establishSession: (response: AuthSuccessResponse) => Promise<void>;
   restoreSession: () => Promise<void>;
   revalidateSession: () => Promise<void>;
   completeInterestSelection: () => void;
   logout: () => Promise<void>;
+  clearLocalSession: () => Promise<void>;
 }
-
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function isUnauthorizedError(error: unknown): boolean {
-  return axios.isAxiosError(error) && error.response?.status === 401;
-}
-
-function toSessionResponse(
-  authResponse: AuthSuccessResponse,
-): SessionResponse {
-  return {
-    user: authResponse.user,
-    has_selected_interests: authResponse.has_selected_interests,
-    next_step: authResponse.next_step,
-  };
-}
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
-
-  const [authState, setAuthState] = useState<AuthState>({
-    status: "RESTORING",
-  });
-
-  const sessionTerminationPromiseRef = useRef<Promise<void> | null>(null);
-
-  const sessionTerminationCompletedRef = useRef(false);
-
-  const initialRestoreStartedRef = useRef(false);
-
-  const authFailureAlertVisibleRef = useRef(false);
-
-  const terminateSession = useCallback(async (): Promise<void> => {
-    if (sessionTerminationCompletedRef.current) {
-      return;
-    }
-
-    if (sessionTerminationPromiseRef.current) {
-      await sessionTerminationPromiseRef.current;
-      return;
-    }
-
+  const [authState, setAuthState] = useState<AuthState>({ status: "RESTORING" });
+  const terminationRef = useRef<Promise<void> | null>(null);
+  const mounted = useRef(true);
+  const initialRestore = useRef(false);
+  const recovery = useCallback(() => {
     blockAuthenticatedRequests();
+    queryClient.clear();
+    setAuthState({ status: "RESTORE_ERROR", kind: "STORAGE" });
+  }, [queryClient]);
 
-    const terminationPromise = (async (): Promise<void> => {
+  const terminate = useCallback((server = false): Promise<void> => {
+    if (terminationRef.current) return terminationRef.current;
+    const epoch = advanceAuthEpoch();
+    setAuthState({ status: "RESTORING" });
+    const promise = (async () => {
+      let confirmed = !server;
       try {
-        await queryClient.cancelQueries();
-
-        await deleteAccessToken();
-
-        queryClient.removeQueries();
-
-        sessionTerminationCompletedRef.current = true;
-
-        setAuthState({
-          status: "UNAUTHENTICATED",
-        });
+        if (server) {
+          try {
+            const bundle = await readAuthBundle(epoch);
+            await markAuthPhase("TERMINATING", epoch);
+            if (bundle) {
+              await publicApiClient.post("/auth/logout", { refresh_token: bundle.refresh_token });
+              confirmed = true;
+            } else confirmed = true;
+          } catch { /* 기기 정리 후 서버 종료 미확인을 별도로 안내한다. */ }
+        }
+        await queryClient.cancelQueries().catch(() => undefined);
+        queryClient.clear();
+        await clearAuthBundle(epoch);
+        assertAuthEpoch(epoch);
+        if (mounted.current) setAuthState({ status: "UNAUTHENTICATED" });
+        if (!confirmed) Alert.alert("기기에서 로그아웃했습니다", "서버의 로그인 종료는 확인하지 못했습니다.");
       } catch (error) {
-        allowAuthenticatedRequests();
-
+        if (!(error instanceof StaleAuthOperationError)) recovery();
         throw error;
       }
     })();
+    terminationRef.current = promise;
+    void promise.finally(() => {
+      if (terminationRef.current === promise) terminationRef.current = null;
+    }).catch(() => undefined);
+    return promise;
+  }, [queryClient, recovery]);
 
-    sessionTerminationPromiseRef.current = terminationPromise;
-
+  const establishSession = useCallback(async (response: AuthSuccessResponse) => {
+    if (response._requestEpoch !== undefined) assertAuthEpoch(response._requestEpoch);
+    if (terminationRef.current) await terminationRef.current;
+    if (response._requestEpoch !== undefined) assertAuthEpoch(response._requestEpoch);
+    const epoch = advanceAuthEpoch();
+    setAuthState({ status: "RESTORING" });
+    await queryClient.cancelQueries().catch(() => undefined);
+    queryClient.clear();
     try {
-      await terminationPromise;
-    } finally {
-      if (sessionTerminationPromiseRef.current === terminationPromise) {
-        sessionTerminationPromiseRef.current = null;
-      }
-    }
-  }, [queryClient]);
-
-  const establishSession = useCallback(
-    async (
-      authResponse: AuthSuccessResponse,
-    ): Promise<void> => {
-      const activeTermination = sessionTerminationPromiseRef.current;
-
-      if (activeTermination) {
-        await activeTermination;
-      }
-
-      await saveAccessToken(
-        authResponse.access_token,
-      );
-
+      await saveTokenPair(response, epoch);
+      await cleanLegacyAccessToken(epoch);
+      assertAuthEpoch(epoch);
       allowAuthenticatedRequests();
-
-      sessionTerminationCompletedRef.current = false;
-
-      setAuthState({
-        status: "AUTHENTICATED",
-        session: toSessionResponse(authResponse),
-      });
-    },
-    [],
-  );
-
-  const restoreSession = useCallback(async (): Promise<void> => {
-    setAuthState({
-      status: "RESTORING",
-    });
-
-    try {
-      const accessToken = await getAccessToken();
-
-      if (!accessToken) {
-        blockAuthenticatedRequests();
-
-        sessionTerminationCompletedRef.current = true;
-
-        setAuthState({
-          status: "UNAUTHENTICATED",
-        });
-        return;
-      }
-
-      try {
-        const session = await getAuthSession();
-
-        allowAuthenticatedRequests();
-
-        sessionTerminationCompletedRef.current = false;
-
-        setAuthState({
-          status: "AUTHENTICATED",
-          session,
-        });
-      } catch (error) {
-        if (isUnauthorizedError(error)) {
-          try {
-            await terminateSession();
-          } catch {
-            setAuthState({
-              status: "RESTORE_ERROR",
-            });
-          }
-
-          return;
-        }
-
-        setAuthState({
-          status: "RESTORE_ERROR",
-        });
-      }
-    } catch {
-      setAuthState({
-        status: "RESTORE_ERROR",
-      });
-    }
-  }, [terminateSession]);
-
-  const revalidateSession = useCallback(async (): Promise<void> => {
-    const requestAccessToken = await getAccessToken();
-
-    if (!requestAccessToken) {
-      await terminateSession();
-      return;
-    }
-
-    try {
-      const session = await getAuthSession();
-
-      const currentAccessToken = await getAccessToken();
-
-      if (
-        currentAccessToken !== requestAccessToken ||
-        sessionTerminationPromiseRef.current ||
-        sessionTerminationCompletedRef.current
-      ) {
-        return;
-      }
-
-      setAuthState({
-        status: "AUTHENTICATED",
-        session,
-      });
+      setAuthState({ status: "AUTHENTICATED", session: {
+        user: response.user, has_selected_interests: response.has_selected_interests,
+        next_step: response.next_step,
+      } });
     } catch (error) {
-      if (isUnauthorizedError(error)) {
-        await terminateSession();
-        return;
+      if (error instanceof StaleAuthOperationError || epoch !== getAuthEpoch()) throw error;
+      try { await clearAuthBundle(epoch); setAuthState({ status: "UNAUTHENTICATED" }); }
+      catch (cleanupError) {
+        if (!(cleanupError instanceof StaleAuthOperationError) && epoch === getAuthEpoch()) recovery();
       }
-
       throw error;
     }
-  }, [terminateSession]);
+  }, [queryClient, recovery]);
 
-  const completeInterestSelection = useCallback((): void => {
-    setAuthState((currentState) => {
-      if (currentState.status !== "AUTHENTICATED") {
-        return currentState;
+  const restoreSession = useCallback(async () => {
+    if (terminationRef.current) { await terminationRef.current; return; }
+    const epoch = advanceAuthEpoch();
+    setAuthState({ status: "RESTORING" });
+    try {
+      const bundle = await readAuthBundle(epoch);
+      await cleanLegacyAccessToken(epoch);
+      assertAuthEpoch(epoch);
+      if (!bundle) { setAuthState({ status: "UNAUTHENTICATED" }); return; }
+      if (bundle.phase !== "READY") { await terminate(); return; }
+      allowAuthenticatedRequests();
+      const session = await getAuthSession();
+      assertAuthEpoch(epoch);
+      setAuthState({ status: "AUTHENTICATED", session });
+    } catch (error) {
+      if (error instanceof StaleAuthOperationError || epoch !== getAuthEpoch()) return;
+      if ((error instanceof AuthStorageError && error.kind === "CORRUPT") ||
+        (axios.isAxiosError(error) && error.response?.status === 401)) {
+        await terminate().catch(() => undefined);
+      } else {
+        blockAuthenticatedRequests();
+        setAuthState({ status: "RESTORE_ERROR", kind: error instanceof AuthStorageError ? "STORAGE" : "NETWORK" });
       }
+    }
+  }, [terminate]);
 
-      return {
-        status: "AUTHENTICATED",
-        session: {
-          ...currentState.session,
-          has_selected_interests: true,
-          next_step: "MAIN",
-        },
-      };
+  const revalidateSession = useCallback(async () => {
+    const epoch = getAuthEpoch();
+    try {
+      const session = await getAuthSession();
+      assertAuthEpoch(epoch);
+      setAuthState({ status: "AUTHENTICATED", session });
+    } catch (error) {
+      if (epoch !== getAuthEpoch() || error instanceof StaleAuthOperationError) return;
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        await terminate();
+        return;
+      }
+      throw error;
+    }
+  }, [terminate]);
+  const completeInterestSelection = useCallback(() => {
+    setAuthState(current => current.status !== "AUTHENTICATED" ? current : {
+      ...current, session: { ...current.session, has_selected_interests: true, next_step: "MAIN" },
     });
   }, []);
 
-  const logout = useCallback(async (): Promise<void> => {
-    await terminateSession();
-  }, [terminateSession]);
-
   useEffect(() => {
-    async function handleAuthFailure(): Promise<void> {
-      try {
-        await terminateSession();
-      } catch {
-        if (authFailureAlertVisibleRef.current) {
-          return;
-        }
-
-        authFailureAlertVisibleRef.current = true;
-
-        Alert.alert(
-          "인증 정보 삭제 실패",
-          "저장된 인증 정보를 삭제하지 못했습니다. 다시 시도해 주세요.",
-          [
-            {
-              text: "확인",
-              style: "cancel",
-              onPress: () => {
-                authFailureAlertVisibleRef.current = false;
-              },
-            },
-            {
-              text: "다시 시도",
-              onPress: () => {
-                authFailureAlertVisibleRef.current = false;
-
-                void handleAuthFailure();
-              },
-            },
-          ],
-          {
-            cancelable: false,
-          },
-        );
-      }
-    }
-
-    return registerAuthFailureHandler(handleAuthFailure);
-  }, [terminateSession]);
-
+    mounted.current = true;
+    const unregisterFailure = registerAuthFailureHandler(() => terminate());
+    const unregisterStorage = registerAuthStorageFailureHandler(recovery);
+    return () => { mounted.current = false; unregisterFailure(); unregisterStorage(); };
+  }, [recovery, terminate]);
   useEffect(() => {
-    if (initialRestoreStartedRef.current) {
-      return;
-    }
-
-    initialRestoreStartedRef.current = true;
-
-    void restoreSession();
+    if (!initialRestore.current) { initialRestore.current = true; void restoreSession(); }
   }, [restoreSession]);
 
-  const contextValue = useMemo<AuthContextValue>(
-    () => ({
-      authState,
-      establishSession,
-      restoreSession,
-      revalidateSession,
-      completeInterestSelection,
-      logout,
-    }),
-    [
-      authState,
-      establishSession,
-      restoreSession,
-      revalidateSession,
-      completeInterestSelection,
-      logout,
-    ],
-  );
-
-  return (
-    <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
-  );
+  const logout = useCallback(() => terminate(true), [terminate]);
+  const clearLocalSession = useCallback(() => terminate(), [terminate]);
+  const value = useMemo(() => ({
+    authState, establishSession, restoreSession, revalidateSession,
+    completeInterestSelection, logout, clearLocalSession,
+  }), [authState, establishSession, restoreSession, revalidateSession, completeInterestSelection, logout, clearLocalSession]);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error("useAuth는 AuthProvider 내부에서 사용해야 합니다.");
-  }
-
+  if (!context) throw new Error("useAuth는 AuthProvider 내부에서 사용해야 합니다.");
   return context;
 }
