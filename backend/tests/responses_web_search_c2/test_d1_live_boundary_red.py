@@ -555,11 +555,118 @@ def test_d1b_no_response_metadata_on_transport_failure(failure, caplog, capsys):
     assert preview["requested_model"] == plan().config.model
     assert preview["request_started_at_utc"] == STARTED.isoformat()
     for key in ("response_received_at_utc", "response_model", "usage",
-                "output_type_counts"):
+                "output_type_counts", "web_search_call_details"):
         assert preview[key] is None
     assert preview["response_status"] == "UNKNOWN"
     assert preview["model_match"] == "UNKNOWN"
     assert preview["search_execution"] == "UNKNOWN"
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("calls", [
+    [("completed", "search")],
+    [("completed", "search"), ("incomplete", "search")],
+    [("completed", "search"), ("completed", "search")],
+    [("completed", "search"), ("completed", "open_page")],
+    [("searching", "search")], [("failed", "search")],
+    [("in_progress", "search")], [("completed", "find_in_page")],
+    [(MARKER, MARKER)], [(None, None)], [(17, [MARKER])],
+])
+@pytest.mark.parametrize("c1_failure", [False, True])
+def test_d1b1_call_details_are_bounded_and_survive_rejection(
+    calls, c1_failure, monkeypatch, pipeline, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("bad-json"))
+    # Put reasoning before and between calls: indexes must refer to raw output.
+    output = []
+    expected = []
+    for status, action_type in calls:
+        output.append({"type": "reasoning", "id": "rs", "summary": []})
+        expected.append({
+            "output_index": len(output),
+            "status": status if status in (
+                "completed", "incomplete", "searching", "failed", "in_progress",
+            ) else "UNKNOWN",
+            "action_type": action_type if action_type in (
+                "search", "open_page", "find_in_page",
+            ) else "UNKNOWN",
+        })
+        output.append({
+            "id": "ws", "type": "web_search_call", "status": status,
+            "action": {"type": action_type, "query": "PRIVATE_D1_QUERY",
+                       "pattern": "PRIVATE_D1_PATTERN",
+                       "url": "https://private.example.test/d1",
+                       "sources": [{"type": "url",
+                                    "url": "https://private.example.test/source"}]},
+        })
+    endpoint.payload["output"] = output + [endpoint.payload["output"][-1]]
+    endpoint.payload["usage"] = USAGE
+    if c1_failure:
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["web_search_call_details"] == expected
+    assert preview["candidates"] == []
+    assert preview["status"] == (
+        "SEARCH_NOT_EXECUTED"
+        if not c1_failure and calls == [("completed", "find_in_page")]
+        else "INVALID_OR_INCOMPLETE_RESPONSE"
+    )
+    assert preview["output_type_counts"] == {
+        "reasoning": len(calls), "web_search_call": len(calls), "message": 1,
+    }
+    if c1_failure:
+        assert preview["reason_codes"] == ["C1_CONVERSION_FAILED"]
+        assert preview["usage"] is None
+        assert_flow(pipeline, ["c2", "c1"])
+    else:
+        assert preview["usage"] == USAGE
+        assert preview["tool_calls_observed"] == len(calls)
+        if len(calls) > 1:
+            assert preview["reason_codes"] == ["TOOL_CALL_LIMIT_EXCEEDED"]
+            assert preview["search_execution"] == "CONFIRMED"
+            assert_flow(pipeline, ["c2", "c1", "normalize"])
+    assert_request(endpoint, plan())
+    captured = capsys.readouterr()
+    visible = json.dumps(preview) + caplog.text + captured.out + captured.err
+    for marker in ("PRIVATE_D1_QUERY", "PRIVATE_D1_PATTERN",
+                   "https://private.example.test", "not candidate JSON"):
+        assert marker not in visible
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("case", [
+    "not-list", "scalar-item", "unknown-item", "missing-type", "bad-action",
+    "missing-action", "oversized", "at-limit", "no-search",
+])
+def test_d1b1_call_details_require_complete_output(case, caplog, capsys):
+    endpoint = MockEndpoint(payload=payload_for("bad-json"))
+    output = endpoint.payload["output"]
+    expected = None
+    if case == "not-list":
+        endpoint.payload["output"] = {"type": MARKER}
+    elif case == "scalar-item":
+        output.append(MARKER)
+    elif case == "unknown-item":
+        output.append({"type": MARKER})
+    elif case == "missing-type":
+        output.append({"id": MARKER})
+    elif case == "bad-action":
+        output[0]["action"] = MARKER
+    elif case == "missing-action":
+        output[0].pop("action")
+    elif case in {"oversized", "at-limit"}:
+        output.extend({"type": "reasoning", "id": "rs", "summary": []}
+                      for _ in range((17 if case == "oversized" else 16) - len(output)))
+        if case == "at-limit":
+            expected = [{"output_index": 0, "status": "completed",
+                         "action_type": "search"}]
+    else:
+        output.pop(0)
+        expected = []
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["web_search_call_details"] == expected
+    assert preview["candidates"] == []
     assert_request(endpoint, plan())
     assert_safe(preview, caplog, capsys)
 

@@ -12,7 +12,17 @@ from threading import RLock, get_ident
 from typing import get_args
 
 import httpx2
-from openai.types.responses import Response
+from openai.types.responses import (
+    Response,
+    ResponseFunctionWebSearch,
+    ResponseOutputMessage,
+    ResponseReasoningItem,
+)
+from openai.types.responses.response_function_web_search import (
+    ActionFind,
+    ActionOpenPage,
+    ActionSearch,
+)
 
 from . import c1_adapter, c2_transport, normalizer, parser, validator
 from .gate_d_preflight import GateDPreflightPlan, build_preflight_plan
@@ -44,8 +54,57 @@ def _preview(
         "requested_model": None, "response_model": None, "model_match": "UNKNOWN",
         "request_started_at_utc": None, "response_received_at_utc": None,
         "response_status": "UNKNOWN", "output_type_counts": None,
+        "web_search_call_details": None,
         **(observations or {}),
     }
+
+
+def _web_search_call_details(output: object) -> list[dict[str, object]] | None:
+    """Observe the whole bounded envelope, never content or serialized output.
+
+    This is diagnostic evidence, not S1/S0 validation or a processed/billed call
+    count. Unknown scalar values are redacted; damaged containers invalidate
+    the entire observation, including any entries already visited.
+    """
+    if type(output) is not list or len(output) > normalizer._MAX_OUTPUT_ITEMS:
+        return None
+    details = []
+    for index, item in enumerate(output):
+        if type(item) is dict:
+            fields = item
+        elif type(item) in (
+            ResponseFunctionWebSearch, ResponseOutputMessage, ResponseReasoningItem,
+        ):
+            fields = vars(item)
+        else:
+            return None
+        kind = fields.get("type")
+        if type(kind) is not str or kind not in {
+            "web_search_call", "reasoning", "message",
+        }:
+            return None
+        if kind != "web_search_call":
+            continue
+        action = fields.get("action")
+        if type(action) is dict:
+            action_fields = action
+        elif type(action) in (ActionSearch, ActionOpenPage, ActionFind):
+            action_fields = vars(action)
+        else:
+            return None
+        status = fields.get("status")
+        action_type = action_fields.get("type")
+        details.append({
+            "output_index": index,
+            # SDK 3.50.0 ResponseFunctionWebSearch.status, not Response.status.
+            "status": status if type(status) is str and status in {
+                "in_progress", "searching", "completed", "failed", "incomplete",
+            } else "UNKNOWN",
+            "action_type": action_type if type(action_type) is str and action_type in {
+                "search", "open_page", "find_in_page",
+            } else "UNKNOWN",
+        })
+    return details
 
 
 def _response_observations(response: Response, requested: str) -> dict[str, object]:
@@ -85,6 +144,7 @@ def _response_observations(response: Response, requested: str) -> dict[str, obje
         "response_model": requested if match == "MATCH" else None,
         "model_match": match, "response_status": safe_status,
         "output_type_counts": counts,
+        "web_search_call_details": _web_search_call_details(output),
     }
 
 
