@@ -36,6 +36,7 @@ from d1_support import (
     USAGE,
     Terminal,
     assert_flow,
+    assert_no_authorization_header,
     assert_request,
     assert_safe,
     cli,
@@ -93,6 +94,23 @@ def test_d1_dispatch_guard_control(no_dispatch):
         transport.request_response()
     assert no_dispatch == ["dispatch"]
     no_dispatch.clear()  # Only the sensitivity control expects a blocked call.
+
+
+def test_d1_authorization_header_guard_control():
+    safe = {"publish_authorization": "NONE",
+            "candidates": [{"publish_authorization": "NONE"}]}
+    assert_no_authorization_header(repr(safe))
+    assert_no_authorization_header(json.dumps(safe))
+    for header in (
+        "Authorization: Basic synthetic-credentials",
+        "authorization : synthetic-credentials",
+        '"AUTHORIZATION": "synthetic-credentials"',
+        "{'aUtHoRiZaTiOn': 'synthetic-credentials'}",
+        "('Authorization', 'synthetic-credentials')",
+        "{b'authorization': b'synthetic-credentials'}",
+    ):
+        with pytest.raises(AssertionError, match="Authentication header exposed"):
+            assert_no_authorization_header(header)
 
 
 @pytest.mark.parametrize("case", ["ready", "rejected", "no-search", "empty"])
@@ -265,7 +283,8 @@ def test_d1_03_cli_exact_confirmation_once(monkeypatch, pipeline, caplog, capsys
     assert_flow(pipeline, expected_flow("ready"))
     captured = capsys.readouterr()
     visible = out + err + caplog.text + captured.out + captured.err
-    for marker in (API_KEY, MARKER, "Bearer ", "authorization"):
+    assert_no_authorization_header(visible)
+    for marker in (API_KEY, MARKER, "Bearer "):
         assert marker not in visible
 
 
@@ -348,7 +367,8 @@ def test_d1_09_cli_failure_has_no_traceback_or_sensitive_text(
     assert_request(endpoint, plan())
     captured = capsys.readouterr()
     visible = out + err + caplog.text + captured.out + captured.err
-    for marker in (API_KEY, MARKER, "Bearer ", "authorization", "RAW_D1_CONTENT",
+    assert_no_authorization_header(visible)
+    for marker in (API_KEY, MARKER, "Bearer ", "RAW_D1_CONTENT",
                    "Traceback (most recent call last)"):
         assert marker not in visible
 
@@ -360,3 +380,41 @@ def test_d1_09_key_cli_argument_rejected_without_echo(no_dispatch, caplog, capsy
     assert endpoint.calls == []
     captured = capsys.readouterr()
     assert API_KEY not in out + err + caplog.text + captured.out + captured.err
+
+
+def test_d1_tampered_plan_blocked_before_c2(no_dispatch, caplog, capsys):
+    forged = dataclasses.replace(plan(), input_text="RAW_D1_CONTENT")
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    preview = invoke(product(LIVE), endpoint, plan=forged)
+    assert preview["status"] == "BLOCKED_CONFIG"
+    assert preview["reason_codes"] == ["INVALID_CONFIGURATION"]
+    assert endpoint.calls == []
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("boundary", ["c2", "sdk"])
+def test_d1_unexpected_exception_is_safe_and_not_retried(
+    boundary, monkeypatch, pipeline, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    error = RuntimeError(f"{MARKER} {API_KEY} Authorization: Bearer RAW_D1_CONTENT")
+    failure = Mock(side_effect=error)
+    if boundary == "c2":
+        transport = importlib.import_module("app.responses_web_search.c2_transport")
+        monkeypatch.setattr(transport, "request_response", failure)
+    else:
+        monkeypatch.setattr("openai.resources.responses.Responses.create", failure)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code != 0
+    assert failure.call_count == 1
+    assert endpoint.calls == []
+    assert "UNEXPECTED_ERROR" in out + err
+    for name in ("c1", "normalize", "parse", "validate"):
+        assert getattr(pipeline, name).call_count == 0
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    for marker in (MARKER, API_KEY, "Authorization", "Bearer ", "RAW_D1_CONTENT",
+                   "Traceback (most recent call last)"):
+        assert marker not in visible

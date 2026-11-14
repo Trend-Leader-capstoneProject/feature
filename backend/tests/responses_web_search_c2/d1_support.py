@@ -6,6 +6,7 @@ import importlib.abc
 import io
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -87,6 +88,14 @@ def assert_request(endpoint, approved_plan):
     )
 
 
+def assert_no_authorization_header(visible):
+    # Underscores are word characters: publish_authorization remains valid.
+    # Standalone header names are forbidden in HTTP, JSON, dict and tuple forms.
+    assert re.search(r"\bauthorization\b", visible, re.IGNORECASE) is None, (
+        "Authentication header exposed"
+    )
+
+
 def assert_safe(preview, caplog, capsys, *extra):
     assert json.loads(json.dumps(preview, allow_nan=False)) == preview
     assert preview["mode"] == "LIVE"
@@ -104,7 +113,8 @@ def assert_safe(preview, caplog, capsys, *extra):
     visible = "\n".join((
         repr(preview), caplog.text, captured.out, captured.err, *extra,
     ))
-    for secret in (API_KEY, MARKER, "Bearer ", "authorization", "RAW_D1_CONTENT"):
+    assert_no_authorization_header(visible)
+    for secret in (API_KEY, MARKER, "Bearer ", "RAW_D1_CONTENT"):
         assert secret not in visible
 
 
