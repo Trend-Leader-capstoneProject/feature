@@ -1,12 +1,12 @@
-# Trend Leader — Phase 3-B-2 Migration Preflight(B-2) 설계 확정 후보 v1.0
+# Trend Leader — Phase 3-B-2 Migration Preflight(B-2) 설계 확정안 v1.0
 
 > 작성: 2026-11-14 (KST)  
 > 저장소: `Trend-Leader-capstoneProject/feature`  
 > 확인한 `dev` HEAD: `aca8c5155ff548bcec97b750be642ce816a730d4` (문서 작성 시점, 구현 시작 전 재조회)  
-> **상태: REVIEW COMPLETE / FROZEN CANDIDATE / NOT IMPLEMENTED / NOT TESTED / NOT DEPLOYMENT APPROVED**  
+> **상태: B-2 POLICY FROZEN / 부분 구현(순수 분류) / DB 관찰·Evidence·Guard 연동 NOT IMPLEMENTED / 격리 DB NOT TESTED / DEPLOYMENT NOT APPROVED**  
 > 상위 기준: `docs/designs-infra/phase-3-b-2/Trend_Leader_Phase_3-B-2_M-A1_Design_Decision_v1.0_20261113.md`  
 > 사용자 확정 선택: **Migration 전용 계정 재사용(A안)**, **B-2는 관찰·감사 / B-3가 승인값 대조(A안)**.  
-> 문서 커밋과 실제 구현을 의미하지 않는다. 사용자 최종 동결 승인 전에 세부 필드/경로/오류 계약은 제안 상태다.
+> 2026-11-14 사용자 P0-A~D 승인에 따라 실행·보고 정책 동결. 순수 상태 분류 코드는 PR #103으로 병합되었으나 B-2 CLI/DB 관찰/Evidence 기능과 운영 배포의 완료를 뜻하지 않는다.
 
 ## 1. 문제와 목표
 
@@ -71,28 +71,45 @@ Guard(preflight)
 
 `MigrationContext.get_current_heads()`는 버전 테이블 자체가 없을 때도 빈 튜플을 반환하므로, 해당 반환값만으로 초기 빈 DB를 증명하지 않는다. 현 저장소의 Revision 파일 3개는 `2f29fa23597c`, `7e9d740c5df1`, `a4d7c9e21f3b`이며, 구현 착수 시 실제 계보를 다시 검증한다. 향후 브랜칭이 합법적인 변경으로 들어오면 다중 Revision 정책을 별도 재검토한다.
 
-## 6. Evidence 계약 후보 (B-3 호환)
+## 6. Evidence 및 실행 운영 계약 (P0-A~D FROZEN, 2026-11-14)
 
-**동결 전 확정이 필요한 상세값:** 실제 호스트에 보호된 영속 기록 경로, B-2 프로세스의 쓰기 권한, 신규 설정 이름, 보고서 포맷의 정확한 키/Reason Code/종료 코드. 코드·설정의 기정사실로 취급하지 않는다.
+> 사용자 승인: P0-A 영속 Evidence, P0-B 위험 환경변수 차단, P0-C JSON/Reason/Exit, P0-D 단일 Connection READ ONLY. **운영 호스트 절대 경로와 UID/GID 및 실제 DB/드라이버 검증 결과는 운영 Compose·격리 MariaDB 후속 Gate에서 결정**하며, 이 값들을 임의로 확정하지 않는다.
 
-- 권고 포맷: UTF-8 JSON 1개/실행 (`schema_version` 포함). 새 외부 JSON 패키지 필요 없음.
-- 필수 의미 필드: `evidence_id`, `observed_at_utc`, `inspection_status`, `schema_state`, `configured_target`(Host/Port/DB/사용자명), `observed_target`(DB명/현재 계정/버전/문자셋/Collation), `current_revisions`, `reason_codes`, `checks`, `image_identity_verification_status`(실증하지 않았다면 `NOT_VERIFIED`).
-- 원본 비밀번호, 비밀번호 파일 내용, URL 사용자 정보, JWT, 환경변수 일괄 덤프, 원시 예외 메시지/트레이스백, 개인 사용자 데이터 포함 금지.
-- 정상 검사라도 `APPROVED`, `SAFE_TO_APPLY`, `DEPLOYMENT_APPROVED` 상태 사용 금지.
-- 같은 ID로 파일 덮어쓰기 금지. 중복 또는 감사 경로 기록 실패 시 성공 판정 금지. 읽기 전용 DB 접근과 호스트 파일 기록을 구별.
-- 보고서 경로는 운영자 전용이고 영속적이며, 일반 API 컨테이너에 불필요하게 제공하지 않는다. 호스트 관리자에 대한 위변조 방지를 주장하지 않는다.
-- `evidence_id`의 유일성만으로 증거의 진정성, 무결성 또는 실행 승인을 증명하지 않는다. B-3에서 이미지 식별/승인 대상/증거 참조와 결합하여 대조한다.
-- 보고서 저장 위치가 확정되기 전 운영 배포판의 정상 완료로 처리하지 않는다. 개발·격리 검증에서는 보호된 임시 경로로 테스트할 수 있다.
+### P0-A. Evidence 보호·영속 저장
 
-### 상태 계약 후보
+- B-2 설정 입력명: `MIGRATION_PREFLIGHT_EVIDENCE_DIR`. 필수, **절대 경로**. 운영자가 사전 생성한 호스트 보호 영속 디렉터리를 운영 Compose에서 지정하여 Migration 컨테이너에 필요한 범위만 마운트한다. 경로가 없거나 불확실하거나 쓰기 불가하면 DB 접속 전 거부한다. 운영용 루트 경로를 Guard가 임의 생성하지 않는다.
+- 실행별 고유 `evidence_id`(표준 라이브러리 기반 고유 ID)로 **배타적 신규 하위 디렉터리 생성**, 디렉터리가 이미 존재하면 실패하며 기존 Evidence를 덮어쓰거나 ID를 재사용하지 않는다. 하위 디렉터리는 실행 도중 충돌 없이 예약된다.
+- JSON은 같은 하위 디렉터리의 새 임시 파일에 독점 생성하여 UTF-8로 완성, flush 및 파일 동기화 후 최종 `report.json`으로 게시한다. **최종 경로 선점·중복 여부를 검사하고 덮어쓰기는 금지**한다. 같은 파일시스템 내 게시/디렉터리 동기화 및 OS별 실제 내구성은 테스트로 입증해야 하며, 단순 `rename` 또는 `os.replace`만으로 무조건 무손실·무덮어쓰기를 보증한다고 표현하지 않는다.
+- 오류 또는 프로세스 비정상 종료로 미완성 임시 파일이나 디렉터리가 남으면 **완료된 Evidence가 아닌 불완전 기록**으로 분류한다. 자동 삭제/재사용 금지; 별도 조사.
+- Linux 컨테이너에서 Evidence 디렉터리 `0700`, 파일 `0600`을 기본 권한 후보로 두고, 실제 UID/GID·umask·마운트·심볼릭 링크/경로 바꿔치기 위험은 운영 Compose·격리 시험에서 검증한다. Backend/Runtime 서비스에는 해당 디렉터리 및 Secret을 제공하지 않는다.
+- Evidence 저장 실패·ID 충돌·권한/경로 문제는 성공 처리 금지. 설정/경로를 확보하지 못해 보고서를 만들 수 없는 경우에도 **안전한 종료 코드 4**로 처리하되, 완료되지 않은 보고서를 성공 증거처럼 출력하지 않는다.
+- 호스트 DB 밖의 파일 기록이므로 **DB 읽기 전용과 양립**한다. 파일 보호 정책과 ID는 독립적인 전자서명·변조 방지·승인 증거가 아니다. B-3가 별도의 승인 Manifest와 비교한다.
 
-| 상태 | 의미 | 승인에 대한 함의 |
-|---|---|---|
-| `OBSERVED` | 관찰 완료. 기존 유효 Revision 또는 제한적 초기화 후보로 분류 | 승인 아님, B-3 추가 대조 필요 |
-| `INDETERMINATE` | 불일치·모호·미인식 Revision/객체 | APPLY 차단 |
-| `ERROR` | 설정/접속/조회/보고서 저장 실패 | APPLY 차단 |
+### P0-B. 환경변수 혼입 차단
 
-검사 결과를 승인 여부 `PASS`로 단순 매핑하지 않는다. 안정적인 Reason Code와 exit code 세부 매핑은 신규 테스트를 먼저 작성한 뒤 동결한다.
+- 승인된 Migration 연결 입력은 `MIGRATION_DB_HOST`, `MIGRATION_DB_PORT`, `MIGRATION_DB_NAME`, `MIGRATION_DB_USER`, `MIGRATION_DB_PASSWORD_FILE`, `MIGRATION_DB_CONNECTION_TIMEOUT`(선택, 기존 유한 범위)만이다. 다른 `MIGRATION_DB_*` 이름은 거부한다. 비밀번호 평문 변수 `MIGRATION_DB_PASSWORD`는 명시적으로 금지한다.
+- `MIGRATION_PREFLIGHT_EVIDENCE_DIR`를 B-2 전용 필수 입력으로 허용한다. 타인의 `.env`/일반 Settings/Runtime URL을 대체 설정으로 읽지 않는다.
+- `DATABASE_URL`, 일반 `DB_*`, `API_DB_*`, `JWT_SECRET_KEY`, `MARIADB_ROOT_PASSWORD`가 **존재하면 값이 비었더라도 차단**한다. `DB_ROOT_PASSWORD`는 `DB_*`에 포함된다. 키 이름을 정규화해 플랫폼 대소문자 차이를 고려하고, Secret 원문이나 환경 덤프를 출력하지 않는다.
+- `PATH`, `HOME`, `LANG` 등 일반 OS 변수 전체를 차단하지 않는다. 새롭게 도입되는 Writer/관리자 Secret 이름은 기존 코드에 없으면 추측해서 등록하지 않으며, **운영 Compose/새 Secret 도입 시 실제 변수를 검토해 차단 규칙을 보강**한다. 이 목록만으로 다른 모든 비밀 혼입이 배제됐다고 선언하지 않는다.
+- 해당 환경 감사는 **B-2 Guard CLI에만 적용**하며, 별도 테스트 Fixture와 기존 직접 Alembic 경로를 무단 변경하지 않는다. 운영 Compose의 최소 환경 주입·Secret 분리 검사를 별도 Gate로 유지한다.
+
+### P0-C. Evidence JSON v1과 결과 계약
+
+- 실행별 보고서는 UTF-8 JSON **`schema_version: 1`**. 필수 키: `schema_version`, `evidence_id`, `observed_at_utc`, `inspection_status`, `schema_state`, `configured_target`, `observed_target`, `current_revisions`, `reason_codes`, `checks`, `image_identity_verification_status`.
+- `configured_target`: `host`, `port`, `database`, `user`(비밀번호 불포함). `observed_target`: `database`, `current_user`, `server_version`, `database_charset`, `database_collation`. 미관찰 값은 추측하지 않고 `null` 및 해당 Reason Code로 표현한다.
+- `schema_state`는 기존 순수 분류 계약 `VERSIONED_OBSERVED`, `UNVERSIONED_EMPTY_CANDIDATE`, `INDETERMINATE` 중 하나이며, 분류가 불가능할 때는 `null`. 초기 빈 DB 후보는 **관찰 가능 범위의 후보일 뿐** 빈 DB 확증 또는 Migration 승인이 아니다.
+- `inspection_status`는 `OBSERVED`, `INDETERMINATE`, `ERROR` 세 값. `OBSERVED`는 절차와 영속 기록 완료만 뜻하며 `APPROVED`, `SAFE_TO_APPLY`, `DEPLOYMENT_APPROVED`를 사용하지 않는다. B-3 승인 및 L-2 적용 직전 재검증은 필수.
+- `image_identity_verification_status`는 검증하지 않았다면 정확히 `NOT_VERIFIED`. 이미지 Digest/DB 고유 신원을 구성·관찰값으로부터 추정하지 않는다.
+- 허용된 안정 Reason Code 초안 확정값: `SETTINGS_INVALID`, `ENV_CONFLICT`, `DB_CONNECTION_FAILED`, `READ_ONLY_NOT_ESTABLISHED`, `TARGET_MISMATCH`, `SCHEMA_INDETERMINATE`, `OBSERVATION_FAILED`, `EVIDENCE_WRITE_FAILED`. Reason Code 및 `checks`에는 원본 예외·접속 URL·비밀번호·JWT·환경 변수 덤프·개인 사용자 데이터 없음.
+- 프로세스 종료 코드: **0 = `OBSERVED`**(영속 기록 완료, 승인 아님), **2 = 기존 Guard 거부**(무인자/deny/apply/임의 명령; DB/파일 접근 0), **3 = `INDETERMINATE`**(보고서 저장 완료, 불일치·모호함), **4 = `ERROR`**(설정·접속·읽기·저장 실패). 저장 실패가 동반되면 0이나 3이 아닌 **4**를 우선한다.
+- CLI 종료 원인은 고정 코드로만 출력하며 자격 증명이나 원본 예외를 표시하지 않는다. 유효한 관찰이나 불확실 판정이 있더라도, 보고서 기록을 완료하기 전 성공 상태를 반환하지 않는다.
+
+### P0-D. MariaDB READ ONLY 관찰
+
+- Migration 전용 Settings와 Secret 및 환경 충돌 검증 → 전용 SQLAlchemy Engine/새 Connection → B-2 코드의 **첫 애플리케이션 SQL**로 `START TRANSACTION READ ONLY` → 같은 Connection에서 허용된 고정 SQL로 메타데이터·Revision 관찰 → rollback 및 Connection 종료/Engine dispose → 별도 Evidence 파일 기록.
+- `engine.begin()`, 사전 애플리케이션 조회, 일반 DDL/DML, `GET_LOCK`, 직접 Alembic 변경 명령을 B-2에 사용하지 않는다. 동적 SQL이나 임의 스크립트/SQL 입력 경로를 만들지 않는다.
+- SQLAlchemy 2.x의 autobegin과 DBAPI·Dialect 초기화 SQL은 구별한다. 물리적 연결의 첫 SQL이라는 보장은 주장하지 않는다. 연결 해제·조회 실패 시 자동 재연결/재시도 금지; cleanup 이상이 생기면 성공 완료로 기록하지 않는다.
+- 트랜잭션의 실제 쓰기 차단, 초기화 SQL, 연결 유지, 불완전 Revision과 객체 상태, rollback/close는 **승인된 별도 격리 MariaDB 12.3.x + 실제 SQLAlchemy/PyMySQL 버전**에서 시험한 뒤 검증 완료로 판정한다. B-2 정책 동결은 해당 기능의 실증 완료가 아니다.
 
 ## 7. 구현 시 변경 경계
 
@@ -121,12 +138,16 @@ Guard(preflight)
 | B2-12 | 비밀정보가 인자·환경·DB 예외에 포함 | 표준출력/로그/보고서에 원문 비노출 |
 | B2-13 | Preflight 이후 DB 상태 변경 | 과거 Evidence를 실행 시점 상태로 신뢰하지 않음, L-2 재검증 필요 |
 | B2-14 | 테스트 DB의 기존 Fixture가 Alembic 자동 업그레이드 | '빈 DB 후보' 시험은 그 Fixture를 재사용하지 않고 별도 승인된 격리 DB/볼륨 사용 |
+| B2-15 | Evidence ID·중복 디렉터리·파일 선점·중단·저장 실패 | 기존 증거 불변, 임시 파일은 미완료, exit 4 우선 |
+| B2-16 | 금지 환경변수 존재(빈 값 포함)·알 수 없는 MIGRATION_DB_* | 사전 거부, 원문 비노출, DB 접속 0 |
+| B2-17 | OBSERVED / INDETERMINATE / ERROR, 초기 빈 DB 후보 | JSON v1 필드와 exit 0/3/4 일치, 운영 승인 0건 |
+| B2-18 | READ ONLY 시작 전 SQL·재연결·정리 실패 주입 | 검사 차단/실패, 쓰기 0 및 자동 재시도 0 |
 
 **테스트 단계:** (1) Guard CLI Red/Green 및 단위·계약 테스트, (2) 로컬 기존 핵심 테스트/정적 검사 및 영향 범위 회귀, (3) 별도 승인된 격리 MariaDB에서 실제 READ ONLY·Revision 상태·보고서 부정 시험, (4) Docker/운영 Compose 및 AWS 통합은 후속 단계. 기존 통과 기록을 최신 HEAD의 새 실행으로 둔갑시키지 않는다.
 
 ## 9. 단계 완료와 잔여 Gate
 
-- **설계 확정 조건:** 본 문서의 선택·예외·Evidence 저장 규약·환경변수 혼입 규칙·종료 코드의 잔여 세부사항을 사용자 최종 승인 후 FROZEN으로 전환.
+- **설계 동결 완료(2026-11-14):** P0-A~D 및 사용자 선택 A+A를 **B-2 POLICY FROZEN**으로 확정. 운영 실제 호스트 경로·UID/GID·드라이버 시험 결과는 환경 배치·격리 검증 Gate에 남긴다. FROZEN은 구현·PASS·배포 승인과 다르다.
 - **B-2 구현 완료:** 허용 경로와 모든 Fail-Closed 테스트, 비밀정보 보호, 보고서 영속성, 기존 거부 정책 회귀 검증.
 - **B-2 실제 검증 완료:** 격리 MariaDB에서 DB 무변경·READ ONLY 및 빈/기존 Revision 시험 PASS 증거.
 - **운영 Migration 승인:** B-3 승인 Manifest, L-2 동일 Connection Lock/재검증, 최소 권한, 백업/빈 DB 증거, 운영 Compose·AWS 공개 Gate 모두 별도 필요.
@@ -138,4 +159,5 @@ Guard(preflight)
 - MariaDB implicit commit: https://mariadb.com/docs/server/reference/sql-statements/transactions/sql-statements-that-cause-an-implicit-commit
 - SQLAlchemy 2.0 Connection/autobegin: https://docs.sqlalchemy.org/en/20/core/connections.html
 - Alembic Runtime `MigrationContext.get_current_heads()`: https://alembic.sqlalchemy.org/en/latest/api/runtime.html
+- Python 파일 원자적 게시·동기화: https://docs.python.org/3/library/os.html#os.replace
 - 소스 저장소 `dev`의 Guard/Settings/Alembic env/테스트 Fixture와 M-A1 FROZEN v1.0을 기준으로 재검증한다.
