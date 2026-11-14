@@ -17,8 +17,13 @@ from .d1_live_preview import CONFIRMATION_PHRASE, run_live_preview
 from .gate_d_preflight import build_preflight_plan
 
 
-def _diagnostic(stream: TextIO, status: str, reason: str) -> int:
-    stream.write(json.dumps({"status": status, "reason_codes": [reason]}) + "\n")
+def _diagnostic(
+    stream: TextIO, status: str, reason: str, *, search_execution: str | None = None,
+) -> int:
+    diagnostic = {"status": status, "reason_codes": [reason]}
+    if search_execution is not None:
+        diagnostic["search_execution"] = search_execution
+    stream.write(json.dumps(diagnostic) + "\n")
     return 1
 
 
@@ -32,6 +37,7 @@ def main(
     stdin = sys.stdin if stdin is None else stdin
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
+    confirmation_accepted = False
     try:
         args = list(sys.argv[1:] if argv is None else argv)
         # Fixed grammar avoids argparse echoing arbitrary arguments (e.g. keys).
@@ -61,6 +67,7 @@ def main(
                 confirmation = confirmation[:-1]
         if confirmation != CONFIRMATION_PHRASE:
             return _diagnostic(stderr, "LIVE_NOT_AUTHORIZED", "CONFIRMATION_FAILED")
+        confirmation_accepted = True
         preview = run_live_preview(
             plan=plan, execute_live=True, interactive=True,
             confirmation=confirmation, api_key=os.environ.get("OPENAI_API_KEY"),
@@ -71,6 +78,13 @@ def main(
             "PREVIEW_READY", "EMPTY_RESULT", "NO_VALID_CANDIDATES",
         } else 1
     except (EOFError, KeyboardInterrupt):
+        if confirmation_accepted:
+            # Confirmation does not prove dispatch or remote completion. Never
+            # imply that cancellation prevented server processing, or retry.
+            return _diagnostic(
+                stderr, "UPSTREAM_ERROR", "EXECUTION_INTERRUPTED",
+                search_execution="UNKNOWN",
+            )
         return _diagnostic(stderr, "LIVE_NOT_AUTHORIZED", "CANCELLED")
     except Exception:
         return _diagnostic(stderr, "UPSTREAM_ERROR", "UNEXPECTED_ERROR")

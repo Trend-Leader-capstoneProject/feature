@@ -25,6 +25,7 @@ import logging
 import os
 import socket
 from importlib.metadata import version
+from threading import Thread
 from unittest.mock import Mock
 
 import httpx2
@@ -418,3 +419,74 @@ def test_d1_unexpected_exception_is_safe_and_not_retried(
     for marker in (MARKER, API_KEY, "Authorization", "Bearer ", "RAW_D1_CONTENT",
                    "Traceback (most recent call last)"):
         assert marker not in visible
+
+
+def test_d1_interrupt_during_request_is_unknown(
+    monkeypatch, pipeline, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    original = endpoint.handle
+
+    def interrupt(request):
+        original(request)  # Record one sent Mock request before cancellation.
+        raise KeyboardInterrupt(MARKER)
+
+    endpoint.handle = interrupt
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code != 0
+    diagnostic = json.loads(err.splitlines()[-1])
+    assert diagnostic == {
+        "status": "UPSTREAM_ERROR", "reason_codes": ["EXECUTION_INTERRUPTED"],
+        "search_execution": "UNKNOWN",
+    }
+    assert_request(endpoint, plan())
+    assert_flow(pipeline, ["c2"])
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    for marker in (API_KEY, MARKER, "Bearer ", "RAW_D1_CONTENT", "Traceback"):
+        assert marker not in visible
+    assert_no_authorization_header(visible)
+
+
+@pytest.mark.parametrize("failure", [None, RuntimeError, KeyboardInterrupt])
+def test_d1_new_sdk_loggers_private_and_logging_restored(failure, caplog):
+    module = product(LIVE)
+    original_handle = logging.Logger.handle
+    original_factory = logging.getLogRecordFactory()
+    root_level = logging.getLogger().level
+    names = [f"{family}.d1_new_{failure}_{id(caplog)}"
+             for family in ("openai", "httpx2", "httpcore2")]
+    assert all(name not in logging.Logger.manager.loggerDict for name in names)
+    existing = logging.getLogger("openai._base_client")
+    filters_before = list(existing.filters)
+
+    def exercise():
+        with module._private_sdk_logs():
+            for name in names:
+                logger = logging.getLogger(name)
+                logger.warning(
+                    "%s %s Authorization: Bearer RAW_D1_CONTENT", MARKER, API_KEY,
+                )
+                worker = Thread(target=logger.warning, args=("D1_OTHER_THREAD",))
+                worker.start()
+                worker.join()
+            if failure:
+                raise failure(MARKER)
+
+    if failure:
+        with pytest.raises(failure):
+            exercise()
+    else:
+        exercise()
+    assert logging.Logger.handle is original_handle
+    assert logging.getLogRecordFactory() is original_factory
+    assert logging.getLogger().level == root_level
+    assert existing.filters == filters_before
+    assert caplog.text.count("D1_OTHER_THREAD") == 3
+    for marker in (MARKER, API_KEY, "Bearer ", "RAW_D1_CONTENT"):
+        assert marker not in caplog.text
+    assert_no_authorization_header(caplog.text)
+    logging.getLogger(names[0]).warning("D1_AFTER_GUARD")
+    assert "D1_AFTER_GUARD" in caplog.text

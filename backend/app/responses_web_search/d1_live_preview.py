@@ -8,7 +8,7 @@ D0 계획과 일치해야 하며, 이 모듈 import만으로는 I/O를 수행하
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta, timezone
-from threading import get_ident
+from threading import RLock, get_ident
 from typing import get_args
 
 import httpx2
@@ -18,6 +18,9 @@ from .gate_d_preflight import GateDPreflightPlan, build_preflight_plan
 from .types import SearchRunConfig
 
 CONFIRMATION_PHRASE = "EXECUTE ONE LIVE SEARCH"
+# Serialize overlapping D1 scopes so their temporary hooks restore in order.
+# Ordinary logging in other threads never acquires this lock.
+_SDK_LOG_SCOPE_LOCK = RLock()
 
 
 def _safety() -> dict[str, object]:
@@ -60,29 +63,27 @@ def _valid_plan(plan: GateDPreflightPlan, *, synthetic: bool) -> bool:
 def _private_sdk_logs():
     """Suppress this thread's SDK/HTTP diagnostics during the bounded request.
 
-    SDK diagnostic records can contain untrusted upstream metadata. Restore
-    filters in finally; do not change global levels or suppress other threads.
-    Only already-loaded SDK/HTTP loggers are involved, not application logging.
+    Intercept standard Logger dispatch, including loggers created after entry
+    and loggers with dedicated handlers/propagate=False. Do not change levels,
+    handlers, filters or record factories; restore the hook even on interruption.
     """
     owner = get_ident()
 
-    class PrivateRun(logging.Filter):
-        def filter(self, record):
-            return record.thread != owner
+    with _SDK_LOG_SCOPE_LOCK:
+        original_handle = logging.Logger.handle
 
-    guard = PrivateRun()
-    loggers = [
-        logger for name, logger in list(logging.Logger.manager.loggerDict.items())
-        if isinstance(logger, logging.Logger)
-        and name.split(".")[0] in {"openai", "httpx2", "httpcore2"}
-    ]
-    for logger in loggers:
-        logger.addFilter(guard)
-    try:
-        yield
-    finally:
-        for logger in loggers:
-            logger.removeFilter(guard)
+        def private_handle(logger, record):
+            if get_ident() == owner and logger.name.split(".")[0] in {
+                "openai", "httpx2", "httpcore2",
+            }:
+                return
+            return original_handle(logger, record)
+
+        logging.Logger.handle = private_handle
+        try:
+            yield
+        finally:
+            logging.Logger.handle = original_handle
 
 
 def _usage(converted: dict[str, object]) -> dict[str, int] | None:
