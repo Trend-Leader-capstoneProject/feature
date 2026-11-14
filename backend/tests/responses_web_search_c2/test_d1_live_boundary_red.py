@@ -24,6 +24,8 @@ import json
 import logging
 import os
 import socket
+import sys
+from datetime import datetime, timezone
 from importlib.metadata import version
 from threading import Thread
 from unittest.mock import Mock
@@ -45,9 +47,9 @@ from d1_support import (
     expected_flow,
     invoke,
     no_dispatch as blocked_dispatch,
-    payload_for,
+    payload_for as c2_payload_for,
     plan,
-    product,
+    product as load_product,
 )
 from openai.types.responses import Response
 from support import API_KEY, MARKER, MockEndpoint
@@ -59,6 +61,33 @@ no_dispatch = blocked_dispatch
 pipeline = observed_pipeline
 
 pytestmark = pytest.mark.usefixtures("d1_isolation")
+
+STARTED = datetime(2031, 1, 2, 3, 0, tzinfo=timezone.utc)
+RECEIVED = datetime(2031, 1, 2, 3, 0, 2, tzinfo=timezone.utc)
+
+
+class ObservationClock(datetime):
+    ticks = iter(())
+
+    @classmethod
+    def now(cls, tz=None):
+        assert tz is timezone.utc
+        return next(cls.ticks)
+
+
+def product(name):
+    module = load_product(name)
+    # Keep all D1 observations synthetic, including CLI imports/cached modules.
+    if LIVE in sys.modules:
+        sys.modules[LIVE].datetime = ObservationClock
+        ObservationClock.ticks = iter((STARTED, RECEIVED))
+    return module
+
+
+def payload_for(case):
+    payload = c2_payload_for(case)
+    payload["model"] = plan().config.model
+    return payload
 
 
 @pytest.fixture(autouse=True)
@@ -490,3 +519,76 @@ def test_d1_new_sdk_loggers_private_and_logging_restored(failure, caplog):
     assert_no_authorization_header(caplog.text)
     logging.getLogger(names[0]).warning("D1_AFTER_GUARD")
     assert "D1_AFTER_GUARD" in caplog.text
+
+
+@pytest.mark.parametrize("case", ["ready", "c1", "rejected", "bad-json"])
+def test_d1b_response_observations_survive_validation_failure(
+    case, monkeypatch, pipeline, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("ready" if case == "c1" else case))
+    if case == "c1":
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["requested_model"] == plan().config.model
+    assert preview["response_model"] == plan().config.model
+    assert preview["model_match"] == "MATCH"
+    assert preview["request_started_at_utc"] == STARTED.isoformat()
+    assert preview["response_received_at_utc"] == RECEIVED.isoformat()
+    assert preview["response_status"] == "completed"
+    assert preview["output_type_counts"] == {
+        "web_search_call": 1, "reasoning": 1, "message": 1,
+    }
+    assert preview["status"] == (
+        "PREVIEW_READY" if case == "ready" else "INVALID_OR_INCOMPLETE_RESPONSE"
+    )
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "http"])
+def test_d1b_no_response_metadata_on_transport_failure(failure, caplog, capsys):
+    endpoint = MockEndpoint(
+        transport_error=httpx2.ReadTimeout if failure == "timeout" else None,
+        status=503 if failure == "http" else 200,
+    )
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["requested_model"] == plan().config.model
+    assert preview["request_started_at_utc"] == STARTED.isoformat()
+    for key in ("response_received_at_utc", "response_model", "usage",
+                "output_type_counts"):
+        assert preview[key] is None
+    assert preview["response_status"] == "UNKNOWN"
+    assert preview["model_match"] == "UNKNOWN"
+    assert preview["search_execution"] == "UNKNOWN"
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("case", ["mismatch", "missing-model", "broken-output",
+                                "unknown-type", "bad-status"])
+def test_d1b_untrusted_metadata_is_not_copied(case, caplog, capsys):
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    if case == "mismatch":
+        endpoint.payload["model"] = MARKER
+    elif case == "missing-model":
+        endpoint.payload.pop("model")
+    elif case == "broken-output":
+        endpoint.payload["output"] = {"type": MARKER}
+    elif case == "unknown-type":
+        endpoint.payload["output"].append({"type": MARKER})
+    else:
+        endpoint.payload["status"] = MARKER
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["response_received_at_utc"] == RECEIVED.isoformat()
+    if case in {"mismatch", "missing-model"}:
+        assert preview["response_model"] is None
+        assert preview["model_match"] == (
+            "MISMATCH" if case == "mismatch" else "UNKNOWN"
+        )
+        assert preview["candidates"] == []
+    elif case in {"broken-output", "unknown-type"}:
+        assert preview["output_type_counts"] is None
+    else:
+        assert preview["response_status"] == "UNKNOWN"
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)

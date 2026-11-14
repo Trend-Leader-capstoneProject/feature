@@ -12,6 +12,7 @@ from threading import RLock, get_ident
 from typing import get_args
 
 import httpx2
+from openai.types.responses import Response
 
 from . import c1_adapter, c2_transport, normalizer, parser, validator
 from .gate_d_preflight import GateDPreflightPlan, build_preflight_plan
@@ -32,12 +33,58 @@ def _safety() -> dict[str, object]:
     }
 
 
-def _preview(status: str, *reasons: str) -> dict[str, object]:
+def _preview(
+    status: str, *reasons: str, observations: dict[str, object] | None = None,
+) -> dict[str, object]:
     return {
         **_safety(), "mode": "LIVE", "status": status,
         "search_execution": "UNKNOWN", "response_validation": "NOT_EVALUATED",
         "tool_calls_observed": None, "usage": None,
         "reason_codes": list(reasons), "issues": [], "candidates": [],
+        "requested_model": None, "response_model": None, "model_match": "UNKNOWN",
+        "request_started_at_utc": None, "response_received_at_utc": None,
+        "response_status": "UNKNOWN", "output_type_counts": None,
+        **(observations or {}),
+    }
+
+
+def _response_observations(response: Response, requested: str) -> dict[str, object]:
+    """Read bounded SDK envelope diagnostics before C1; never serialize content.
+
+    Only the approved identifier can be copied. A different nonempty string is
+    a mismatch, not a newly approved model/snapshot. Unknown output types or
+    damaged lists invalidate the count rather than inventing observed zeroes.
+    """
+    if not isinstance(response, Response):
+        return {}
+    model = getattr(response, "model", None)
+    match = (
+        "UNKNOWN" if type(model) is not str or not model
+        else "MATCH" if model == requested else "MISMATCH"
+    )
+    status = getattr(response, "status", None)
+    safe_status = status if type(status) is str and status in {
+        "completed", "failed", "in_progress", "cancelled", "queued", "incomplete",
+    } else "UNKNOWN"
+    output = getattr(response, "output", None)
+    counts = None
+    if type(output) is list:
+        counts = {}
+        for item in output:
+            kind = (
+                item.get("type") if type(item) is dict
+                else getattr(item, "type", None)
+            )
+            if type(kind) is not str or kind not in {
+                "web_search_call", "reasoning", "message",
+            }:
+                counts = None
+                break
+            counts[kind] = counts.get(kind, 0) + 1
+    return {
+        "response_model": requested if match == "MATCH" else None,
+        "model_match": match, "response_status": safe_status,
+        "output_type_counts": counts,
     }
 
 
@@ -130,20 +177,38 @@ def run_live_preview(
         max_candidates=plan.config.max_candidates,
         max_tool_calls=plan.config.max_tool_calls,
     )
+    observations: dict[str, object] = {"requested_model": plan.config.model}
     try:
         with _private_sdk_logs():
             with httpx2.Client(transport=http_transport, trust_env=False) as client:
+                observations["request_started_at_utc"] = datetime.now(
+                    timezone.utc,
+                ).isoformat()
                 response = c2_transport.request_response(
                     api_key=api_key, model=plan.config.model,
                     input_text=plan.input_text, timeout=plan.config.timeout,
                     max_output_tokens=plan.config.max_output_tokens,
                     http_client=client,
                 )
+                observations["response_received_at_utc"] = datetime.now(
+                    timezone.utc,
+                ).isoformat()
+                observations.update(_response_observations(response, plan.config.model))
+            if observations.get("model_match") != "MATCH":
+                return _preview(
+                    "INVALID_OR_INCOMPLETE_RESPONSE",
+                    "RESPONSE_MODEL_MISMATCH"
+                    if observations.get("model_match") == "MISMATCH"
+                    else "RESPONSE_MODEL_UNVERIFIED",
+                    observations=observations,
+                )
             converted = c1_adapter.convert_response(response)
             normalized = normalizer.normalize_response(converted, config)
             evidence = normalized.execution_evidence
             completed = evidence.completed_search_actions
-            preview = _preview("INVALID_OR_INCOMPLETE_RESPONSE")
+            preview = _preview(
+                "INVALID_OR_INCOMPLETE_RESPONSE", observations=observations,
+            )
             preview.update(
                 usage=_usage(converted),
                 search_execution=(
@@ -187,14 +252,21 @@ def run_live_preview(
             return preview
     except c2_transport.C2TransportError as error:
         if error.code not in get_args(c2_transport.C2ErrorCode):
-            return _preview("UPSTREAM_ERROR", "UNEXPECTED_ERROR")
+            return _preview(
+                "UPSTREAM_ERROR", "UNEXPECTED_ERROR", observations=observations,
+            )
         return _preview(
             "BLOCKED_CONFIG" if error.code == "INVALID_CONFIGURATION"
-            else "UPSTREAM_ERROR", error.code,
+            else "UPSTREAM_ERROR", error.code, observations=observations,
         )
     except c1_adapter.C1ConversionError:
-        return _preview("INVALID_OR_INCOMPLETE_RESPONSE", "C1_CONVERSION_FAILED")
+        return _preview(
+            "INVALID_OR_INCOMPLETE_RESPONSE", "C1_CONVERSION_FAILED",
+            observations=observations,
+        )
     except Exception:
         # Never stringify/log/chain an unexpected exception. A sent request may
         # already have been processed remotely; no second request is attempted.
-        return _preview("UPSTREAM_ERROR", "UNEXPECTED_ERROR")
+        return _preview(
+            "UPSTREAM_ERROR", "UNEXPECTED_ERROR", observations=observations,
+        )
