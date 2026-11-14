@@ -2,7 +2,7 @@
 
 from collections.abc import Collection
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 
 from app.core.migration_db_config import MigrationDbSettings
 from scripts.migration_evidence import new_evidence_id
@@ -24,12 +24,18 @@ def assemble_report(
     observation: DatabaseObservation,
     *,
     known_revisions: Collection[str],
+    observed_at_utc: datetime,
 ) -> dict:
     """Reject contradictory internal results with a fixed, secret-free error.
 
-    The caller supplies the checkout lineage. Visibility is not proof of
+    The caller supplies the checkout lineage and UTC observation-attempt start.
+    Assembly never queries the clock. Visibility is not proof of
     emptiness; no read-only/cleanup/image checks are inferred from missing data.
     """
+    if not isinstance(
+        observed_at_utc, datetime
+    ) or observed_at_utc.utcoffset() != timedelta(0):
+        raise ValueError("OBSERVATION_FAILED")
     reasons = set(observation.reason_codes)
     state = observation.schema_state
     target = asdict(observation.observed_target)
@@ -104,7 +110,7 @@ def assemble_report(
     return {
         "schema_version": 1,
         "evidence_id": new_evidence_id(),
-        "observed_at_utc": datetime.now(UTC).isoformat(),
+        "observed_at_utc": observed_at_utc.isoformat(),
         "inspection_status": status,
         "schema_state": state,
         "configured_target": {

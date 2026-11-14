@@ -4,6 +4,7 @@ Only a completed Writer result permits exit 0/3. No output, apply, or approval.
 """
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.migration_db_config import MigrationDbSettings
@@ -42,16 +43,24 @@ def run_preflight() -> tuple[int, tuple[str, ...]]:
     if not evidence_root_available(root):
         return 4, ("EVIDENCE_WRITE_FAILED",)
 
+    # Entry into the observation attempt, not the time of any SQL or success.
+    observed_at_utc = datetime.now(UTC)
     try:
         known = repository_revisions()
         observation = observe_database(settings)
-        data = assemble_report(settings, observation, known_revisions=known)
+        data = assemble_report(
+            settings,
+            observation,
+            known_revisions=known,
+            observed_at_utc=observed_at_utc,
+        )
     except Exception:
         # Invalid/contradictory internal result is never persisted as success.
         data = assemble_report(
             settings,
             DatabaseObservation(reason_codes=("OBSERVATION_FAILED",)),
             known_revisions=(),
+            observed_at_utc=observed_at_utc,
         )
     try:
         result = write_evidence(root, data)

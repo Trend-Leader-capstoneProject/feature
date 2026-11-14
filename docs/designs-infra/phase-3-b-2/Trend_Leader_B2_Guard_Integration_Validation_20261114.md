@@ -91,3 +91,43 @@ $env:PYTHONPATH = (Resolve-Path ../../../trend-leader/.venv/Lib/site-packages).P
 - 기존 Observation의 SQLAlchemy private Pool close hook 버전 의존성과 Writer의 경로 바꿔치기/관리자 위변조 방어 한계는 기존 검증 기록대로 유지한다.
 
 권장 커밋 메시지: `[feat/infra] B-2 Guard Preflight 통합`.
+
+## P1 보완 — 관찰 단계 진입 시각 (2026-11-14 KST)
+
+이번 보완의 시작·종료 HEAD는 `2465c45a60cb5df2d5d4abdeea55940c46f39511`이다. 위 최초 통합 기록의 HEAD·실행 결과와 구분한다. 시작 시 같은 Worktree/브랜치와 미커밋 변경 없음을 확인했다. 원격 ls-remote 재조회도 작업 브랜치가 위 SHA, dev가 `cd079ed3886234e6f9df21613f31613f13c8bdd2`임을 확인했다.
+
+사용자 승인 의미: observed_at_utc는 **환경변수·Secret 및 Evidence 루트 검증 후, Revision 계보 확인과 DB Observation 호출 전 Preflight가 관찰 단계에 진입한 UTC 시각**이다. SQL 실행의 정확한 시각이나 관찰 성공·저장 완료·Migration 승인을 증명하지 않는다.
+
+최소 변경 파일은 다음 5개다.
+
+- migration_integration.py: 검증된 루트 직후 datetime.now(UTC)를 한 번 호출하고 정상·오류 조립에 같은 datetime을 전달한다. 계보 확인 실패에도 이 시각을 유지한다.
+- migration_report.py: 필수 keyword 인자 observed_at_utc를 받아 UTC-aware datetime(UTC offset 0)인지 검증하고 isoformat으로 직렬화한다. 조립 중 현재 시각 조회를 제거했다. naive datetime, UTC가 아닌 offset, datetime이 아닌 값은 고정 OBSERVATION_FAILED로 거부한다.
+- test_migration_integration.py: 정상/INDETERMINATE/ERROR/Observation 예외/계보 실패의 시각·호출 순서·1회 생성과 사전 거부 시 0회 생성을 Fake Clock으로 검증했다. 관찰 후 가짜 시계를 1시간 진행시켜 조립 지연에도 시작 시각이 유지되는지 확인한다.
+- test_migration_report.py: 기존 호출부에 고정 UTC 시각 전달, 명시 시각 보존·UTC 계약 거부·기존 JSON v1 Writer Validation을 검증했다.
+- 이 검증 문서: P1 실행 근거를 추가했다.
+
+TDD 실제 결과:
+
+1. Red: 신규 테스트만 먼저 추가하고 두 대상 파일을 실행했다. **10 failed / 92 passed**. assemble_report가 observed_at_utc 인자를 지원하지 않는 TypeError와 조정 계층 시계 호출 부재/실행 순서 불일치가 실패 원인이다.
+2. Green: 필수 시각 전달 및 검증 구현, 기존 조립 호출부 갱신 후 **102 passed / 0 failed / 0 skipped**.
+3. Refactor: 새 Clock 프레임워크 없이 표준 datetime과 기존 함수 경계를 유지했다. 변경한 Python 4개 파일에 한정해 Ruff format을 적용했다.
+4. 최종 관련 회귀: **288 passed / 0 failed / 1 skipped**, exit 0. SKIP은 기존 Windows 환경의 POSIX owner/mode 실측 시험이다. Backend 전체 Ruff **All checks passed**, exit 0.
+
+실행 명령은 backend/에서 기존 PYTHONPATH와 C:/Python314/python.exe를 사용했다.
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path ../../../trend-leader/.venv/Lib/site-packages).Path
+& C:/Python314/python.exe -m pytest tests/core/test_migration_report.py tests/core/test_migration_integration.py -q --tb=short --basetemp=C:/Users/Public/Documents/ESTsoft/CreatorTemp/b2-p1-time-red
+& C:/Python314/python.exe -m pytest tests/core/test_migration_report.py tests/core/test_migration_integration.py -q --tb=short --basetemp=C:/Users/Public/Documents/ESTsoft/CreatorTemp/b2-p1-time-green
+& C:/Python314/python.exe -m ruff format scripts/migration_integration.py scripts/migration_report.py tests/core/test_migration_integration.py tests/core/test_migration_report.py
+& C:/Python314/python.exe -m ruff check .
+& C:/Python314/python.exe -m pytest tests/core/test_migration_environment.py tests/core/test_migration_report.py tests/core/test_migration_integration.py tests/core/test_migration_guard.py tests/core/test_migration_observation.py tests/core/test_migration_evidence.py tests/core/test_migration_preflight.py tests/core/test_migration_db_config.py tests/core/test_migration_fixture_env.py -q -rs --basetemp=C:/Users/Public/Documents/ESTsoft/CreatorTemp/b2-p1-time-final
+```
+
+git diff와 공백 검사는 변경한 5개 파일을 대상으로 확인했으며 staged 변경은 없다. 다른 기능·다른 Worktree·기존 Observer/Writer/Guard/Schema 분류/Runtime API 및 FROZEN 설계 문서는 변경하지 않았다.
+
+JSON v1 필드명·구조, Reason/exit 계약, 환경 감사·Secret 보호, 저장 실패 exit 4 우선, deny/apply 거부, NOT_VERIFIED 및 Observer/Writer 책임 분리를 유지한다. 이번 시각 정의 명확화와 기존 FROZEN 계약의 의미상 충돌은 발견하지 않았다.
+
+실제 MariaDB READ ONLY·운영 Linux 파일시스템·AWS·기존 DB 데이터를 사용하는 시험은 실행하지 않았다. 위 후속 Gate는 남아 있다. 시각이나 report.json의 존재를 완료 증명으로 취급하지 않으며, B-3의 Evidence 완료 증명·승인 Manifest 대조는 계속 별도 Gate이고 이번에 완료하지 않았다. 커밋·Push·PR·병합 없음.
+
+권장 커밋 메시지: `[fix/infra] B-2 Evidence 관찰 시각 정합성 보완`.

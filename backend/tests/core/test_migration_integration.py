@@ -4,6 +4,8 @@ import json
 import os
 import socket
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -409,3 +411,97 @@ def test_lowercase_inputs_complete_pipeline(pipeline):
     environ.update(data)
     assert integration.run_preflight() == (0, ())
     observer.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("case", "code", "status"),
+    [
+        ("normal", 0, "OBSERVED"),
+        ("indeterminate", 3, "INDETERMINATE"),
+        ("error", 4, "ERROR"),
+        ("exception", 4, "ERROR"),
+        ("lineage", 4, "ERROR"),
+    ],
+)
+def test_one_start_time_before_lineage_survives_all_outcomes(
+    pipeline, monkeypatch, case, code, status
+):
+    _, root, observer, _ = pipeline
+    started = datetime(2026, 11, 14, 1, 2, 3, 456789, tzinfo=UTC)
+    events = []
+    clock = Mock()
+
+    def now(zone):
+        assert zone is UTC
+        assert events == ["root"]
+        events.append("clock")
+        return started
+
+    clock.now.side_effect = now
+    monkeypatch.setattr(integration, "datetime", clock, raising=False)
+    available = integration.evidence_root_available
+
+    def checked_root(path):
+        assert available(path)
+        events.append("root")
+        return True
+
+    monkeypatch.setattr(integration, "evidence_root_available", checked_root)
+
+    def lineage():
+        assert events == ["root", "clock"]
+        events.append("lineage")
+        if case == "lineage":
+            raise RuntimeError("sensitive-marker")
+        return {"a4d7c9e21f3b"}
+
+    monkeypatch.setattr(integration, "repository_revisions", lineage)
+    original = observer.return_value
+
+    def observe(_settings):
+        assert events == ["root", "clock", "lineage"]
+        events.append("observe")
+        # Any later clock query would now return a different instant.
+        clock.now.side_effect = None
+        clock.now.return_value = started + timedelta(hours=1)
+        if case == "exception":
+            raise RuntimeError("sensitive-marker")
+        if case == "error":
+            return DatabaseObservation(reason_codes=("DB_CONNECTION_FAILED",))
+        if case == "indeterminate":
+            return replace(
+                original,
+                schema_state="INDETERMINATE",
+                current_revisions=("unknown",),
+                reason_codes=("SCHEMA_INDETERMINATE",),
+            )
+        return original
+
+    observer.side_effect = observe
+    assert integration.run_preflight()[0] == code
+    clock.now.assert_called_once_with(UTC)
+    if case == "lineage":
+        observer.assert_not_called()
+    data = json.loads(next(root.glob("*/report.json")).read_text())
+    assert data["observed_at_utc"] == started.isoformat()
+    assert data["inspection_status"] == status
+
+
+@pytest.mark.parametrize("failure", ["environment", "secret", "root"])
+def test_rejection_before_observation_does_not_generate_timestamp(
+    pipeline, monkeypatch, failure
+):
+    environ, _, observer, _ = pipeline
+    clock = Mock()
+    monkeypatch.setattr(
+        integration, "datetime", SimpleNamespace(now=clock), raising=False
+    )
+    if failure == "environment":
+        environ["DATABASE_URL"] = ""
+    elif failure == "secret":
+        environ["MIGRATION_DB_PASSWORD_FILE"] = "relative"
+    else:
+        monkeypatch.setattr(integration, "evidence_root_available", lambda _: False)
+    assert integration.run_preflight()[0] == 4
+    clock.assert_not_called()
+    observer.assert_not_called()
