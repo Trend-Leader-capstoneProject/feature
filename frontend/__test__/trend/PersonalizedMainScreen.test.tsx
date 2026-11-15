@@ -1,5 +1,6 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
 jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
+jest.mock("../../src/features/trend/components/FilteredPersonalizedTrendList", () => ({ FilteredPersonalizedTrendList: () => null }));
 import {
   fireEvent,
   render,
