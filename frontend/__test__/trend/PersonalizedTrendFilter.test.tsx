@@ -76,7 +76,7 @@ test("선택한 관심 대분류만 표시하고 해당 세부분류를 선택�
     );
   }
 
-  render(<Harness />);
+  await render(<Harness />);
 
   expect(screen.getByRole("button", { name: "전체" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "게임" })).toBeTruthy();
@@ -96,7 +96,7 @@ test("선택한 관심 대분류만 표시하고 해당 세부분류를 선택�
 
 test("저장된 관심사에서 제외된 대분류 선택은 전체로 복구한다", async () => {
   const onSelectionChange = jest.fn();
-  render(
+  await render(
     <PersonalizedTrendFilter
       selectedRootCategoryId={2}
       selectedCategoryId={2}
