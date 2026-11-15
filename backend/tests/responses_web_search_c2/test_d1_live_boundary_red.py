@@ -25,6 +25,7 @@ import logging
 import os
 import socket
 import sys
+from copy import deepcopy
 from datetime import datetime, timezone
 from importlib.metadata import version
 from threading import Thread
@@ -561,6 +562,52 @@ def test_d1b_no_response_metadata_on_transport_failure(failure, caplog, capsys):
     assert preview["model_match"] == "UNKNOWN"
     assert preview["search_execution"] == "UNKNOWN"
     assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+def test_d3_01_mixed_completed_and_searching_calls_fail_closed(
+    pipeline, caplog, capsys,
+):
+    payload = payload_for("ready")
+    completed, reasoning, message = payload["output"]
+    searching = deepcopy(completed)
+    searching.update(id="ws_2", status="searching")
+    payload["output"] = [
+        reasoning, completed, dict(reasoning, id="rs_2"), searching, message,
+    ]
+    original = deepcopy(payload)
+    endpoint = MockEndpoint(payload=payload)
+
+    preview = invoke(product(LIVE), endpoint)
+
+    assert original["status"] == "completed"
+    assert preview["status"] == "INVALID_OR_INCOMPLETE_RESPONSE"
+    assert preview["reason_codes"] == ["TOOL_CALL_LIMIT_EXCEEDED"]
+    assert preview["tool_calls_observed"] == 2
+    assert preview["search_execution"] == "CONFIRMED"
+    assert preview["response_validation"] == "INVALID"
+    assert preview["candidates"] == []
+    assert preview["output_type_counts"] == {
+        "reasoning": 2, "web_search_call": 2, "message": 1,
+    }
+    assert preview["web_search_call_details"] == [
+        {"output_index": 1, "status": "completed", "action_type": "search"},
+        {"output_index": 3, "status": "searching", "action_type": "search"},
+    ]
+    assert_flow(pipeline, ["c2", "c1", "normalize"])
+    converted, = pipeline.results["c1"]
+    assert converted["status"] == original["status"]
+    assert converted["output"] == original["output"]
+    assert endpoint.payload == original
+    normalized, = pipeline.results["normalize"]
+    assert normalized.outcome == "REJECTED"
+    assert normalized.reason_codes == ("TOOL_CALL_LIMIT_EXCEEDED",)
+    assert normalized.execution_evidence.web_search_calls_observed == 2
+    assert normalized.execution_evidence.completed_search_actions == 1
+    assert normalized.parser_input is None
+    assert_request(endpoint, plan())
+    assert len(pipeline.clients) == 1
+    assert pipeline.clients[0].is_closed
     assert_safe(preview, caplog, capsys)
 
 
