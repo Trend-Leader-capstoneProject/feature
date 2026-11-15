@@ -256,6 +256,7 @@ export function SignupScreen({
   const formTopRef = useRef(0);
   const fieldTopRefs = useRef<Partial<Record<KeyboardScrollField, number>>>({});
   const focusedKeyboardFieldRef = useRef<KeyboardScrollField | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const scrollToInput = useCallback((field: KeyboardScrollField): void => {
     const fieldTop = fieldTopRefs.current[field];
@@ -271,12 +272,19 @@ export function SignupScreen({
   }, []);
 
   useEffect(() => {
-    const subscription = Keyboard.addListener("keyboardDidShow", () => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
       if (focusedKeyboardFieldRef.current !== null) {
         scrollToInput(focusedKeyboardFieldRef.current);
       }
     });
-    return () => subscription.remove();
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
   }, [scrollToInput]);
 
   // On Android the ScrollView viewport may resize after onFocus/keyboardDidShow.
@@ -712,11 +720,12 @@ export function SignupScreen({
           ref={scrollViewRef}
           onLayout={keepFocusedInputVisible}
           onContentSizeChange={keepFocusedInputVisible}
-          contentContainerStyle={
-            styles.scrollContent
-          }
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardVisible && styles.scrollContentKeyboardOpen,
+          ]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
@@ -1283,6 +1292,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingTop: spacing.space6,
     paddingBottom: spacing.space10,
+  },
+  // Keep enough scrollable area below Email after Android resizes the viewport.
+  scrollContentKeyboardOpen: {
+    paddingBottom: spacing.space12 * 5,
   },
   header: {
     gap: spacing.contentGap,
