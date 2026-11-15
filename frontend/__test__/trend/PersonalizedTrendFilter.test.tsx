@@ -82,15 +82,15 @@ test("선택한 관심 대분류만 표시하고 해당 세부분류를 선택�
   expect(screen.getByRole("button", { name: "게임" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "음식" })).toBeNull();
 
-  fireEvent.press(screen.getByRole("button", { name: "게임" }));
+  await fireEvent.press(screen.getByRole("button", { name: "게임" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "PC 게임" })).toBeTruthy(),
   );
 
-  fireEvent.press(screen.getByRole("button", { name: "PC 게임" }));
+  await fireEvent.press(screen.getByRole("button", { name: "PC 게임" }));
   expect(changes.at(-1)).toEqual({ rootCategoryId: 1, categoryId: 11 });
 
-  fireEvent.press(screen.getByRole("button", { name: "전체" }));
+  await fireEvent.press(screen.getByRole("button", { name: "전체" }));
   expect(changes.at(-1)).toEqual({ rootCategoryId: null, categoryId: null });
 });
 
