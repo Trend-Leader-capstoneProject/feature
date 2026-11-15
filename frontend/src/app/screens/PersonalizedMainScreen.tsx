@@ -463,6 +463,7 @@ const styles = StyleSheet.create({
 
   // 2. 개인화 트렌드 섹션
   personalizedSection: {
+    marginTop: spacing.space4,
     marginBottom: spacing.space2,
   },
 
