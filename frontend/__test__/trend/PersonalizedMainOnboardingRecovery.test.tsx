@@ -1,4 +1,7 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
+jest.mock("../../src/features/trend/components/FilteredPersonalizedTrendList", () => ({ FilteredPersonalizedTrendList: () => null }));
+jest.mock("../../src/features/account/hooks/useMyProfile", () => ({ useMyProfile: jest.fn() }));
 
 import {
   QueryClient,
@@ -24,6 +27,7 @@ import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainSc
 import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
 import type { SessionResponse } from "../../src/features/auth/types/auth";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { registerAuthFailureHandler } from "../../src/shared/handler/authFailureHandler";
 import { readAuthBundle } from "../../src/shared/storage/tokenStorage";
 jest.mock("../../src/shared/api/publicApiClient", () => ({ publicApiClient: { post: jest.fn() } }));
@@ -78,6 +82,7 @@ jest.mock("../../src/shared/handler/authRequestGate", () => ({
 }));
 
 const mockedGetAuthSession = jest.mocked(getAuthSession);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
 const mockedGetAuthBundle = jest.mocked(readAuthBundle);
 const mockedUsePersonalizedTrends = jest.mocked(
   usePersonalizedTrends,
@@ -142,6 +147,10 @@ function createDeferred<T>() {
 describe("Personalized Main onboarding recovery", () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
     mockedGetAuthBundle.mockResolvedValue({
       schema_version: 1, phase: "READY", access_token: "TOKEN_A", refresh_token: "REFRESH_A",
@@ -250,7 +259,7 @@ describe("Personalized Main onboarding recovery", () => {
 
       // 4. 기존 Main 화면은 제거되어야 한다.
       expect(
-        screen.queryByText("Trend Leader"),
+        screen.queryByText("관심사 맞춤 트렌드"),
       ).toBeNull();
 
       expect(

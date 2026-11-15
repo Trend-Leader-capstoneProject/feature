@@ -1,4 +1,7 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
+jest.mock("../../src/features/trend/components/FilteredPersonalizedTrendList", () => ({ FilteredPersonalizedTrendList: () => null }));
+jest.mock("../../src/features/account/hooks/useMyProfile", () => ({ useMyProfile: jest.fn() }));
 import {
   fireEvent,
   render,
@@ -11,6 +14,7 @@ import { act, type ComponentProps } from "react";
 import { Alert } from "react-native";
 import { useAuth } from "../../src/app/providers/AuthProvider";
 import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
 import { TrendListData } from "../../src/features/trend/types/trend";
 import { colors } from "../../src/shared/constants";
@@ -24,6 +28,7 @@ jest.mock("../../src/features/trend/hooks/usePersonalizedTrends", () => ({
 }));
 
 const mockedUseAuth = jest.mocked(useAuth);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
 
 const mockedUsePersonalizedTrends = jest.mocked(usePersonalizedTrends);
 
@@ -43,6 +48,10 @@ const routeMock = {
 describe("Personalized Main", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
     revalidateSessionMock.mockReset();
     revalidateSessionMock.mockResolvedValue(undefined);
@@ -65,6 +74,27 @@ describe("Personalized Main", () => {
 
       logout: jest.fn(async (): Promise<void> => undefined),
     } as unknown as ReturnType<typeof useAuth>);
+  });
+
+  test("프로필 닉네임이 변경되면 홈 인사말도 최신 닉네임으로 표시한다", async () => {
+    mockedUsePersonalizedTrends.mockReturnValue({
+      data: undefined,
+      isPending: true,
+      isError: false,
+      isFetching: true,
+    } as ReturnType<typeof usePersonalizedTrends>);
+
+    mockedUseMyProfile.mockReturnValue({
+      data: { nickname: "테스트323" },
+      isPending: false,
+    } as unknown as ReturnType<typeof useMyProfile>);
+
+    await render(<PersonalizedMainScreen navigation={navigationMock} route={routeMock} />);
+
+    expect(
+      screen.getByText("테스트323님, 관심 분야의 최신 흐름을 확인해 보세요."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/테스트 사용자님, 관심 분야/)).toBeNull();
   });
 
   test("Main 최초 조회 중 맞춤 트렌드 Loading을 표시한다", async () => {
@@ -161,7 +191,7 @@ describe("Personalized Main", () => {
     const list = screen.getByTestId("personalized-trend-list");
 
     // 내 정보 확정안: 일반 관심사/로그아웃은 홈에서 이동하고 최신 탐색은 유지한다.
-    expect(within(list).getByText("Trend Leader")).toBeTruthy();
+    expect(within(list).getByText("테스트 사용자님, 관심 분야의 최신 흐름을 확인해 보세요.")).toBeTruthy();
     const personalizedSection = within(list).getByTestId("home-personalized-section");
     expect(within(personalizedSection).getByRole("header", { name: "관심사 맞춤 트렌드" })).toBeTruthy();
     expect(within(personalizedSection).getByRole("button", { name: "최신 트렌드 보기" })).toBeTruthy();
