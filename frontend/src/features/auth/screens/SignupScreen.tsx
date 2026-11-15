@@ -645,7 +645,7 @@ export function SignupScreen({
         behavior={
           Platform.OS === "ios"
             ? "padding"
-            : undefined
+            : "height"
         }
         style={styles.keyboardAvoidingView}
       >
@@ -654,6 +654,7 @@ export function SignupScreen({
             styles.scrollContent
           }
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
