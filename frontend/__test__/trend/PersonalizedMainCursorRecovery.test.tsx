@@ -12,6 +12,7 @@ import {
 import { act, type ComponentProps } from "react";
 
 import { useAuth } from "../../src/app/providers/AuthProvider";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { getPersonalizedTrends } from "../../src/features/trend/api/getPersonalizedTrends";
 import { trendQueryKeys } from "../../src/features/trend/queryKeys";
@@ -29,6 +30,7 @@ jest.mock("../../src/features/trend/api/getPersonalizedTrends", () => ({
 }));
 
 const mockedUseAuth = jest.mocked(useAuth);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
 const mockedGetPersonalizedTrends = jest.mocked(getPersonalizedTrends);
 
 type MainProps = ComponentProps<typeof PersonalizedMainScreen >;
@@ -57,6 +59,10 @@ function createTrend(trendId: number, title: string): TrendListItem {
 describe("Personalized Main Cursor Recovery", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
     mockedUseAuth.mockReturnValue({
       authState: {
