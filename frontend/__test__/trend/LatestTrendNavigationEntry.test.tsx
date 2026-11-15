@@ -1,4 +1,5 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
 import { fireEvent, render } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
