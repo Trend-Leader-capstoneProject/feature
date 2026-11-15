@@ -27,6 +27,7 @@ import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainSc
 import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
 import type { SessionResponse } from "../../src/features/auth/types/auth";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { registerAuthFailureHandler } from "../../src/shared/handler/authFailureHandler";
 import { readAuthBundle } from "../../src/shared/storage/tokenStorage";
 jest.mock("../../src/shared/api/publicApiClient", () => ({ publicApiClient: { post: jest.fn() } }));
@@ -81,6 +82,7 @@ jest.mock("../../src/shared/handler/authRequestGate", () => ({
 }));
 
 const mockedGetAuthSession = jest.mocked(getAuthSession);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
 const mockedGetAuthBundle = jest.mocked(readAuthBundle);
 const mockedUsePersonalizedTrends = jest.mocked(
   usePersonalizedTrends,
@@ -145,6 +147,10 @@ function createDeferred<T>() {
 describe("Personalized Main onboarding recovery", () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
     mockedGetAuthBundle.mockResolvedValue({
       schema_version: 1, phase: "READY", access_token: "TOKEN_A", refresh_token: "REFRESH_A",
