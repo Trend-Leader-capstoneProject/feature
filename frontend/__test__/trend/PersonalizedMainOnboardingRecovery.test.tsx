@@ -1,4 +1,5 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
 
 import {
   QueryClient,
@@ -250,7 +251,7 @@ describe("Personalized Main onboarding recovery", () => {
 
       // 4. 기존 Main 화면은 제거되어야 한다.
       expect(
-        screen.queryByText("Trend Leader"),
+        screen.queryByText("관심사 맞춤 트렌드"),
       ).toBeNull();
 
       expect(
