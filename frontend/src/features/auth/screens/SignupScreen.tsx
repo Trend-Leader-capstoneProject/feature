@@ -1,15 +1,18 @@
 import type {
     NativeStackScreenProps,
 } from "@react-navigation/native-stack";
+import { usePreventRemove } from "@react-navigation/native";
 import axios from "axios";
 import {
+    useCallback,
+    useEffect,
     useRef,
     useState,
 } from "react";
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
-    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -46,6 +49,8 @@ import type {
     SignupErrorResponse,
 } from "../types/auth";
 
+import { normalizeNickname, useNicknameDraft } from "../../account/hooks/useNicknameDraft";
+
 type SignupScreenProps =
   NativeStackScreenProps<
     AuthStackParamList,
@@ -53,6 +58,7 @@ type SignupScreenProps =
   >;
 
 type SignupField =
+  | "nickname"
   | "loginId"
   | "password"
   | "passwordConfirm"
@@ -61,6 +67,8 @@ type SignupField =
 
 type SignupFieldErrors =
   Partial<Record<SignupField, string>>;
+
+type KeyboardScrollField = "nickname" | "name" | "email";
 
 type LoginIdCheckFeedback =
   | {
@@ -176,6 +184,8 @@ function mapBackendValidationField(
       : field;
 
   switch (normalizedField) {
+    case "nickname":
+      return "nickname";
     case "login_id":
       return "loginId";
 
@@ -200,6 +210,8 @@ function getBackendValidationMessage(
   field: SignupField,
 ): string {
   switch (field) {
+    case "nickname":
+      return "닉네임 형식과 중복 확인을 확인해 주세요.";
     case "loginId":
       return "아이디 형식을 확인해 주세요.";
 
@@ -227,6 +239,8 @@ export function SignupScreen({
   const checkLoginIdMutation =
     useCheckLoginId();
 
+  const nickname = useNicknameDraft();
+
   const signupMutation =
     useSignup();
 
@@ -238,6 +252,55 @@ export function SignupScreen({
     useRef<TextInput>(null);
   const emailInputRef =
     useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const formTopRef = useRef(0);
+  const fieldTopRefs = useRef<Partial<Record<KeyboardScrollField, number>>>({});
+  const focusedKeyboardFieldRef = useRef<KeyboardScrollField | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  const scrollToInput = useCallback((field: KeyboardScrollField): void => {
+    const fieldTop = fieldTopRefs.current[field];
+    if (fieldTop === undefined) {
+      return;
+    }
+
+    scrollViewRef.current?.scrollTo({
+      x: 0,
+      y: Math.max(0, formTopRef.current + fieldTop - spacing.space4),
+      animated: true,
+    });
+  }, []);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
+      if (focusedKeyboardFieldRef.current !== null) {
+        scrollToInput(focusedKeyboardFieldRef.current);
+      }
+    });
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [scrollToInput]);
+
+  // On Android the ScrollView viewport may resize after onFocus/keyboardDidShow.
+  // Re-scroll only when the keyboard is visible and a lower input has focus.
+  const keepFocusedInputVisible = useCallback((): void => {
+    const field = focusedKeyboardFieldRef.current;
+    if (field !== null && Keyboard.isVisible()) {
+      scrollToInput(field);
+    }
+  }, [scrollToInput]);
+
+  function focusKeyboardField(field: KeyboardScrollField): void {
+    focusedKeyboardFieldRef.current = field;
+    setFocusedField(field);
+    scrollToInput(field);
+  }
 
   const loginIdValueRef =
     useRef("");
@@ -288,6 +351,23 @@ export function SignupScreen({
     hasSignupSucceeded,
     setHasSignupSucceeded,
   ] = useState(false);
+
+  // Native-stack Android back and the in-screen Login link use the same guard.
+  // Never intercept the post-signup fallback navigation.
+  usePreventRemove(!hasSignupSucceeded, ({ data }) => {
+    Alert.alert(
+      "회원가입을 중단하시겠습니까?",
+      "입력한 회원가입 정보는 저장되지 않습니다.",
+      [
+        { text: "계속 작성", style: "cancel" },
+        {
+          text: "나가기",
+          style: "destructive",
+          onPress: () => navigation.dispatch(data.action),
+        },
+      ],
+    );
+  });
 
   const currentLoginIdCheckFeedback =
     loginIdCheckFeedback?.loginId === loginId
@@ -444,7 +524,7 @@ export function SignupScreen({
 
     if (!error.response) {
       setFormErrorMessage(
-        "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+        "가입 결과를 확인하지 못했습니다. 자동 재가입은 하지 않습니다. 연결을 확인한 뒤 로그인 화면에서 가입 여부를 확인해 주세요.",
       );
       return;
     }
@@ -456,6 +536,11 @@ export function SignupScreen({
       case 409: {
         const conflictData =
           errorResponse.data;
+        if (conflictData.field === "nickname") {
+          nickname.invalidate("이미 사용 중인 닉네임입니다.");
+          setFieldErrors(current => ({ ...current, nickname: "이미 사용 중인 닉네임입니다." }));
+          return;
+        }
 
         if (
           conflictData.field ===
@@ -566,6 +651,11 @@ export function SignupScreen({
           : "아이디 중복 확인을 완료해 주세요.";
     }
 
+    let normalizedNickname = "";
+    try { normalizedNickname = normalizeNickname(nickname.value); }
+    catch (error) { errors.nickname = (error as Error).message; }
+    if (normalizedNickname && nickname.available !== normalizedNickname) errors.nickname = "닉네임 중복 확인을 완료해 주세요.";
+
     setFieldErrors(errors);
 
     if (
@@ -577,6 +667,7 @@ export function SignupScreen({
     try {
       const signupResponse =
         await signupMutation.mutateAsync({
+          nickname: normalizedNickname,
           login_id: loginId,
           password,
           password_confirm:
@@ -622,18 +713,19 @@ export function SignupScreen({
   return (
     <ScreenContainer>
       <KeyboardAvoidingView
-        behavior={
-          Platform.OS === "ios"
-            ? "padding"
-            : undefined
-        }
+        behavior="padding"
         style={styles.keyboardAvoidingView}
       >
         <ScrollView
-          contentContainerStyle={
-            styles.scrollContent
-          }
+          ref={scrollViewRef}
+          onLayout={keepFocusedInputVisible}
+          onContentSizeChange={keepFocusedInputVisible}
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardVisible && styles.scrollContentKeyboardOpen,
+          ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
@@ -650,7 +742,12 @@ export function SignupScreen({
             </Text>
           </View>
 
-          <View style={styles.form}>
+          <View
+            style={styles.form}
+            onLayout={(event) => {
+              formTopRef.current = event.nativeEvent.layout.y;
+            }}
+          >
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>
                 아이디
@@ -993,7 +1090,36 @@ export function SignupScreen({
               )}
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.nickname = event.nativeEvent.layout.y;
+              }}
+            >
+              <Text style={styles.label}>닉네임</Text>
+              <TextInput accessibilityLabel="닉네임" value={nickname.value}
+                onChangeText={(value) => { nickname.update(value); clearFieldError("nickname"); clearFormError(); }}
+                onFocus={() => focusKeyboardField("nickname")}
+                onBlur={() => {
+                  focusedKeyboardFieldRef.current = null;
+                  setFocusedField(null);
+                }}
+                editable={!isFormInteractionDisabled} autoCapitalize="none" autoCorrect={false}
+                placeholder="다른 회원에게 표시할 닉네임" style={styles.input} />
+              <PrimaryButton label="닉네임 중복 확인" loading={nickname.checking}
+                disabled={isFormInteractionDisabled || nickname.checking}
+                onPress={() => void nickname.check()} />
+              <Text accessibilityLiveRegion="polite" style={fieldErrors.nickname ? styles.errorText : styles.helperText}>
+                {fieldErrors.nickname ?? nickname.feedback ?? "2~10자 한글·영문·숫자·밑줄"}
+              </Text>
+            </View>
+
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.name = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.label}>
                 이름
               </Text>
@@ -1013,9 +1139,7 @@ export function SignupScreen({
                   clearFieldError("name");
                   clearFormError();
                 }}
-                onFocus={() =>
-                  setFocusedField("name")
-                }
+                onFocus={() => focusKeyboardField("name")}
                 onSubmitEditing={() =>
                   emailInputRef.current?.focus()
                 }
@@ -1041,7 +1165,12 @@ export function SignupScreen({
               )}
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.email = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.label}>
                 이메일
                 <Text
@@ -1069,9 +1198,7 @@ export function SignupScreen({
                   clearFieldError("email");
                   clearFormError();
                 }}
-                onFocus={() =>
-                  setFocusedField("email")
-                }
+                onFocus={() => focusKeyboardField("email")}
                 onSubmitEditing={
                   handleSignup
                 }
@@ -1163,7 +1290,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingVertical: spacing.space6,
+    paddingTop: spacing.space6,
+    paddingBottom: spacing.space10,
+  },
+  // Keep enough scrollable area below Email after Android resizes the viewport.
+  scrollContentKeyboardOpen: {
+    paddingBottom: spacing.space12 * 5,
   },
   header: {
     gap: spacing.contentGap,

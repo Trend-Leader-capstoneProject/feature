@@ -70,6 +70,7 @@ def make_service(
         spec=Session,
     )
 
+    db_mock.new, db_mock.dirty, db_mock.deleted = set(), set(), set()
     user_repository_mock = Mock(
         spec=UserRepository,
     )
@@ -77,10 +78,9 @@ def make_service(
         spec=InterestRepository,
     )
 
+    db_mock.scalar.return_value = user
     user_repository_mock.find_by_login_id.return_value = user
-    interest_repository_mock.exists_by_user_id.return_value = (
-        has_selected_interests
-    )
+    interest_repository_mock.exists_by_user_id.return_value = has_selected_interests
 
     service = AuthService(
         db=cast(
@@ -127,6 +127,7 @@ def make_signup_service() -> tuple[
     db_mock = Mock(
         spec=Session,
     )
+    db_mock.new, db_mock.dirty, db_mock.deleted = set(), set(), set()
     user_repository_mock = Mock(
         spec=UserRepository,
     )
@@ -134,6 +135,7 @@ def make_signup_service() -> tuple[
         spec=InterestRepository,
     )
 
+    db_mock.scalar.return_value = None
     user_repository_mock.find_by_login_id.return_value = None
     user_repository_mock.find_by_email.return_value = None
     interest_repository_mock.exists_by_user_id.return_value = False
@@ -177,6 +179,7 @@ def make_signup_request(
 
     return SignupRequest.model_validate(
         {
+            "nickname": "테스트닉",
             "login_id": "signup_user",
             "password": "signup-password",
             "password_confirm": "signup-password",
@@ -233,10 +236,7 @@ def test_login_returns_access_token_and_user_data(
     assert result.user.name == "로그인 테스트 사용자"
     assert result.user.status == UserStatus.ACTIVE
 
-    assert (
-        result.has_selected_interests
-        is has_selected_interests
-    )
+    assert result.has_selected_interests is has_selected_interests
     assert result.next_step == expected_next_step
 
     payload = decode_access_token(
@@ -458,10 +458,13 @@ def test_signup_creates_active_user_and_returns_session() -> None:
 
     assert saved_user.password_hash is not None
     assert saved_user.password_hash != "signup-password"
-    assert verify_password(
-        "signup-password",
-        saved_user.password_hash,
-    ) is True
+    assert (
+        verify_password(
+            "signup-password",
+            saved_user.password_hash,
+        )
+        is True
+    )
 
     db_mock.commit.assert_called_once_with()
     db_mock.rollback.assert_not_called()
@@ -692,10 +695,7 @@ def test_signup_maps_login_id_unique_race_to_conflict() -> None:
 
     integrity_error = make_integrity_error(
         error_code=1062,
-        message=(
-            "Duplicate entry 'signup_user' "
-            "for key 'uq_users_login_id'"
-        ),
+        message=("Duplicate entry 'signup_user' for key 'uq_users_login_id'"),
     )
 
     user_repository_mock.save.side_effect = integrity_error
@@ -734,10 +734,7 @@ def test_signup_maps_email_unique_race_to_conflict() -> None:
 
     integrity_error = make_integrity_error(
         error_code=1062,
-        message=(
-            "Duplicate entry 'signup@example.com' "
-            "for key 'uq_users_email'"
-        ),
+        message=("Duplicate entry 'signup@example.com' for key 'uq_users_email'"),
     )
 
     user_repository_mock.save.side_effect = integrity_error
@@ -776,10 +773,7 @@ def test_signup_reraises_unknown_unique_integrity_error() -> None:
 
     integrity_error = make_integrity_error(
         error_code=1062,
-        message=(
-            "Duplicate entry 'value' "
-            "for key 'uq_unknown_constraint'"
-        ),
+        message=("Duplicate entry 'value' for key 'uq_unknown_constraint'"),
     )
 
     user_repository_mock.save.side_effect = integrity_error

@@ -1,251 +1,92 @@
-from datetime import UTC, datetime, timedelta
-from typing import Any, cast
-from unittest.mock import Mock
+from datetime import timedelta
 
 import pytest
 from jose import jwt
 
 from app.api.dependencies.auth_dependency import get_current_user
+from app.core.auth_time import as_utc, utc_now
 from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedException
 from app.models.db_enums import UserStatus
 from app.models.user import User
-from app.repositories.user_repository import UserRepository
-
-settings = get_settings()
+from tests.auth_helpers import SESSION_ID, session_service_for_user
 
 
-def make_access_token(
-    subject: str | None,
-) -> str:
-    """테스트용 JWT Access Token을 생성한다."""
-
-    payload: dict[str, Any] = {
-        "exp": datetime.now(UTC)
-        + timedelta(
-            minutes=settings.access_token_expire_minutes,
-        ),
+def token(**changes):
+    claims = {
+        "sub": "10",
+        "sid": SESSION_ID,
+        "exp": as_utc(utc_now() + timedelta(minutes=15)),
     }
-
-    if subject is not None:
-        payload["sub"] = subject
-
+    claims.update(changes)
     return jwt.encode(
-        payload,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
+        claims, get_settings().jwt_secret_key, algorithm=get_settings().jwt_algorithm
     )
 
 
-def make_user_repository_mock(
-    user: User | None,
-) -> Mock:
-    """지정된 사용자를 반환하는 UserRepository Mock을 생성한다."""
-
-    repository_mock = Mock(
-        spec=UserRepository,
-    )
-    repository_mock.find_by_id.return_value = user
-
-    return repository_mock
+def user(status=UserStatus.ACTIVE):
+    return User(user_id=10, name="private account name", status=status)
 
 
-def test_get_current_user_returns_active_user() -> None:
-    """유효한 토큰의 ACTIVE 사용자를 반환한다."""
-
-    user = User(
-        user_id=10,
-        name="인증 테스트 사용자",
-        status=UserStatus.ACTIVE,
-    )
-
-    repository_mock = make_user_repository_mock(
-        user,
-    )
-
-    result = get_current_user(
-        token=make_access_token(
-            "10",
-        ),
-        user_repository=cast(
-            UserRepository,
-            repository_mock,
-        ),
-    )
-
-    assert result is user
-
-    repository_mock.find_by_id.assert_called_once_with(
-        10,
-    )
-
-
-def test_get_current_user_rejects_invalid_token() -> None:
-    """JWT 형식 또는 서명이 올바르지 않으면 401을 발생시킨다."""
-
-    repository_mock = make_user_repository_mock(
-        None,
-    )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token="invalid-token",
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_not_called()
-
-
-def test_get_current_user_rejects_token_without_subject() -> None:
-    """JWT subject가 없으면 401을 발생시킨다."""
-
-    repository_mock = make_user_repository_mock(
-        None,
-    )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token=make_access_token(
-                None,
-            ),
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_not_called()
+def test_verified_context_supplies_current_user():
+    account = user()
+    service = session_service_for_user(lambda _: account, 10)
+    assert get_current_user(service.authenticate(token())) is account
 
 
 @pytest.mark.parametrize(
-    "subject",
+    "changes",
     [
-        "not-a-number",
-        "0",
-        "-1",
+        {"sub": "not-a-number"},
+        {"sub": "0"},
+        {"sub": "-1"},
+        {"sub": None},
+        {"sid": None},
+        {"sid": "not-a-session"},
+        {"exp": None},
+        {"exp": True},
     ],
 )
-def test_get_current_user_rejects_invalid_subject(
-    subject: str,
-) -> None:
-    """양의 정수가 아닌 subject를 거부한다."""
+def test_malformed_claims_do_not_reach_database(changes):
+    service = session_service_for_user(lambda _: user(), 10)
+    with pytest.raises(UnauthorizedException) as error:
+        service.authenticate(token(**changes))
+    assert error.value.data["reason"] == "ACCESS_TOKEN_INVALID"
+    service.db.scalar.assert_not_called()
 
-    repository_mock = make_user_repository_mock(
-        None,
+
+def test_missing_exp_is_rejected_without_query():
+    service = session_service_for_user(lambda _: user(), 10)
+    raw = jwt.encode(
+        {"sub": "10", "sid": SESSION_ID},
+        get_settings().jwt_secret_key,
+        algorithm=get_settings().jwt_algorithm,
     )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token=make_access_token(
-                subject,
-            ),
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_not_called()
-
-
-def test_get_current_user_rejects_missing_user() -> None:
-    """토큰 사용자가 DB에 없으면 401을 발생시킨다."""
-
-    repository_mock = make_user_repository_mock(
-        None,
-    )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token=make_access_token(
-                "10",
-            ),
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_called_once_with(
-        10,
-    )
+    with pytest.raises(UnauthorizedException):
+        service.authenticate(raw)
+    service.db.scalar.assert_not_called()
 
 
 @pytest.mark.parametrize(
-    "user_status",
+    "account", [None, user(UserStatus.WITHDRAWN), user(UserStatus.SUSPENDED)]
+)
+def test_missing_or_inactive_account_is_rejected(account):
+    service = session_service_for_user(lambda _: account, 10)
+    with pytest.raises(UnauthorizedException) as error:
+        service.authenticate(token())
+    assert error.value.data["reason"] == "ACCOUNT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "reason,modify",
     [
-        UserStatus.WITHDRAWN,
-        UserStatus.SUSPENDED,
+        ("SESSION_REVOKED", lambda record: setattr(record, "revoked_at", utc_now())),
+        ("SESSION_EXPIRED", lambda record: setattr(record, "expires_at", utc_now())),
     ],
 )
-def test_get_current_user_rejects_inactive_user(
-    user_status: UserStatus,
-) -> None:
-    """ACTIVE가 아닌 사용자는 인증된 사용자로 반환하지 않는다."""
-
-    user = User(
-        user_id=10,
-        name="비활성 인증 테스트 사용자",
-        status=user_status,
-    )
-
-    repository_mock = make_user_repository_mock(
-        user,
-    )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token=make_access_token(
-                "10",
-            ),
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_called_once_with(
-        10,
-    )
-
-
-def test_get_current_user_rejects_token_without_expiration() -> None:
-    """만료 시간이 없는 Access Token을 거부한다."""
-
-    token = jwt.encode(
-        {
-            "sub": "10",
-        },
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
-
-    repository_mock = make_user_repository_mock(
-        None,
-    )
-
-    with pytest.raises(
-        UnauthorizedException,
-    ):
-        get_current_user(
-            token=token,
-            user_repository=cast(
-                UserRepository,
-                repository_mock,
-            ),
-        )
-
-    repository_mock.find_by_id.assert_not_called()
+def test_session_is_checked_before_access_expiry(reason, modify):
+    service = session_service_for_user(lambda _: user(), 10)
+    modify(service.repository.find.return_value)
+    with pytest.raises(UnauthorizedException) as error:
+        service.authenticate(token(exp=as_utc(utc_now() - timedelta(minutes=1))))
+    assert error.value.data["reason"] == reason

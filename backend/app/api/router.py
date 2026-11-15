@@ -8,6 +8,7 @@ Trend Leader 통합 API Router.
 from fastapi import APIRouter
 
 from app.api.routes import (
+    account_router,
     auth_router,
     category_router,
     health,
@@ -25,6 +26,8 @@ root_router.include_router(health.root_router)
 
 api_router.include_router(health.router)
 api_router.include_router(auth_router.router)
+api_router.include_router(account_router.public_router)
+api_router.include_router(account_router.router)
 api_router.include_router(category_router.router)
 api_router.include_router(interest_router.router)
 api_router.include_router(trend_router.router)
