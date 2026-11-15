@@ -7,7 +7,7 @@ jest.mock("../../src/features/trend/hooks/useTrends", () => ({
   useTrends: jest.fn(),
 }));
 
-test("세부분류 선택은 기존 카테고리별 목록 조회를 사용한다", () => {
+test("세부분류 선택은 기존 카테고리별 목록 조회를 사용한다", async () => {
   jest.mocked(useTrends).mockReturnValue({
     data: {
       pages: [
@@ -35,9 +35,9 @@ test("세부분류 선택은 기존 카테고리별 목록 조회를 사용한�
     isFetchingNextPage: false,
     isFetchNextPageError: false,
     hasNextPage: false,
-  } as ReturnType<typeof useTrends>);
+  } as unknown as ReturnType<typeof useTrends>);
 
-  render(<FilteredPersonalizedTrendList categoryId={11} />);
+  await render(<FilteredPersonalizedTrendList categoryId={11} />);
 
   expect(useTrends).toHaveBeenCalledWith({ categoryId: 11 });
   expect(screen.getByText("선택한 PC 게임 트렌드")).toBeTruthy();
