@@ -14,6 +14,9 @@ import {
 } from "react-native";
 
 import { TrendCard } from "../../features/trend/components/TrendCard";
+import { PersonalizedTrendFilter } from "../../features/trend/components/PersonalizedTrendFilter";
+import { FilteredPersonalizedTrendList } from "../../features/trend/components/FilteredPersonalizedTrendList";
+import type { TrendCategorySelection } from "../../features/trend/components/TrendCategoryFilter";
 import { usePersonalizedTrends } from "../../features/trend/hooks/usePersonalizedTrends";
 import type {
   TrendListErrorData,
@@ -72,6 +75,14 @@ export function PersonalizedMainScreen({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+
+  function handleFilterSelection(selection: TrendCategorySelection): void {
+    setSelectedRootCategoryId(selection.rootCategoryId);
+    setSelectedCategoryId(selection.categoryId);
+  }
 
   const refreshInFlightRef = useRef(false);
 
@@ -149,6 +160,7 @@ export function PersonalizedMainScreen({
   // 실제 맞춤 목록을 표시하는 상태에서만
   // 홈 헤더를 FlatList 내부에 배치한다.
   const isScrollableHome =
+    selectedCategoryId === null &&
     trends.length > 0 &&
     !isInterestsNotInitializedError &&
     !isInterestsNotAvailableError &&
@@ -279,25 +291,33 @@ export function PersonalizedMainScreen({
 
 function renderHomeHeader() {
   return (
-    <>
-      <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.title}>Trend Leader</Text>
-        <Text style={styles.description}>{userName
-          ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
-          : "관심 분야의 최신 흐름을 확인해 보세요."}</Text>
-      </View>
-      <View style={styles.personalizedSection} testID="home-personalized-section">
-        <View style={styles.actions} testID="home-quick-actions">
-          <Text accessibilityRole="header" style={styles.personalizedSectionTitle}>관심사 맞춤 트렌드</Text>
-          <View style={styles.latestActionRow}>
-            <Pressable accessibilityLabel="최신 트렌드 보기" accessibilityRole="button"
-              onPress={() => navigation.navigate("LatestTrend")} style={styles.latestTrendButton}>
-              <Text style={styles.latestTrendText}>전체 최신 보기 ↗</Text>
-            </Pressable>
-          </View>
+    <View style={styles.personalizedSection} testID="home-personalized-section">
+      <View style={styles.actions} testID="home-quick-actions">
+        <View style={styles.sectionHeadingRow}>
+          <Text accessibilityRole="header" style={styles.personalizedSectionTitle}>
+            관심사 맞춤 트렌드
+          </Text>
+          <Pressable
+            accessibilityLabel="최신 트렌드 보기"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("LatestTrend")}
+            style={styles.latestTrendButton}
+          >
+            <Text style={styles.latestTrendText}>전체 최신 보기 ↗</Text>
+          </Pressable>
         </View>
+        <Text style={styles.description}>
+          {userName
+            ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
+            : "관심 분야의 최신 흐름을 확인해 보세요."}
+        </Text>
+        <PersonalizedTrendFilter
+          selectedCategoryId={selectedCategoryId}
+          selectedRootCategoryId={selectedRootCategoryId}
+          onSelectionChange={handleFilterSelection}
+        />
       </View>
-    </>
+    </View>
   );
 }
   function renderContent() {
@@ -346,6 +366,11 @@ function renderHomeHeader() {
           />
         </View>
       );
+    }
+
+    // An explicit category selection uses a separate cursor and query cache.
+    if (selectedCategoryId !== null) {
+      return <FilteredPersonalizedTrendList categoryId={selectedCategoryId} />;
     }
 
     // Phase 5-2A: 최초 Loading
