@@ -46,6 +46,7 @@ import { isAxiosError } from "axios";
 import type { CommonErrorResponse } from "../../shared/types/api";
 import { useAuth } from "../providers/AuthProvider";
 import { AccountHeader } from "../../features/account/components/AccountHeader";
+import { useMyProfile } from "../../features/account/hooks/useMyProfile";
 
 type PersonalizedMainScreenProps = NativeStackScreenProps<
   AppStackParamList,
@@ -56,6 +57,7 @@ export function PersonalizedMainScreen({
   navigation,
 }: PersonalizedMainScreenProps) {
   const { authState, logout, revalidateSession } = useAuth();
+  const { data: profile } = useMyProfile();
 
   const {
     data: trendData,
@@ -154,8 +156,9 @@ export function PersonalizedMainScreen({
 
   const nextCursor = lastPage?.next_cursor ?? null;
 
-  const userName =
-    authState.status === "AUTHENTICATED" ? authState.session.user.name : null;
+  // AccountHeader and the personalized home should display the same nickname.
+  const userName = profile?.nickname ??
+    (authState.status === "AUTHENTICATED" ? authState.session.user.name : null);
 
   // 실제 맞춤 목록을 표시하는 상태에서만
   // 홈 헤더를 FlatList 내부에 배치한다.
