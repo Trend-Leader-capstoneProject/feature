@@ -1,6 +1,7 @@
 import type {
     NativeStackScreenProps,
 } from "@react-navigation/native-stack";
+import { usePreventRemove } from "@react-navigation/native";
 import axios from "axios";
 import {
     useCallback,
@@ -278,6 +279,15 @@ export function SignupScreen({
     return () => subscription.remove();
   }, [scrollToInput]);
 
+  // On Android the ScrollView viewport may resize after onFocus/keyboardDidShow.
+  // Re-scroll only when the keyboard is visible and a lower input has focus.
+  const keepFocusedInputVisible = useCallback((): void => {
+    const field = focusedKeyboardFieldRef.current;
+    if (field !== null && Keyboard.isVisible()) {
+      scrollToInput(field);
+    }
+  }, [scrollToInput]);
+
   function focusKeyboardField(field: KeyboardScrollField): void {
     focusedKeyboardFieldRef.current = field;
     setFocusedField(field);
@@ -333,6 +343,23 @@ export function SignupScreen({
     hasSignupSucceeded,
     setHasSignupSucceeded,
   ] = useState(false);
+
+  // Native-stack Android back and the in-screen Login link use the same guard.
+  // Never intercept the post-signup fallback navigation.
+  usePreventRemove(!hasSignupSucceeded, ({ data }) => {
+    Alert.alert(
+      "회원가입을 중단하시겠습니까?",
+      "입력한 회원가입 정보는 저장되지 않습니다.",
+      [
+        { text: "계속 작성", style: "cancel" },
+        {
+          text: "나가기",
+          style: "destructive",
+          onPress: () => navigation.dispatch(data.action),
+        },
+      ],
+    );
+  });
 
   const currentLoginIdCheckFeedback =
     loginIdCheckFeedback?.loginId === loginId
@@ -683,6 +710,8 @@ export function SignupScreen({
       >
         <ScrollView
           ref={scrollViewRef}
+          onLayout={keepFocusedInputVisible}
+          onContentSizeChange={keepFocusedInputVisible}
           contentContainerStyle={
             styles.scrollContent
           }
