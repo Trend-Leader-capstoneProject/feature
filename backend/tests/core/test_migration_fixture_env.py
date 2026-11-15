@@ -66,8 +66,8 @@ def test_migration_fixture_denies_missing_approval_before_alembic(
     missing: str,
 ) -> None:
     allow_test_target(monkeypatch)
-    monkeypatch.delenv(f"TEST_MIGRATION_ALLOWED_{missing}", raising=False)
     fixtures = load_fixture_module()
+    monkeypatch.delenv(f"TEST_MIGRATION_ALLOWED_{missing}", raising=False)
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("No secret file or Alembic call is allowed")
