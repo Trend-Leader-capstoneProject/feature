@@ -81,6 +81,11 @@ def test_small_jpeg_is_not_upscaled():
         (b"not an image", 400, "PROFILE_IMAGE_INVALID"),
         (image_bytes(size=(2, 2), format="GIF"), 415, "PROFILE_IMAGE_UNSUPPORTED"),
     ],
+    ids=[
+        "oversized-image",
+        "invalid-image",
+        "unsupported-format",
+    ],
 )
 def test_image_rejects_bad_input(raw, status, reason):
     with pytest.raises(ApplicationException) as error:
