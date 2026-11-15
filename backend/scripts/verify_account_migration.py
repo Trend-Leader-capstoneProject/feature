@@ -18,6 +18,11 @@ from alembic import command
 BACKEND = Path(__file__).resolve().parents[1]
 HEAD = "b7f2c81d9e04"
 PREVIOUS = "a4d7c9e21f3b"
+APPLY_DISABLED_REASON = (
+    "ACCOUNT_MIGRATION_APPLY_DISABLED: this legacy test script cannot "
+    "run DDL until its target identity and the current MigrationDbSettings "
+    "contract are verified in an isolated workflow"
+)
 
 
 def test_url():
@@ -35,6 +40,10 @@ def test_url():
 
 
 def verify(apply=False):
+    # Reject before target discovery, DB connections or Alembic calls.
+    # Current dev Alembic uses MIGRATION_DB_*, not the legacy DATABASE_URL.
+    if apply:
+        raise RuntimeError(APPLY_DISABLED_REASON)
     url = test_url()
     os.environ.update(
         DATABASE_URL=url, TEST_DATABASE_URL=url, MAINTENANCE_ENABLED="false"
@@ -220,10 +229,19 @@ def verify(apply=False):
     return {**result, "restored_revision": HEAD, "applied": True}
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--apply", action="store_true", help="Only on the approved empty 3307 test DB"
+        "--apply",
+        action="store_true",
+        help="Disabled: requires a newly approved isolated Migration verification path",
     )
-    args = parser.parse_args()
-    print(json.dumps(verify(args.apply)))
+    args = parser.parse_args(argv)
+    if args.apply:
+        parser.error(APPLY_DISABLED_REASON)
+    print(json.dumps(verify(False)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
