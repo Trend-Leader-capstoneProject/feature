@@ -37,13 +37,13 @@ export function AccountHeader() {
     <View style={styles.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="사이드바 열기" onPress={() => setOpen(true)} style={styles.icon}><Text style={styles.blue}>☰</Text></Pressable>
       <Image accessible accessibilityLabel="Trend Leader 로고" resizeMode="contain" source={appImages.trendLeaderLogo} style={styles.logoImage} />
-      <Pressable accessibilityRole="button" accessibilityLabel="앱 설정" onPress={settings} style={styles.icon}><Text style={styles.blue}>⚙</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="앱 설정" onPress={settings} style={styles.icon}><Image accessible={false} resizeMode="contain" source={appImages.settingsIcon} style={styles.settingsIcon} /></Pressable>
     </View>
     <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}>
         <Pressable accessibilityRole="button" accessibilityLabel="사이드바 닫기" style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
         <Animated.View accessibilityViewIsModal style={[styles.drawer, { width: Math.min(width * .78, 360), paddingTop: insets.top, transform: [{ translateX: offset }] }]}>
-          <View style={styles.header}><Image accessible accessibilityLabel="Trend Leader 로고" resizeMode="contain" source={appImages.trendLeaderLogo} style={styles.logoImage} /><Pressable accessibilityRole="button" accessibilityLabel="앱 설정" onPress={settings} style={styles.icon}><Text style={styles.blue}>⚙</Text></Pressable></View>
+          <View style={styles.header}><Image accessible accessibilityLabel="Trend Leader 로고" resizeMode="contain" source={appImages.trendLeaderLogo} style={styles.logoImage} /><Pressable accessibilityRole="button" accessibilityLabel="앱 설정" onPress={settings} style={styles.icon}><Image accessible={false} resizeMode="contain" source={appImages.settingsIcon} style={styles.settingsIcon} /></Pressable></View>
           <View style={styles.identity}>
             <ProtectedAvatar url={profile.data?.profile_image_url} size={72} />
             <Text style={styles.nickname}>{profile.data?.nickname ?? (profile.isError ? "프로필 조회 실패" : "불러오는 중…")}</Text>
@@ -60,6 +60,7 @@ const styles = StyleSheet.create({
   icon: { minWidth: 48, minHeight: 48, justifyContent: "center", alignItems: "center" },
   blue: { color: "#3324DB", fontSize: 28 },
   logoImage: { width: 48, height: 48 },
+  settingsIcon: { width: 28, height: 28 },
   overlay: { flex: 1, backgroundColor: "#0006" },
   drawer: { height: "100%", backgroundColor: "white" },
   identity: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 40, gap: 18 },
