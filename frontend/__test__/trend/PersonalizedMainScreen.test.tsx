@@ -1,4 +1,5 @@
 jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
 import {
   fireEvent,
   render,
@@ -161,7 +162,7 @@ describe("Personalized Main", () => {
     const list = screen.getByTestId("personalized-trend-list");
 
     // 내 정보 확정안: 일반 관심사/로그아웃은 홈에서 이동하고 최신 탐색은 유지한다.
-    expect(within(list).getByText("Trend Leader")).toBeTruthy();
+    expect(within(list).getByText("테스트 사용자님, 관심 분야의 최신 흐름을 확인해 보세요.")).toBeTruthy();
     const personalizedSection = within(list).getByTestId("home-personalized-section");
     expect(within(personalizedSection).getByRole("header", { name: "관심사 맞춤 트렌드" })).toBeTruthy();
     expect(within(personalizedSection).getByRole("button", { name: "최신 트렌드 보기" })).toBeTruthy();
