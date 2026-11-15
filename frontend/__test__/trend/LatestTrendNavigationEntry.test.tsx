@@ -6,6 +6,7 @@ import { fireEvent, render } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 
 import { useAuth } from "../../src/app/providers/AuthProvider";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainScreen";
 import { useLogin } from "../../src/features/auth/hooks/useLogin";
 import { LoginScreen } from "../../src/features/auth/screens/LoginScreen";
@@ -26,6 +27,7 @@ jest.mock("../../src/features/trend/hooks/usePersonalizedTrends", () => ({
 jest.setTimeout(20_000);
 
 const mockedUseAuth = jest.mocked(useAuth);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
 
 const mockedUseLogin = jest.mocked(useLogin);
 
@@ -62,6 +64,10 @@ const mainRouteMock = {
 describe("LatestTrend navigation entry", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
     mockedUsePersonalizedTrends.mockReset();
 
