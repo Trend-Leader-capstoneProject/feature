@@ -66,20 +66,51 @@ def test_database_url() -> str:
     return database_url
 
 
+def _validate_test_migration_target(test_database_url: str):
+    """Fail closed before creating credentials or launching Alembic.
+
+    These checks compare an explicitly supplied local test target. They are
+    not proof that the target is empty or that its server identity is trusted.
+    """
+    try:
+        parsed_url = make_url(test_database_url)
+    except (TypeError, ValueError):
+        raise RuntimeError("Test Migration URL is invalid") from None
+
+    if (
+        parsed_url.drivername != "mysql+pymysql"
+        or parsed_url.host not in {"127.0.0.1", "localhost"}
+        or parsed_url.port not in {3307, 3308}
+        or parsed_url.database != "trend_leader_test"
+        or not parsed_url.username
+        or parsed_url.password is None
+    ):
+        raise RuntimeError("Test Migration requires a local isolated test target")
+
+    keys = ("HOST", "PORT", "DATABASE", "USER")
+    expected = tuple(os.getenv(f"TEST_MIGRATION_ALLOWED_{key}") for key in keys)
+    if any(not value or value != value.strip() for value in expected):
+        raise RuntimeError("Test Migration requires explicit target approval")
+
+    actual = (
+        parsed_url.host,
+        str(parsed_url.port),
+        parsed_url.database,
+        parsed_url.username,
+    )
+    if actual != expected:
+        raise RuntimeError("Test Migration target differs from approval")
+
+    return parsed_url
+
+
 @pytest.fixture(scope="session")
 def migrated_test_database(
     test_database_url: str,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> str:
     """전용 Migration 설정으로 테스트 DB만 Alembic 적용."""
-    parsed_url = make_url(test_database_url)
-    if (
-        parsed_url.database != "trend_leader_test"
-        or not parsed_url.host
-        or not parsed_url.username
-        or parsed_url.password is None
-    ):
-        raise RuntimeError("Migration test database credentials are incomplete")
+    parsed_url = _validate_test_migration_target(test_database_url)
 
     secret_dir = tmp_path_factory.mktemp("migration_test_secret")
     secret_file = secret_dir / "db_password"
