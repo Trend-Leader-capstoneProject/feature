@@ -6,18 +6,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies.auth_dependency import (
+    get_session_service,
     get_user_repository,
 )
 from app.api.dependencies.interest_dependency import (
     get_interest_service,
 )
-from app.core.security import create_access_token
+from app.core.security import create_access_token as _create_access_token
 from app.main import create_app
 from app.models.db_enums import UserStatus
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.schemas.interest_schema import InterestCreateData
 from app.services.interest_service import InterestService
+from tests.auth_helpers import SESSION_ID, session_service_for_user
+
+
+def create_access_token(user_id):
+    return _create_access_token(user_id, SESSION_ID)
 
 
 @pytest.fixture
@@ -63,6 +69,9 @@ def client(
     """실제 Bearer 인증 Dependency를 사용하는 TestClient를 생성한다."""
 
     application = create_app()
+    application.dependency_overrides[get_session_service] = lambda: (
+        session_service_for_user(user_repository_mock.find_by_id)
+    )
 
     def override_user_repository() -> UserRepository:
         return cast(
@@ -76,13 +85,9 @@ def client(
             interest_service_mock,
         )
 
-    application.dependency_overrides[
-        get_user_repository
-    ] = override_user_repository
+    application.dependency_overrides[get_user_repository] = override_user_repository
 
-    application.dependency_overrides[
-        get_interest_service
-    ] = override_interest_service
+    application.dependency_overrides[get_interest_service] = override_interest_service
 
     try:
         with TestClient(application) as test_client:
@@ -98,13 +103,11 @@ def test_bearer_header_authenticates_user(
 ) -> None:
     """유효한 Bearer JWT로 보호 API에 접근할 수 있다."""
 
-    interest_service_mock.create_interests.return_value = (
-        InterestCreateData(
-            selected_category_ids=[
-                1,
-            ],
-            selected_count=1,
-        )
+    interest_service_mock.create_interests.return_value = InterestCreateData(
+        selected_category_ids=[
+            1,
+        ],
+        selected_count=1,
     )
 
     access_token = create_access_token(
@@ -175,7 +178,7 @@ def test_bearer_header_rejects_invalid_token(
         "success": False,
         "statusCode": 401,
         "message": "로그인이 필요합니다.",
-        "data": None,
+        "data": {"reason": "ACCESS_TOKEN_INVALID"},
     }
 
     user_repository_mock.find_by_id.assert_not_called()
@@ -204,7 +207,7 @@ def test_protected_endpoint_rejects_missing_authorization_header(
         "success": False,
         "statusCode": 401,
         "message": "로그인이 필요합니다.",
-        "data": None,
+        "data": {"reason": "ACCESS_TOKEN_REQUIRED"},
     }
 
     user_repository_mock.find_by_id.assert_not_called()

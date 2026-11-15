@@ -1,318 +1,77 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react-native";
-import type { PropsWithChildren } from "react";
-
-import { AuthProvider, useAuth } from "../../src/app/providers/AuthProvider";
-import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
-import type {
-    LoginResponse,
-    SessionResponse,
-} from "../../src/features/auth/types/auth";
-import { registerAuthFailureHandler } from "../../src/shared/handler/authFailureHandler";
 import {
-    allowAuthenticatedRequests,
-    blockAuthenticatedRequests,
-} from "../../src/shared/handler/authRequestGate";
-import {
-    deleteAccessToken,
-    getAccessToken,
-    saveAccessToken,
-} from "../../src/shared/storage/tokenStorage";
+  deferred, getSession, loginB, mockStorage, renderAuth, resetHarness,
+  sessionA, sessionB, storageSet,
+} from "../helpers/authHarness";
+import { act, waitFor } from "@testing-library/react-native";
+import { areAuthenticatedRequestsBlocked, getAuthEpoch } from "../../src/shared/handler/authRequestGate";
+import { AUTH_STORAGE_KEY } from "../../src/shared/storage/tokenStorage";
 
-jest.mock("../../src/features/auth/api/getAuthSession", () => ({
-  getAuthSession: jest.fn(),
-}));
 
-jest.mock("../../src/shared/storage/tokenStorage", () => ({
-  saveAccessToken: jest.fn(),
-  getAccessToken: jest.fn(),
-  deleteAccessToken: jest.fn(),
-}));
+beforeEach(resetHarness);
 
-jest.mock("../../src/shared/handler/authFailureHandler", () => ({
-  registerAuthFailureHandler: jest.fn(),
-}));
-
-jest.mock("../../src/shared/handler/authRequestGate", () => ({
-  allowAuthenticatedRequests: jest.fn(),
-  blockAuthenticatedRequests: jest.fn(),
-}));
-
-const mockedGetAuthSession = jest.mocked(getAuthSession);
-
-const mockedGetAccessToken = jest.mocked(getAccessToken);
-
-const mockedSaveAccessToken = jest.mocked(saveAccessToken);
-
-const mockedDeleteAccessToken = jest.mocked(deleteAccessToken);
-
-const mockedRegisterAuthFailureHandler = jest.mocked(
-  registerAuthFailureHandler,
-);
-
-const INTEREST_SELECTION_SESSION: SessionResponse = {
-  user: {
-    user_id: 1,
-    login_id: "user_a",
-    name: "사용자 A",
-    status: "ACTIVE",
-  },
-  has_selected_interests: false,
-  next_step: "INTEREST_SELECTION",
-};
-
-const MAIN_SESSION_A: SessionResponse = {
-  user: {
-    user_id: 1,
-    login_id: "user_a",
-    name: "사용자 A",
-    status: "ACTIVE",
-  },
-  has_selected_interests: true,
-  next_step: "MAIN",
-};
-
-const LOGIN_B_RESPONSE: LoginResponse = {
-  access_token: "TOKEN_B",
-  token_type: "Bearer",
-  user: {
-    user_id: 2,
-    login_id: "user_b",
-    name: "사용자 B",
-    status: "ACTIVE",
-  },
-  has_selected_interests: true,
-  next_step: "MAIN",
-};
-
-function createTestQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        gcTime: Infinity,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
+test("관심사 선택 완료와 같은 로그인 세션 재검증을 반영한다", async () => {
+  getSession.mockResolvedValueOnce({ ...sessionA, has_selected_interests: false, next_step: "INTEREST_SELECTION" });
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  await act(() => result.current.completeInterestSelection());
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionA });
+  await act(async () => result.current.revalidateSession());
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionA });
+});
+test("이전 계정의 늦은 재검증은 새 계정 상태를 바꾸지 않는다", async () => {
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  const previous = deferred<typeof sessionA>();
+  getSession.mockReturnValueOnce(previous.promise);
+  let revalidation!: Promise<unknown>;
+  await act(() => { revalidation = result.current.revalidateSession().catch(error => error); });
+  await act(async () => result.current.establishSession(loginB));
+  await act(async () => { previous.resolve(sessionA); await revalidation; });
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionB });
+});
+test("로그아웃 중 도착한 재검증이 인증을 되살리지 않는다", async () => {
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  const previous = deferred<typeof sessionA>();
+  getSession.mockReturnValueOnce(previous.promise);
+  let revalidation!: Promise<unknown>;
+  await act(() => { revalidation = result.current.revalidateSession().catch(error => error); });
+  await act(async () => result.current.clearLocalSession());
+  await act(async () => { previous.resolve(sessionA); await revalidation; });
+  expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+});
+test("새 토큰 저장이 끝나기 전에는 인증 완료로 표시하지 않는다", async () => {
+  const { result } = await renderAuth(null);
+  await waitFor(() => expect(result.current.authState.status).toBe("UNAUTHENTICATED"));
+  const stored = deferred<void>();
+  storageSet.mockImplementationOnce(async (key, value) => { await stored.promise; mockStorage.set(key, value); });
+  let login!: Promise<void>;
+  await act(() => { login = result.current.establishSession(loginB); });
+  await waitFor(() => expect(storageSet).toHaveBeenCalled());
+  expect(result.current.authState.status).not.toBe("AUTHENTICATED");
+  expect(areAuthenticatedRequestsBlocked()).toBe(true);
+  await act(async () => { stored.resolve(); await login; });
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionB });
+});
+test("과거 로그인 응답은 현재 계정 토큰을 덮어쓰지 못한다", async () => {
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  const oldEpoch = getAuthEpoch();
+  await act(async () => result.current.establishSession(loginB));
+  await act(async () => {
+    await expect(result.current.establishSession({ ...loginB, access_token: "old", _requestEpoch: oldEpoch })).rejects.toThrow();
   });
-}
-
-function createWrapper(queryClient: QueryClient) {
-  return function TestWrapper({ children }: PropsWithChildren) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>{children}</AuthProvider>
-      </QueryClientProvider>
-    );
-  };
-}
-
-function createDeferred<T>() {
-  let resolvePromise: ((value: T) => void) | null = null;
-
-  const promise = new Promise<T>((resolve) => {
-    resolvePromise = resolve;
-  });
-
-  return {
-    promise,
-    resolve(value: T): void {
-      if (!resolvePromise) {
-        throw new Error("Deferred Promise가 초기화되지 않았습니다.");
-      }
-
-      resolvePromise(value);
-    },
-  };
-}
-
-function createDeferredVoid() {
-  const deferred = createDeferred<void>();
-
-  return {
-    promise: deferred.promise,
-    resolve(): void {
-      deferred.resolve(undefined);
-    },
-  };
-}
-
-async function renderAuthenticatedProvider(initialSession: SessionResponse) {
-  const queryClient = createTestQueryClient();
-
-  mockedGetAuthSession.mockResolvedValueOnce(initialSession);
-
-  const rendered = await renderHook(() => useAuth(), {
-    wrapper: createWrapper(queryClient),
-  });
-
-  await waitFor(() => {
-    expect(rendered.result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: initialSession,
-    });
-  });
-
-  return rendered;
-}
-
-describe("AuthProvider session transition", () => {
-  let storedAccessToken: string | null;
-
-  beforeEach(() => {
-    jest.resetAllMocks();
-
-    storedAccessToken = "TOKEN_A";
-
-    mockedGetAccessToken.mockImplementation(async () => storedAccessToken);
-
-    mockedSaveAccessToken.mockImplementation(async (accessToken) => {
-      storedAccessToken = accessToken;
-    });
-
-    mockedDeleteAccessToken.mockImplementation(async () => {
-      storedAccessToken = null;
-    });
-
-    mockedRegisterAuthFailureHandler.mockImplementation(() => () => undefined);
-
-    jest.mocked(allowAuthenticatedRequests).mockImplementation(() => undefined);
-
-    jest.mocked(blockAuthenticatedRequests).mockImplementation(() => undefined);
-  });
-
-  test("관심사 선택 완료 시 현재 Session을 MAIN으로 변경한다", async () => {
-    const { result } = await renderAuthenticatedProvider(
-      INTEREST_SELECTION_SESSION,
-    );
-
-    await act(() => {
-      result.current.completeInterestSelection();
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        ...INTEREST_SELECTION_SESSION,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-  });
-
-  test("동일 Token의 Session 재검증 결과는 현재 Session에 반영한다", async () => {
-    const { result } = await renderAuthenticatedProvider(
-      INTEREST_SELECTION_SESSION,
-    );
-
-    mockedGetAuthSession.mockResolvedValueOnce(MAIN_SESSION_A);
-
-    await act(async () => {
-      await result.current.revalidateSession();
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: MAIN_SESSION_A,
-    });
-  });
-
-  test("TOKEN_A 재검증 중 TOKEN_B가 생성되면 TOKEN_A의 늦은 응답을 무시한다", async () => {
-    const { result } = await renderAuthenticatedProvider(
-      INTEREST_SELECTION_SESSION,
-    );
-
-    const deferredSession = createDeferred<SessionResponse>();
-
-    mockedGetAuthSession.mockImplementationOnce(() => deferredSession.promise);
-
-    const revalidationPromise = result.current.revalidateSession();
-
-    await waitFor(() => {
-      expect(mockedGetAuthSession).toHaveBeenCalledTimes(2);
-    });
-
-    await act(async () => {
-      await result.current.establishSession(LOGIN_B_RESPONSE);
-    });
-
-    expect(storedAccessToken).toBe("TOKEN_B");
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        user: LOGIN_B_RESPONSE.user,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-
-    await act(async () => {
-      deferredSession.resolve(MAIN_SESSION_A);
-
-      await revalidationPromise;
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        user: LOGIN_B_RESPONSE.user,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-  });
-
-  test("Session 종료 중 도착한 재검증 응답은 종료 중인 Session을 갱신하지 않는다", async () => {
-    const { result } = await renderAuthenticatedProvider(
-      INTEREST_SELECTION_SESSION,
-    );
-
-    const deferredSession = createDeferred<SessionResponse>();
-
-    const deferredDelete = createDeferredVoid();
-
-    mockedGetAuthSession.mockImplementationOnce(() => deferredSession.promise);
-
-    mockedDeleteAccessToken.mockImplementationOnce(async () => {
-      await deferredDelete.promise;
-
-      storedAccessToken = null;
-    });
-
-    const revalidationPromise = result.current.revalidateSession();
-
-    await waitFor(() => {
-      expect(mockedGetAuthSession).toHaveBeenCalledTimes(2);
-    });
-
-    const logoutPromise = result.current.logout();
-
-    await waitFor(() => {
-      expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-    });
-
-    await act(async () => {
-      deferredSession.resolve(MAIN_SESSION_A);
-
-      await revalidationPromise;
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: INTEREST_SELECTION_SESSION,
-    });
-
-    await act(async () => {
-      deferredDelete.resolve();
-
-      await logoutPromise;
-    });
-
-    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-
-    expect(storedAccessToken).toBeNull();
-  });
+  expect(JSON.parse(mockStorage.get(AUTH_STORAGE_KEY)!).access_token).toBe("access-B");
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionB });
+});
+test("취소된 A 조회의 늦은 결과가 B의 같은 Cache 키를 오염시키지 않는다", async () => {
+  const { result, client } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  const response = deferred<string>();
+  const previous = client.fetchQuery({ queryKey: ["personalized"], queryFn: () => response.promise }).catch(error => error);
+  await act(async () => result.current.establishSession(loginB));
+  client.setQueryData(["personalized"], "B");
+  response.resolve("A");
+  await previous;
+  expect(client.getQueryData(["personalized"])).toBe("B");
 });

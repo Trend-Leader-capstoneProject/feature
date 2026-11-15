@@ -40,6 +40,8 @@ def verify_password(
 
 def create_access_token(
     user_id: int,
+    session_id: str | None = None,
+    expires_at: datetime | None = None,
 ) -> str:
     """사용자 ID를 subject로 갖는 JWT Access Token을 생성한다."""
 
@@ -48,7 +50,7 @@ def create_access_token(
             "user_id는 양의 정수여야 합니다.",
         )
 
-    expires_at = datetime.now(UTC) + timedelta(
+    expires_at = expires_at or datetime.now(UTC) + timedelta(
         minutes=settings.access_token_expire_minutes,
     )
 
@@ -56,6 +58,9 @@ def create_access_token(
         "sub": str(user_id),
         "exp": expires_at,
     }
+
+    if session_id is not None:
+        payload["sid"] = session_id
 
     return jwt.encode(
         payload,
@@ -66,6 +71,8 @@ def create_access_token(
 
 def decode_access_token(
     token: str,
+    *,
+    verify_exp: bool = True,
 ) -> dict[str, Any]:
     """JWT Access Token의 서명과 필수 claim을 검증한다."""
 
@@ -76,7 +83,8 @@ def decode_access_token(
             settings.jwt_algorithm,
         ],
         options={
-            "require_exp": True,
+            "verify_exp": verify_exp,
+            "require_exp": verify_exp,
             "require_sub": True,
         },
     )

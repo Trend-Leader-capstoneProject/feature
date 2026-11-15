@@ -25,6 +25,7 @@ __pycache__/
 .ruff_cache
 
 ### venv 가상 환경 ###
+backend/var/
 backend/venv
 .venv/
 venv/

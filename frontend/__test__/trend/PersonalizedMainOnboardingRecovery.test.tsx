@@ -1,3 +1,4 @@
+jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
 
 import {
   QueryClient,
@@ -24,7 +25,8 @@ import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
 import type { SessionResponse } from "../../src/features/auth/types/auth";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
 import { registerAuthFailureHandler } from "../../src/shared/handler/authFailureHandler";
-import { getAccessToken } from "../../src/shared/storage/tokenStorage";
+import { readAuthBundle } from "../../src/shared/storage/tokenStorage";
+jest.mock("../../src/shared/api/publicApiClient", () => ({ publicApiClient: { post: jest.fn() } }));
 
 // 실제 RootNavigator 분기는 유지하고,
 // NavigationContainer의 Native 연결만 대체한다.
@@ -58,9 +60,11 @@ jest.mock("../../src/features/trend/hooks/usePersonalizedTrends", () => ({
 }));
 
 jest.mock("../../src/shared/storage/tokenStorage", () => ({
-  getAccessToken: jest.fn(),
-  saveAccessToken: jest.fn(),
-  deleteAccessToken: jest.fn(),
+  readAuthBundle: jest.fn(),
+  saveTokenPair: jest.fn(),
+  clearAuthBundle: jest.fn(),
+  cleanLegacyAccessToken: jest.fn(),
+  markAuthPhase: jest.fn(),
 }));
 
 jest.mock("../../src/shared/handler/authFailureHandler", () => ({
@@ -68,12 +72,13 @@ jest.mock("../../src/shared/handler/authFailureHandler", () => ({
 }));
 
 jest.mock("../../src/shared/handler/authRequestGate", () => ({
+  ...jest.requireActual("../../src/shared/handler/authRequestGate"),
   allowAuthenticatedRequests: jest.fn(),
   blockAuthenticatedRequests: jest.fn(),
 }));
 
 const mockedGetAuthSession = jest.mocked(getAuthSession);
-const mockedGetAccessToken = jest.mocked(getAccessToken);
+const mockedGetAuthBundle = jest.mocked(readAuthBundle);
 const mockedUsePersonalizedTrends = jest.mocked(
   usePersonalizedTrends,
 );
@@ -138,7 +143,10 @@ describe("Personalized Main onboarding recovery", () => {
   beforeEach(() => {
     jest.resetAllMocks();
 
-    mockedGetAccessToken.mockResolvedValue("TOKEN_A");
+    mockedGetAuthBundle.mockResolvedValue({
+      schema_version: 1, phase: "READY", access_token: "TOKEN_A", refresh_token: "REFRESH_A",
+      token_type: "Bearer", access_expires_at: "2030-01-01T00:15:00Z", refresh_expires_at: "2030-01-31T00:00:00Z",
+    });
 
     mockedRegisterAuthFailureHandler.mockImplementation(
       () => () => undefined,
