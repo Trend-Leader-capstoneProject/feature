@@ -3,13 +3,15 @@ import type {
 } from "@react-navigation/native-stack";
 import axios from "axios";
 import {
+    useCallback,
+    useEffect,
     useRef,
     useState,
 } from "react";
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
-    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -64,6 +66,8 @@ type SignupField =
 
 type SignupFieldErrors =
   Partial<Record<SignupField, string>>;
+
+type KeyboardScrollField = "nickname" | "name" | "email";
 
 type LoginIdCheckFeedback =
   | {
@@ -247,6 +251,38 @@ export function SignupScreen({
     useRef<TextInput>(null);
   const emailInputRef =
     useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const formTopRef = useRef(0);
+  const fieldTopRefs = useRef<Partial<Record<KeyboardScrollField, number>>>({});
+  const focusedKeyboardFieldRef = useRef<KeyboardScrollField | null>(null);
+
+  const scrollToInput = useCallback((field: KeyboardScrollField): void => {
+    const fieldTop = fieldTopRefs.current[field];
+    if (fieldTop === undefined) {
+      return;
+    }
+
+    scrollViewRef.current?.scrollTo({
+      x: 0,
+      y: Math.max(0, formTopRef.current + fieldTop - spacing.space4),
+      animated: true,
+    });
+  }, []);
+
+  useEffect(() => {
+    const subscription = Keyboard.addListener("keyboardDidShow", () => {
+      if (focusedKeyboardFieldRef.current !== null) {
+        scrollToInput(focusedKeyboardFieldRef.current);
+      }
+    });
+    return () => subscription.remove();
+  }, [scrollToInput]);
+
+  function focusKeyboardField(field: KeyboardScrollField): void {
+    focusedKeyboardFieldRef.current = field;
+    setFocusedField(field);
+    scrollToInput(field);
+  }
 
   const loginIdValueRef =
     useRef("");
@@ -642,14 +678,11 @@ export function SignupScreen({
   return (
     <ScreenContainer>
       <KeyboardAvoidingView
-        behavior={
-          Platform.OS === "ios"
-            ? "padding"
-            : "height"
-        }
+        behavior="padding"
         style={styles.keyboardAvoidingView}
       >
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={
             styles.scrollContent
           }
@@ -671,7 +704,12 @@ export function SignupScreen({
             </Text>
           </View>
 
-          <View style={styles.form}>
+          <View
+            style={styles.form}
+            onLayout={(event) => {
+              formTopRef.current = event.nativeEvent.layout.y;
+            }}
+          >
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>
                 아이디
@@ -1014,10 +1052,20 @@ export function SignupScreen({
               )}
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.nickname = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.label}>닉네임</Text>
               <TextInput accessibilityLabel="닉네임" value={nickname.value}
                 onChangeText={(value) => { nickname.update(value); clearFieldError("nickname"); clearFormError(); }}
+                onFocus={() => focusKeyboardField("nickname")}
+                onBlur={() => {
+                  focusedKeyboardFieldRef.current = null;
+                  setFocusedField(null);
+                }}
                 editable={!isFormInteractionDisabled} autoCapitalize="none" autoCorrect={false}
                 placeholder="다른 회원에게 표시할 닉네임" style={styles.input} />
               <PrimaryButton label="닉네임 중복 확인" loading={nickname.checking}
@@ -1028,7 +1076,12 @@ export function SignupScreen({
               </Text>
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.name = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.label}>
                 이름
               </Text>
@@ -1048,9 +1101,7 @@ export function SignupScreen({
                   clearFieldError("name");
                   clearFormError();
                 }}
-                onFocus={() =>
-                  setFocusedField("name")
-                }
+                onFocus={() => focusKeyboardField("name")}
                 onSubmitEditing={() =>
                   emailInputRef.current?.focus()
                 }
@@ -1076,7 +1127,12 @@ export function SignupScreen({
               )}
             </View>
 
-            <View style={styles.fieldGroup}>
+            <View
+              style={styles.fieldGroup}
+              onLayout={(event) => {
+                fieldTopRefs.current.email = event.nativeEvent.layout.y;
+              }}
+            >
               <Text style={styles.label}>
                 이메일
                 <Text
@@ -1104,9 +1160,7 @@ export function SignupScreen({
                   clearFieldError("email");
                   clearFormError();
                 }}
-                onFocus={() =>
-                  setFocusedField("email")
-                }
+                onFocus={() => focusKeyboardField("email")}
                 onSubmitEditing={
                   handleSignup
                 }
@@ -1198,7 +1252,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingVertical: spacing.space6,
+    paddingTop: spacing.space6,
+    paddingBottom: spacing.space10,
   },
   header: {
     gap: spacing.contentGap,
