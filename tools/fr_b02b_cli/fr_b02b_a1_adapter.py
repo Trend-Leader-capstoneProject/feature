@@ -45,6 +45,13 @@ MAX_ARCHIVE_BYTES = 20 * MAX_FILE_BYTES
 A1_ZIP_PREFIX = "g5_p1_hold_v01/"
 A1_ZIP_APPROVALS = A1_ZIP_PREFIX + "python315_approval_manifest_RECONFIRMED_v02.json"
 A1_ZIP_BATCH = A1_ZIP_PREFIX + "python315_batch_candidate_REVIEW_ONLY_v02.json"
+A1_ZIP_MEMBER_PAIRS = (
+    (A1_ZIP_APPROVALS, A1_ZIP_BATCH),
+    (
+        "fastapi01630_approval_manifest_G4_DECISION_RECORDED_v02.json",
+        "fastapi01630_batch_candidate_REVIEW_ONLY_UNCHANGED_v02.json",
+    ),
+)
 SHA256_REF = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
@@ -294,8 +301,21 @@ def inspect_a1_paths(approvals_path: Path, batch_path: Path) -> dict[str, Any]:
     return inspect_a1_json(_read_json(approvals_path), _read_json(batch_path))
 
 
+def _select_a1_zip_members(archive: ZipFile) -> tuple[str, str]:
+    """Require exactly one known pair, with no members from the other pair."""
+    names = archive.namelist()
+    if len(names) != len(set(names)):
+        raise A1InspectionError("duplicate ZIP member names")
+    known_names = {name for pair in A1_ZIP_MEMBER_PAIRS for name in pair}
+    present = set(names) & known_names
+    for pair in A1_ZIP_MEMBER_PAIRS:
+        if present == set(pair):
+            return pair
+    raise A1InspectionError("required A1 ZIP member pair not found or ambiguous")
+
+
 def inspect_a1_zip(archive_path: Path) -> dict[str, Any]:
-    """Inspect the user-provided G5 P1 ZIP directly, without extracting or writing.
+    """Inspect a known A1 v0.2 ZIP directly, without extracting or writing.
 
     Only the two known A1 v0.2 JSON members are opened. ZIP-contained Python code
     is NOT executed; original manifests, archive, filesystem and DB remain unchanged.
@@ -306,15 +326,9 @@ def inspect_a1_zip(archive_path: Path) -> dict[str, Any]:
         raise A1InspectionError("G5 P1 ZIP is too large for this PoC")
     try:
         with ZipFile(archive_path, "r") as archive:
-            names = [entry.filename for entry in archive.infolist()]
-            if len(names) != len(set(names)):
-                raise A1InspectionError("duplicate ZIP member names")
             raw_documents = []
-            for name in (A1_ZIP_APPROVALS, A1_ZIP_BATCH):
-                try:
-                    info = archive.getinfo(name)
-                except KeyError as exc:
-                    raise A1InspectionError(f"required A1 ZIP member not found: {name}") from exc
+            for name in _select_a1_zip_members(archive):
+                info = archive.getinfo(name)
                 if info.is_dir() or info.file_size > MAX_FILE_BYTES:
                     raise A1InspectionError("invalid or oversized A1 ZIP member")
                 with archive.open(info) as stream:
@@ -379,11 +393,8 @@ def _load_a1_snapshot_bytes(raw: bytes) -> A1Snapshot:
         raise A1InspectionError("invalid or oversized A1 archive bytes")
     try:
         with ZipFile(BytesIO(raw), "r") as archive:
-            names = archive.namelist()
-            if len(names) != len(set(names)):
-                raise A1InspectionError("duplicate ZIP member names")
             documents = []
-            for name in (A1_ZIP_APPROVALS, A1_ZIP_BATCH):
+            for name in _select_a1_zip_members(archive):
                 info = archive.getinfo(name)
                 if info.is_dir() or info.file_size > MAX_FILE_BYTES:
                     raise A1InspectionError("invalid or oversized A1 ZIP member")

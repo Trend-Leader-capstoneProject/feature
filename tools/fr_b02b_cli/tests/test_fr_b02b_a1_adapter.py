@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from fr_b02b_a1_adapter import (
     inspect_a1_json,
     inspect_a1_paths,
     inspect_a1_zip,
+    load_a1_snapshot,
     A1_ZIP_APPROVALS,
     A1_ZIP_BATCH,
 )
@@ -312,6 +314,90 @@ class A1ReadOnlyInspectionTests(unittest.TestCase):
         a, b = self.write()
         with patch('socket.create_connection', side_effect=AssertionError('network!')), patch('pathlib.Path.write_bytes', side_effect=AssertionError('file write!')):
             self.assertEqual(inspect_a1_paths(a, b)['status'], 'A1_STRUCTURE_MATCH_REVIEW_ONLY')
+
+
+class A1ZipMemberSelectionTests(unittest.TestCase):
+    PYTHON_MEMBERS = (A1_ZIP_APPROVALS, A1_ZIP_BATCH)
+    FASTAPI_MEMBERS = (
+        'fastapi01630_approval_manifest_G4_DECISION_RECORDED_v02.json',
+        'fastapi01630_batch_candidate_REVIEW_ONLY_UNCHANGED_v02.json',
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.archive_path = Path(self.tmp.name) / 'synthetic.zip'
+        self.approvals, self.batch = example()
+
+    def write_members(self, names):
+        documents = dict(zip(self.PYTHON_MEMBERS, (self.approvals, self.batch)))
+        documents.update(zip(self.FASTAPI_MEMBERS, (self.approvals, self.batch)))
+        with ZipFile(self.archive_path, 'w', compression=ZIP_DEFLATED) as archive:
+            for name in names:
+                archive.writestr(name, json.dumps(documents[name], ensure_ascii=False))
+
+    def assert_readonly_success(self, names):
+        self.write_members(names)
+        before = self.archive_path.read_bytes()
+        expected = inspect_a1_json(self.approvals, self.batch)
+        with self.subTest(reader='inspect_a1_zip'):
+            self.assertEqual(inspect_a1_zip(self.archive_path), expected)
+        with self.subTest(reader='load_a1_snapshot'):
+            snapshot = load_a1_snapshot(self.archive_path)
+            self.assertEqual(snapshot.content_ref, expected['content_ref'])
+            self.assertEqual(snapshot.trend_ref, expected['trend_ref'])
+            self.assertEqual(snapshot.archive_bytes, before)
+        self.assertEqual(self.archive_path.read_bytes(), before)
+        self.assertEqual(list(self.archive_path.parent.iterdir()), [self.archive_path])
+
+    def assert_blocked(self, names):
+        self.write_members(names)
+        before = self.archive_path.read_bytes()
+        for reader in (inspect_a1_zip, load_a1_snapshot):
+            with self.subTest(reader=reader.__name__):
+                with self.assertRaises(A1InspectionError):
+                    reader(self.archive_path)
+        self.assertEqual(self.archive_path.read_bytes(), before)
+
+    def test_python_pair_readonly_in_both_readers(self):
+        self.assert_readonly_success(self.PYTHON_MEMBERS)
+
+    def test_fastapi_pair_readonly_in_both_readers(self):
+        self.assert_readonly_success(self.FASTAPI_MEMBERS)
+
+    def test_missing_members_blocked_in_both_readers(self):
+        self.assert_blocked(())
+        for name in self.PYTHON_MEMBERS + self.FASTAPI_MEMBERS:
+            with self.subTest(name=name):
+                self.assert_blocked((name,))
+
+    def test_crossed_pairs_blocked_in_both_readers(self):
+        for names in (
+            (self.PYTHON_MEMBERS[0], self.FASTAPI_MEMBERS[1]),
+            (self.FASTAPI_MEMBERS[0], self.PYTHON_MEMBERS[1]),
+        ):
+            with self.subTest(names=names):
+                self.assert_blocked(names)
+
+    def test_both_complete_pairs_blocked_in_both_readers(self):
+        self.assert_blocked(self.PYTHON_MEMBERS + self.FASTAPI_MEMBERS)
+
+    def test_complete_pair_with_other_partial_pair_blocked_in_both_readers(self):
+        for complete, partial in (
+            (self.PYTHON_MEMBERS, self.FASTAPI_MEMBERS),
+            (self.FASTAPI_MEMBERS, self.PYTHON_MEMBERS),
+        ):
+            for name in partial:
+                with self.subTest(complete=complete, extra=name):
+                    self.assert_blocked(complete + (name,))
+
+    def test_duplicate_members_blocked_in_both_readers(self):
+        for names in (self.PYTHON_MEMBERS, self.FASTAPI_MEMBERS):
+            for duplicate in names:
+                with self.subTest(names=names, duplicate=duplicate):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', UserWarning)
+                        self.assert_blocked(names + (duplicate,))
 
 
 if __name__ == '__main__':
