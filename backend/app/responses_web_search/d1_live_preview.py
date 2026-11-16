@@ -59,6 +59,7 @@ def _preview(
         "search_execution": "UNKNOWN", "response_validation": "NOT_EVALUATED",
         "citation_validation": "NOT_EVALUATED",
         "candidate_validation": "NOT_EVALUATED",
+        "citation_diagnostics": None,
         "request_max_tool_calls": None,
         "tool_calls_observed": None, "usage": None,
         "reason_codes": list(reasons), "issues": [], "candidates": [],
@@ -338,6 +339,33 @@ def run_live_preview(
             elif not all(matches):
                 citation_status = "PARTIAL"
 
+            # Evaluate only after the full envelope and candidate JSON validate.
+            # Count raw annotations, including repetitions, and compare exact URLs.
+            citation_count = 0
+            source_urls = set()
+            sources_complete = True
+            for item in converted["output"]:
+                if item["type"] == "message":
+                    citation_count += len(item["content"][0]["annotations"])
+                elif item["type"] == "web_search_call":
+                    sources = item["action"].get("sources")
+                    if not isinstance(sources, list):
+                        sources_complete = False
+                        continue
+                    for source in sources:
+                        if (
+                            isinstance(source, dict) and source.get("type") == "url"
+                            and isinstance(source.get("url"), str)
+                        ):
+                            source_urls.add(source["url"])
+                        else:
+                            sources_complete = False
+            source_matches = sum(
+                isinstance(raw.get("source_url"), str)
+                and raw["source_url"] in source_urls
+                for raw in parsed.candidates
+            )
+
             candidate_status = "VALID"
             if not parsed.candidates:
                 candidate_status = "EMPTY"
@@ -349,6 +377,14 @@ def run_live_preview(
                 response_validation="PARTIAL" if partial else "VALID",
                 citation_validation=citation_status,
                 candidate_validation=candidate_status,
+                citation_diagnostics={
+                    "candidate_count": len(parsed.candidates),
+                    "url_citation_count": citation_count,
+                    "direct_matched_candidate_count": sum(matches),
+                    "action_sources_matched_candidate_count": (
+                        source_matches if sources_complete else None
+                    ),
+                },
                 issues=[{"candidate_index": item.candidate_index, "code": item.code}
                         for item in issues],
                 candidates=[{

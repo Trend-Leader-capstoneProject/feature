@@ -2,6 +2,69 @@
 
 2026-11-16 KST. 구현 및 무과금 검증 결과와 격리 시연 DB 연결 검토안.
 
+## 최신 보완 — 인용 불일치 집계
+
+이번 시작 HEAD는 f717269df0af05af966ede87ddcf6d2347eee91d이며 Worktree는 clean이었다.
+사용자 제공 실측에서 PARTIAL 응답의 세 후보가 CITATION_URL_MISMATCH로 제외됐다.
+해당 실측에는 인용 개수 정보가 없어 인용 0건과 직접 URL 불일치 중 원인을 확정할 수 없다.
+
+현재 citation_validation은 후보별 source_url의 직접 citation URL 포함 여부로 계산한다.
+후보가 있고 일치 후보가 0개이면 citation 배열이 비어 있거나 다른 URL만 있어도 MISMATCH다.
+EMPTY는 후보 0개를 뜻한다. Validator는 필드·URL 검사 후 정확한 URL 문자열을 비교한다.
+추적 query, fragment, trailing slash 차이도 직접 일치에는 영향을 줄 수 있다.
+이번 수정은 이 검증 결과와 PARTIAL 수용 정책을 보존한다.
+
+Live Preview에 citation_diagnostics를 추가했다. 전체 envelope와 후보 JSON의 검증에
+도달하지 못한 경우 null이다. 정상·PARTIAL 경로 모두 같은 집계를 사용한다.
+
+| 집계 필드 | 의미 |
+| --- | --- |
+| candidate_count | Validator 제외 전의 후보 수 |
+| url_citation_count | 해당 assistant output_text의 실제 url_citation 항목 수, 중복 포함 |
+| direct_matched_candidate_count | 원본 source_url과 citation URL이 직접 일치한 후보 수 |
+| action_sources_matched_candidate_count | 모든 원본 웹 도구 항목의 관측된 action.sources URL과 직접 일치한 후보 수, 참고용 |
+
+source metadata가 일부 누락·파손되면 sources 일치 개수는 null이다. 완전한 빈 sources
+배열은 관측된 0건이다. sources에는 searching 항목의 값도 포함할 수 있으므로 검색
+완료·출처 인용의 증거로 승격할 수 없다. 이 집계는 Validator의 판단에 사용되지 않는다.
+집계값에 URL·검색어·요청/응답 원문·키·개인정보를 복사하지 않는다.
+
+공식 Responses 문서는 output_text와 별도 annotations의 url_citation을 정의하며,
+기본적으로 본문에 인라인 인용을 생성한다고 설명한다. sources는 검색 중 참고한
+전체 URL 목록으로 인용과 별도의 구조다. JSON-only 요청에서 네이티브 인용이 반드시
+생성된다는 보장은 확인하지 못했다. JSON-only 지시가 인용 생성을 어렵게 할 수 있다는
+설명은 추론이며 이번 실측에서 인용이 없었다는 확정 원인은 아니다.
+[공식 Web search 문서](https://developers.openai.com/api/docs/guides/tools-web-search#output-and-citations),
+[공식 Sources 문서](https://developers.openai.com/api/docs/guides/tools-web-search#sources)
+
+최소 프롬프트 수정안은 기존 필수 후보 필드와 단일 JSON 객체를 유지하면서, 각 후보에
+선택적 citation_reference 문자열을 넣어 네이티브 인라인 인용의 위치를 제공하는 것이다.
+현재 Parser는 추가 후보 필드를 무시하므로 기존 필수 계약을 재사용할 수 있다.
+실제 D0 프롬프트 변경은 이번 작업에서 제시안으로 기록한다.
+
+교체할 인용 지시의 제안 문구는 다음과 같다.
+
+> 각 후보에 citation_reference 문자열을 추가하고, 그 안에 해당 출처를 뒷받침하는
+> 짧은 설명과 웹 검색 도구의 네이티브 인용을 포함하세요. 단일 유효 JSON 객체를
+> 반환하고 인용은 JSON 문자열 값 안에 배치하세요. source_url에는 해당 인용 대상의
+> URL을 그대로 복사하세요. URL의 query·fragment·trailing slash를 임의로 바꾸지 마세요.
+> 인용을 붙일 수 없는 후보는 제외하세요.
+
+이 제안도 실제 annotations 생성이나 JSON 유효성을 보장하지 않는다. 모델이 JSON의
+annotations 필드를 스스로 작성해도 API가 반환한 네이티브 annotations 검증을 통과한
+것으로 취급할 수 없다. 기존 파싱·URL·직접 인용·중복 검증 결과가 최종 기준이다.
+
+관련 Mock 검증은 인용 0건·다른 URL 인용·정확 일치·반복 인용·sources 누락·query 차이를
+D2 PARTIAL 경로에서 재현한다. sources만 일치해도 NO_VALID_CANDIDATES를 유지하며
+원본 불변·단일 요청·집계 및 로그의 비밀정보 비출력을 확인한다.
+
+실행 결과는 test_mvp_preview.py 34 passed (48.93초), 대상 Ruff All checks passed다.
+pytest는 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, PYTHONDONTWRITEBYTECODE=1,
+`-q --tb=short -p no:cacheprovider --confcutdir=tests/responses_web_search_c2`로 실행했다.
+테스트 대상은 `tests/responses_web_search_c2/test_mvp_preview.py`로 한정했다.
+이번 변경 파일은 d1_live_preview.py, test_mvp_preview.py, 이 보고서다.
+실제 API 호출·DB 쓰기·게시·Commit·Push는 이번 작업에서 각각 0건이다.
+
 ## 최신 구현 상태 — 승인된 Gate C D2 PARTIAL
 
 후속 사용자 승인에 따라 정확한 D2 패턴의 검토 Preview를 구현했다.

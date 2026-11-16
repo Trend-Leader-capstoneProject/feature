@@ -254,3 +254,62 @@ def test_d2_cli_and_request_limit_boundary(endpoint, monkeypatch):
         assert parse_d2_response(
             payload, SearchRunConfig(), request_max_tool_calls=request_limit,
         ) is None
+
+
+@pytest.mark.parametrize(
+    "case,citation_count,direct_count,source_count",
+    [
+        ("no-citations", 0, 0, 1),
+        ("mismatch", 1, 0, 1),
+        ("exact", 1, 1, 1),
+        ("repeated-citation", 2, 1, 1),
+        ("source-missing", 0, 0, None),
+        ("url-query-differs", 1, 0, 0),
+    ],
+)
+def test_d2_citation_aggregate_diagnostics(
+    case, citation_count, direct_count, source_count, endpoint, caplog, capsys,
+):
+    caplog.set_level("DEBUG")
+    payload = payload_for("ready")
+    part = payload["output"][-1]["content"][0]
+    candidate = json.loads(part["text"])["candidates"][0]
+    url = candidate["source_url"]
+    call = payload["output"][0]
+    call["action"]["sources"] = [{"type": "url", "url": url}]
+    if case in {"no-citations", "source-missing"}:
+        part["annotations"] = []
+    elif case == "mismatch":
+        part["annotations"][0]["url"] += "/other"
+    elif case == "url-query-differs":
+        candidate["source_url"] += "?query=private"
+        part["text"] = json.dumps({"candidates": [candidate]})
+    elif case == "repeated-citation":
+        part["annotations"] *= 2
+    if case == "source-missing":
+        call["action"].pop("sources")
+    pending = deepcopy(call)
+    pending.update(id="ws_pending", status="searching")
+    payload["output"].insert(1, pending)
+    original = deepcopy(payload)
+    endpoint.payload = payload
+    module = importlib.reload(importlib.import_module(LIVE))
+    preview = invoke(module, endpoint)
+    counts = preview["citation_diagnostics"]
+    assert counts == {
+        "candidate_count": 1, "url_citation_count": citation_count,
+        "direct_matched_candidate_count": direct_count,
+        "action_sources_matched_candidate_count": source_count,
+    }
+    assert preview["status"] == (
+        "PARTIAL_PREVIEW_READY" if direct_count else "NO_VALID_CANDIDATES"
+    )
+    assert preview["citation_validation"] == ("MATCHED" if direct_count else "MISMATCH")
+    assert len(preview["candidates"]) == direct_count
+    assert endpoint.payload == original
+    assert len(endpoint.calls) == 1
+    captured = capsys.readouterr()
+    visible = json.dumps(counts) + caplog.text + captured.out + captured.err
+    for private_value in (url, API_KEY, MARKER, plan().input_text,
+                          "independent query", "query=private", part["text"]):
+        assert private_value not in visible
