@@ -29,7 +29,7 @@
   "input_kind": "REVIEWED_DEMO_DAILY_BATCH",
   "approval_scope": "ISOLATED_DEMO_ONLY",
   "reviewer_alias": "demo-operator",
-  "approved_record_count": 2,
+  "approved_record_count": 1,
   "records": [
     {
       "title": "원출처에 근거한 주제 제목",
@@ -40,11 +40,7 @@
       "discovery_method": "MANUAL_WEB_REVIEW",
       "original_ai_source_url": null,
       "original_failure": null,
-      "source_checks": {
-        "page_opened": true,
-        "title_matched": true,
-        "key_claim_matched": true
-      },
+      "source_review": "URL_TITLE_KEY_CLAIMS_VERIFIED",
       "review_note": "공식 원출처와 출시 사실 확인",
       "operator_approved": true
     }
@@ -52,14 +48,14 @@
 }
 ```
 
-`approved_record_count`는 이번 실행 대상 `records.length`와 **정확히 일치**해야 한다. 예시 `2`와 배열 1건은 **일부러 불일치한 미완성 예시**가 되므로 실제 사용 시 둘을 반드시 일치시킨다. 
+`approved_record_count`는 이번 실행 대상 `records.length`와 **정확히 일치**해야 한다.
 
 입력 정책:
 1. `records`는 비어 있지 않고, 1회 실행 입력 상한은 36건. 과도한 범용 배치 처리는 제외.
 2. `parent_code`는 확정된 6개 값만 허용, `child_name`은 해당 부모에 속한 **유일한 활성 직계 세부분류**로 DB 재조회. ID 하드코딩 금지. 분류가 모호하거나 미존재·비활성 시 거절. `기타`는 확정된 fallback 조건에만 사용.
 3. 신규 간소화 입력은 Trend마다 세부분류 1개·Source 1개. 기존 DB/조회 API의 다중분류 지원을 변경하지 않는다.
 4. 사람이 직접 발견했다면 `MANUAL_WEB_REVIEW`, Responses 검색에서 발견했다면 `OPENAI_RESPONSES_WEB_SEARCH_LIVE`. Responses 기록에는 원래 AI 출처 URL 및 실제 citation 상태/실패 사유를 명시적으로 보존한다. 원본 `CITATION_URL_MISMATCH`를 누락·PASS 변환하지 않는다.
-5. `source_checks`는 `page_opened`, `title_matched`, `key_claim_matched`의 3가지 실제 사람 확인 진술이다. 숫자·출시·일자 등 제목의 핵심 주장에 증거가 없으면 확인 완료 처리 금지. 출처 전체 정독, 별도 장문의 보고서, AI 요약·이미지 생성은 필수 아님. `review_note`는 한 문장으로 충분.
+5. `source_review=URL_TITLE_KEY_CLAIMS_VERIFIED`는 URL 열람·원출처 제목 대조·핵심 주장 대조라는 세 가지를 직접 수행했다는 단일 사람 확인 진술이다. 숫자·출시·일자 등 제목의 핵심 주장에 증거가 없으면 확인 완료 처리 금지. 출처 전체 정독, 별도 장문의 보고서, AI 요약·이미지 생성은 필수 아님. `review_note`는 한 문장으로 충분.
 6. `reviewer_alias`, 개별 `operator_approved=true`, `review_note`, `approved_record_count`는 필수. JSON의 자기 진술만으로 신원 인증을 증명했다고 주장하지 않는다. `--execute`에서 TTY로 **일괄 등록 건수에 대한 명시적 확인**을 받아 무인 실행 금지.
 7. 검색·출처 공개·사람 검토 완료 시각은 **확인되지 않았으면 만들지 않음**. CLI 승인·DB 등록 시각은 실제 실행 시에 별도 기록하고 다른 시각으로 전용하지 않는다. Provenance/승인 영수증은 DB Schema를 변경하지 않고 로컬 별도 JSON 파일 또는 표준 출력에 보존한다. 영수증에는 비밀값 금지.
 8. 모든 입력은 먼저 검증하며, **같은 배치 안 중복 정규화 제목·Source URL**은 사전 거절. 기존 DB에서도 동일 검사를 실제 등록 직전 반복한다.
