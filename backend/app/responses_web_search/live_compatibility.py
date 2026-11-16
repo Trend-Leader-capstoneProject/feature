@@ -7,11 +7,12 @@ from .validation_limits import ValidationLimits
 
 def parse_d2_response(
     response: dict[str, object], config: ValidationLimits, *,
-    request_max_tool_calls: object,
+    request_max_tool_calls: object, allow_pending_open_page: bool = False,
 ) -> ParsedResponse | None:
-    """Return None unless the entire envelope meets the exact D2 profile."""
+    """Preserve D2; opt in only for a pending demo open_page attempt."""
     if (
         type(request_max_tool_calls) is not int or request_max_tool_calls != 1
+        or type(allow_pending_open_page) is not bool
         or response.get("status") != "completed"
         or response.get("error") is not None
         or response.get("incomplete_details") is not None
@@ -27,14 +28,21 @@ def parse_d2_response(
     if len(calls) != 2:
         return None
     states = []
+    actions_and_states = []
     messages = []
     for item in output:
         kind = item.get("type")
         if kind == "web_search_call":
             action = item.get("action")
-            if not isinstance(action, dict) or action.get("type") != "search":
+            action_type = action.get("type") if isinstance(action, dict) else None
+            status = item.get("status")
+            if action_type != "search" and not (
+                allow_pending_open_page
+                and action_type == "open_page" and status == "searching"
+            ):
                 return None
-            states.append(item.get("status"))
+            states.append(status)
+            actions_and_states.append((action_type, status))
         elif kind == "reasoning":
             if (
                 not isinstance(item.get("id"), str) or not item["id"]
@@ -52,6 +60,10 @@ def parse_d2_response(
         else:
             return None
     if states.count("completed") != 1 or states.count("searching") != 1:
+        return None
+    if any(action == "open_page" for action, _ in actions_and_states) and (
+        actions_and_states != [("search", "completed"), ("open_page", "searching")]
+    ):
         return None
     if len(messages) != 1:
         return None

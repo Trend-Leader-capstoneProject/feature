@@ -330,6 +330,7 @@ def _run_validated_preview(
                 parsed = live_compatibility.parse_d2_response(
                     converted, config,
                     request_max_tool_calls=observations.get("request_max_tool_calls"),
+                    allow_pending_open_page=include_candidate_provenance,
                 )
                 partial = parsed is not None
             if normalized.outcome == "REJECTED" and not partial:
