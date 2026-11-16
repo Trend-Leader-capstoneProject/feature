@@ -57,7 +57,10 @@ def main(
     try:
         args = list(sys.argv[1:] if argv is None else argv)
         # Fixed grammar avoids argparse echoing arbitrary arguments (e.g. keys).
-        if args not in ([], ["--execute-live"], ["--check-readiness"]):
+        if args not in (
+            [], ["--execute-live"], ["--check-readiness"],
+            ["--execute-live", "--review-local"],
+        ):
             return _diagnostic(stderr, "BLOCKED_CONFIG", "INVALID_ARGUMENTS")
         if args == ["--check-readiness"]:
             stdout.write(json.dumps(_readiness()) + "\n")
@@ -92,7 +95,12 @@ def main(
             confirmation=confirmation, api_key=os.environ.get("OPENAI_API_KEY"),
             http_transport=http_transport,
         )
-        stdout.write(json.dumps(preview, ensure_ascii=False, allow_nan=False) + "\n")
+        visible = dict(preview)
+        material = visible.pop("review_only_candidates", [])
+        visible["review_only_candidate_count"] = len(material)
+        if "--review-local" in args:
+            visible["review_only_candidates"] = material
+        stdout.write(json.dumps(visible, ensure_ascii=False, allow_nan=False) + "\n")
         return 0 if preview["status"] in {
             "PREVIEW_READY", "PARTIAL_PREVIEW_READY", "EMPTY_RESULT",
             "NO_VALID_CANDIDATES",

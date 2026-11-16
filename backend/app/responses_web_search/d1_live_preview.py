@@ -29,6 +29,7 @@ from . import (
     c1_adapter,
     c2_transport,
     live_compatibility,
+    manual_review,
     normalizer,
     parser,
     validator,
@@ -60,6 +61,7 @@ def _preview(
         "citation_validation": "NOT_EVALUATED",
         "candidate_validation": "NOT_EVALUATED",
         "citation_diagnostics": None,
+        "review_only_candidates": [],
         "request_max_tool_calls": None,
         "tool_calls_observed": None, "usage": None,
         "reason_codes": list(reasons), "issues": [], "candidates": [],
@@ -326,6 +328,9 @@ def run_live_preview(
                 )
                 return preview
             candidates, issues = validator.validate_candidates(parsed)
+            review_material = manual_review.collect_review_material(
+                parsed, issues, private_texts=(api_key, plan.input_text),
+            )
             citation_status = "MATCHED"
             matches = [
                 type(raw.get("source_url")) is str
@@ -377,6 +382,8 @@ def run_live_preview(
                 response_validation="PARTIAL" if partial else "VALID",
                 citation_validation=citation_status,
                 candidate_validation=candidate_status,
+                review_only_candidates=[{**_safety(), **item}
+                                        for item in review_material],
                 citation_diagnostics={
                     "candidate_count": len(parsed.candidates),
                     "url_citation_count": citation_count,

@@ -2,6 +2,91 @@
 
 2026-11-16 KST. 구현 및 무과금 검증 결과와 격리 시연 DB 연결 검토안.
 
+## 최신 구현 — Live 수동 검토 자료
+
+시작 시 로컬·원격 기능 브랜치 SHA는 모두 1ef09e72bea93bd0bbd501fa20e6b0cf0a445e9e,
+Worktree는 clean이었다. 최초 원격 조회의 연결 실패 후 읽기 전용 재조회에 성공했다.
+
+Live 결과에 review_only_candidates를 추가했다. 기본값은 빈 배열이며 전체 응답 검사와
+후보 JSON 파싱을 통과한 뒤 기존 Validator가 CITATION_URL_MISMATCH를 부여한 후보만
+검토한다. 정상 단일 검색과 승인된 D2 PARTIAL 경로 모두 같은 규칙을 사용한다.
+파손된 JSON·불안전 URL·미지원 D2 패턴에서는 검토 후보를 생성하지 않는다.
+기존 candidates, status, citation_validation, candidate_validation, issues는 원래
+판정을 그대로 유지한다. 수동 검토 후보가 있어도 NO_VALID_CANDIDATES일 수 있다.
+
+자료는 최대 3개이며 제목·참고 제목 각각 255자, 원출처 후보 URL 4096자로 정했다.
+초과 항목은 제외한다. URL은 기존 canonical_url 안전성 검사를 재사용하고 같은
+canonical URL의 검토 자료는 먼저 나온 한 건만 남긴다. 잘라낸 URL을 생성하지 않는다.
+원본 candidate_index, 세 필수 문자열, rejection_reason=CITATION_URL_MISMATCH와
+content_trust=UNTRUSTED_MODEL_OUTPUT만 복사한다. 부가 모델 지시문 필드는 복사 대상 밖이다.
+
+현재 요청 전문·현재 API 키의 포함 여부, 제어/서식 문자, 알려진 credential 표현,
+system/developer 지시문 표식을 검사해 해당 검토 항목을 제외한다. 모델이 작성한
+자유 문장은 사람의 검토 대상이며 어떤 필드도 실행할 명령이나 등록 승인으로 해석하지 않는다.
+sources는 기존 집계 참고값으로만 유지한다. 검토 자료 생성 여부에 사용하지 않는다.
+
+각 검토 항목은 REVIEW_REQUIRED, NOT_FOR_PUBLICATION, publish_authorization=NONE,
+independent_source_verified=false를 가진다. 생성 함수는 메모리 표시 자료만 반환하며
+DB·파일 writer와 연결되지 않는다. 기존 S0/S1 공개 진입점과 Gate A/B 출력은 보존했다.
+
+CLI의 일반 실행 출력에는 review_only_candidate_count만 추가한다. URL·검토 제목이
+담긴 review_only_candidates는 기본 stdout 진단에서 제외한다. 로컬 TTY에서 명시적으로
+`--execute-live --review-local`을 선택했을 때만 별도 필드로 출력한다.
+이 출력은 사람의 로컬 검토 자료이며 일반 진단 로그 수집에 전달하면 안 된다.
+별도 파일 저장·자동 내보내기 동작은 없다. 기존 유료 호출 승인과 확인 문구 절차를 적용한다.
+
+```powershell
+# 별도로 승인된 다음 실측에서 로컬 검토를 함께 할 때 사용
+& $responsesPython -m app.responses_web_search.d1_cli --execute-live --review-local
+```
+
+### 향후 사람이 검토를 완료한 후보의 최소 입력 계약 제안
+
+등록 입력은 사람이 확인한 값으로 별도 작성하는 Reviewed Demo 입력으로 제안한다.
+review_only_candidates나 Live Preview 전체 dictionary는 등록 입력에 해당하지 않는다.
+기존 자동 인용 실패 기록은 provenance로 보존하며 자동 검증 PASS로 변경하지 않는다.
+
+| 최소 입력 | 사람이 확인할 내용·기존 모델 연결 |
+| --- | --- |
+| reviewed_title | 표시 제목, 255자 이내, Trend.title에 사용하며 normalized_title은 기존 정규화로 계산 |
+| reviewed_source_url | 사람이 연 원출처의 최종 URL, 안전성 재검증 후 TrendSource.source_url·source_key 산출 |
+| reviewed_source_title | 원문과 대조한 제목, 255자 이내, TrendSource.source_title |
+| platform | 기존 GOOGLE/YOUTUBE/SNS/ETC 중 명시 선택, TrendSource.platform |
+| child_category_id | 실제 활성 Child와 IT_DIGITAL 부모를 확인, TrendCategoryMap.category_id, 대표 여부 명시 |
+| reviewer·reviewed_at_utc·review_note | 누가 언제 원문과 제목·URL·후보 내용을 대조했는지의 수동 확인 기록 |
+| original_failure | CITATION_URL_MISMATCH 및 원래 candidate_index·검토 후보 내용의 연결 |
+| approval_scope | 사람이 승인한 ISOLATED_DEMO_ONLY, 게시할 후보와 최대 3건의 구체적 값 지정 |
+| approved_target_reference | 별도 승인된 격리 DB 대상의 참조. 실제 host/port/database/CURRENT_USER 확인과 DML은 다음 승인 범위 |
+
+summary·thumbnail은 최소안에서 NULL, 등록 시각은 실제 UTC를 사용한다. Trend·Source·
+CategoryMap의 기존 UNIQUE/FK, 제목·source_key 중복 확인과 전체 승인 배치의 단일
+Service 트랜잭션을 적용하는 안이다. 대상 확인이나 DML 실패 시 전체 rollback한다.
+검토 자료 생성 함수에는 등록 API·DB Session·commit 권한을 추가하지 않았다.
+후속 등록 구현은 명시적으로 작성된 Reviewed Demo 입력과 별도 DB 대상 승인을 요구한다.
+
+현재 수정 파일은 manual_review.py, d1_live_preview.py, d1_cli.py, 관련 Mock 테스트와
+이 보고서다. 기존 모델·공개 API·DB Schema·프롬프트 변경은 없다.
+
+검증 결과는 S0 116 passed, S1 152 passed, 수동 검토·기존 MVP Mock 52 passed다.
+credential 표현 검사를 좁힌 마지막 수정 후 해당 수동 검토 테스트 18개를 재실행해
+18 passed (20.19초)를 확인했다. 대상 Ruff는 All checks passed다.
+일반 Token 문구를 비밀값으로 분류하지 않도록 credential 검사는 bearer 또는
+명시적인 key/password/token 할당 표현을 대상으로 한다.
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
+$env:PYTHONDONTWRITEBYTECODE = '1'
+& $responsesPython -m pytest -q --tb=short -p no:cacheprovider --confcutdir=tests/responses_web_search tests/responses_web_search
+& $responsesPython -m pytest -q --tb=short -p no:cacheprovider --confcutdir=tests/responses_web_search_s1 tests/responses_web_search_s1
+& $responsesPython -m pytest -q --tb=short -p no:cacheprovider --confcutdir=tests/responses_web_search_c2 tests/responses_web_search_c2/test_manual_review.py tests/responses_web_search_c2/test_mvp_preview.py
+& $responsesPython -m ruff check --no-cache app/responses_web_search tests/responses_web_search_c2/test_manual_review.py
+```
+
+Mock에서는 정상 후보 불변, 인용 불일치 자료 분리, 중복·3건 상한, 길이·URL·지시문·
+비밀정보 제외, 원본 불변, 파손 JSON·미지원 D2 차단, CLI 기본 진단과 명시적 로컬
+검토 출력을 확인했다. 실제 검토 자료 확보의 유료 실측과 사람 원문 확인은 대기 상태다.
+이번 유료 호출·DB 쓰기·게시·Commit·Push·PR·Merge는 각각 0건이다.
+
 ## 최신 보완 — 인용 불일치 집계
 
 이번 시작 HEAD는 f717269df0af05af966ede87ddcf6d2347eee91d이며 Worktree는 clean이었다.
