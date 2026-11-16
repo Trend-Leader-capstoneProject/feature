@@ -242,6 +242,75 @@ def test_d2_and_citation_results_are_preserved(endpoint, case, expected, d2_stat
         assert result["review_only_candidates"][0]["citation_validation"] == "MISMATCH"
 
 
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("pending_open_page", "PARTIAL_PREVIEW_READY"),
+    ("open_completed", "INVALID_OR_INCOMPLETE_RESPONSE"),
+    ("open_failed", "INVALID_OR_INCOMPLETE_RESPONSE"),
+    ("open_before_search", "INVALID_OR_INCOMPLETE_RESPONSE"),
+    ("find_pending", "INVALID_OR_INCOMPLETE_RESPONSE"),
+    ("three_calls", "INVALID_OR_INCOMPLETE_RESPONSE"),
+])
+def test_demo_d2_pending_open_page_is_strictly_scoped(endpoint, mutation, expected):
+    from app.responses_web_search import live_compatibility
+
+    payload = payload_for("ready")
+    pending = deepcopy(payload["output"][0])
+    pending.update(id="ws_pending", status="searching")
+    pending["action"]["type"] = "open_page"
+    if mutation == "open_completed":
+        pending["status"] = "completed"
+    elif mutation == "open_failed":
+        pending["status"] = "failed"
+    elif mutation == "find_pending":
+        pending["action"]["type"] = "find_in_page"
+    if mutation == "open_before_search":
+        payload["output"].insert(0, pending)
+    else:
+        payload["output"].insert(1, pending)
+    if mutation == "three_calls":
+        payload["output"].insert(0, deepcopy(payload["output"][0]))
+    endpoint.payload = payload
+    original = deepcopy(payload)
+    approved = plan("FOOD")
+    result = invoke(endpoint, plan=approved)
+    assert result["status"] == expected
+    assert len(endpoint.calls) == 1
+    assert_request(endpoint, approved)
+    assert endpoint.payload == original
+    # The original D2 validator remains frozen and rejects this shape.
+    assert live_compatibility.parse_d2_response(
+        original, approved.config, request_max_tool_calls=1,
+    ) is None
+    if mutation == "pending_open_page":
+        assert result["response_validation"] == "PARTIAL"
+        assert result["tool_calls_observed"] == 2
+        assert result["request_max_tool_calls"] == 1
+        assert result["candidates"][0]["proposed_category_ref"] == "FOOD"
+        assert result["publication_status"] == "NOT_FOR_PUBLICATION"
+    else:
+        assert result["response_validation"] == "INVALID"
+        assert result["candidates"] == []
+
+
+def test_demo_pending_open_page_still_preserves_citation_mismatch(endpoint):
+    payload = payload_for("discarded")
+    pending = deepcopy(payload["output"][0])
+    pending.update(id="ws_pending", status="searching")
+    pending["action"]["type"] = "open_page"
+    payload["output"].insert(1, pending)
+    endpoint.payload = payload
+    result = invoke(endpoint, plan=plan("FOOD"))
+    assert len(endpoint.calls) == 1
+    assert result["status"] == "NO_VALID_CANDIDATES"
+    assert result["response_validation"] == "PARTIAL"
+    assert result["citation_validation"] == "MISMATCH"
+    assert result["candidates"] == []
+    assert len(result["review_only_candidates"]) == 1
+    assert result["review_only_candidates"][0]["rejection_reason"] == (
+        "CITATION_URL_MISMATCH"
+    )
+
 def test_original_indices_survive_mismatch_and_duplicate_filtering(endpoint):
     endpoint.payload = payload_for("ready")
     part = endpoint.payload["output"][-1]["content"][0]
