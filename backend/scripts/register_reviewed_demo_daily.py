@@ -3,11 +3,12 @@
 import argparse
 import json
 import os
+import stat
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from app.services.reviewed_demo_registration import RegistrationBlocked, TARGET
+from app.services.reviewed_demo_registration import TARGET, RegistrationBlocked
 
 
 def _show(payload, *, stderr=False):
@@ -18,11 +19,33 @@ def _show(payload, *, stderr=False):
     )
 
 
-def _save_receipt(path, receipt):
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(receipt, ensure_ascii=False) + "\n")
+def _open_receipt(path):
+    stream = None
+    try:
+        stream = path.open("a+", encoding="utf-8")
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise RegistrationBlocked("RECEIPT_MUST_BE_REGULAR_FILE")
+        stream.seek(0)
+        for line in stream:
+            if (not line.endswith("\n")
+                    or not isinstance(json.loads(line), dict)):
+                raise RegistrationBlocked("RECEIPT_FORMAT_INVALID")
+        stream.seek(0, os.SEEK_END)
         stream.flush()
         os.fsync(stream.fileno())
+        return stream
+    except Exception as error:
+        if stream is not None:
+            stream.close()
+        if isinstance(error, RegistrationBlocked):
+            raise
+        raise RegistrationBlocked("RECEIPT_NOT_APPENDABLE") from None
+
+
+def _save_receipt(stream, receipt):
+    stream.write(json.dumps(receipt, ensure_ascii=False) + "\n")
+    stream.flush()
+    os.fsync(stream.fileno())
 
 
 def main(argv=None):
@@ -33,6 +56,7 @@ def main(argv=None):
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     engine = None
+    receipt_stream = None
     try:
         from sqlalchemy import create_engine
 
@@ -46,20 +70,27 @@ def main(argv=None):
 
         batch = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
         candidates = validate_batch(batch)
+        repository_dir = Path(__file__).resolve().parents[2]
+        password_path = Path(args.password_file).resolve()
+        if password_path.is_relative_to(repository_dir):
+            raise RegistrationBlocked("PASSWORD_MUST_BE_OUTSIDE_REPOSITORY")
         if args.execute:
             if not args.receipt_file:
                 raise RegistrationBlocked("RECEIPT_FILE_REQUIRED")
             receipt_path = Path(args.receipt_file).resolve()
-            repository_dir = Path(__file__).resolve().parents[2]
             if receipt_path.is_relative_to(repository_dir):
                 raise RegistrationBlocked("RECEIPT_MUST_BE_OUTSIDE_REPOSITORY")
             if not receipt_path.parent.is_dir():
                 raise RegistrationBlocked("RECEIPT_DIRECTORY_MISSING")
+            if receipt_path in (password_path, Path(args.input).resolve()):
+                raise RegistrationBlocked("RECEIPT_INPUT_PATH_CONFLICT")
+            if receipt_path.exists() and not receipt_path.is_file():
+                raise RegistrationBlocked("RECEIPT_MUST_BE_REGULAR_FILE")
 
         settings = MigrationDbSettings(
             host=TARGET["host"], port=TARGET["port"],
             name=TARGET["database"], user="trend_demo_review",
-            password_file=Path(args.password_file), _env_file=None,
+            password_file=password_path, _env_file=None,
         )
         engine = create_engine(
             settings.connection_url, echo=False, hide_parameters=True,
@@ -82,6 +113,7 @@ def main(argv=None):
         )
         if input().strip() != approval:
             raise RegistrationBlocked("OPERATOR_CONFIRMATION_REQUIRED")
+        receipt_stream = _open_receipt(receipt_path)
         approved_at = datetime.now().astimezone().isoformat()
         completed = 0
         for candidate in candidates:
@@ -105,7 +137,7 @@ def main(argv=None):
                 }
             _show(receipt)
             try:
-                _save_receipt(receipt_path, receipt)
+                _save_receipt(receipt_stream, receipt)
             except Exception:
                 raise RegistrationBlocked(
                     "RECEIPT_WRITE_FAILED_NO_RETRY"
@@ -115,6 +147,11 @@ def main(argv=None):
                     "POST_COMMIT_UNVERIFIED_NO_RETRY"
                 )
             completed += 1
+        try:
+            receipt_stream.close()
+        except Exception:
+            raise RegistrationBlocked("RECEIPT_WRITE_FAILED_NO_RETRY") from None
+        receipt_stream = None
         _show({
             "status": "BATCH_VERIFIED",
             "committed_count": completed,
@@ -136,6 +173,15 @@ def main(argv=None):
     finally:
         if engine is not None:
             engine.dispose()
+        if receipt_stream is not None:
+            try:
+                receipt_stream.close()
+            except Exception:
+                _show({
+                    "status": "BLOCKED",
+                    "reason_code": "RECEIPT_WRITE_FAILED_NO_RETRY",
+                    "automatic_retry": False,
+                }, stderr=True)
 
 
 if __name__ == "__main__":

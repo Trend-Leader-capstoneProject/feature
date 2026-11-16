@@ -28,6 +28,12 @@
 {
   "input_kind": "REVIEWED_DEMO_DAILY_BATCH",
   "approval_scope": "ISOLATED_DEMO_ONLY",
+  "expected_target": {
+    "host": "127.0.0.1",
+    "port": 3310,
+    "database": "trend_leader_demo_review_20261117",
+    "current_user": "trend_demo_review@%"
+  },
   "reviewer_alias": "demo-operator",
   "approved_record_count": 1,
   "records": [
@@ -62,12 +68,15 @@
 
 ## 4. 실행 경계 및 Transaction
 
-- CLI 예시 (명령 및 파일명은 구현 시 확인):
+- CLI 예시:
   - `python -m scripts.register_reviewed_demo_daily --input <daily.json> --password-file <external-password-file>`: 기본은 **read-only preflight**, DML 없음.
   - 동일 명령에 `--execute --receipt-file <external-receipt.jsonl>`을 추가하는 경우에만 TTY에서 `REGISTER <N>` 확인 후 실행. 영수증 파일은 Git 저장소 밖의 기존 디렉터리에 둔다. 동일 DB 1회 실행·자동 재시도 없음.
+  - `--password-file`은 resolve한 경로가 저장소 내부이면 credential을 읽기 전에 차단한다. 영수증은 입력 JSON·credential과 다른 경로의 일반 파일이어야 한다. TTY 승인 후 첫 INSERT 전에 UTF-8 JSONL 형식(기존 각 줄은 JSON 객체와 줄바꿈)과 append 가능 여부를 검사하고, 확보한 핸들을 전체 실행에서 재사용한다. 검사 실패 시 INSERT 없이 종료한다.
+  - 영수증은 각 건마다 append·flush·fsync한다. 사후 쓰기 오류는 `RECEIPT_WRITE_FAILED_NO_RETRY`로 중단하며 이미 Commit된 건을 재등록하지 않는다. 사전 검사는 이후의 디스크 오류까지 보장하지 않는다.
 - 연결 설정은 로컬 격리 대상 `127.0.0.1:3310 / trend_leader_demo_review_20261117 / trend_demo_review@%`와 고정 Alembic `b7f2c81d9e04`만 수용. 비밀정보는 저장소 외부의 credential 파일, 로그에 출력하지 않음.
 - 기존 `_verified_seed_connection`의 단일 물리 연결/Session/트랜잭션 가드를 재사용하되, Demo Seed 데이터 생성 함수를 호출하지 않는다. `app_env=local`에서만 허용. Category 조회 시 활성 Parent·Child 및 관계를 같은 트랜잭션에서 검증하고 잠근다.
 - 1건당 Trend 1, TrendSource 1, TrendCategoryMap 1 INSERT; `status=ACTIVE`, `platform=ETC`, `summary/thumbnail=null`, `is_primary=false`. UTC 시각을 MariaDB DATETIME에 UTC-naive로 기록. 성공 시 ID 3개, 입력 해시·시각·출처 유형을 기록한다.
+- 성공 영수증에는 검증된 `original_ai_source_url`, `original_failure`, `source_review`, `review_note`, `operator_approved`도 보존한다. 수동 발견의 원래 AI URL·실패는 null이며 Responses의 원래 실패는 변환하지 않는다. CLI가 `reviewer_alias`, 실제 `operator_approved_at`, 사후 조회 검증 결과를 추가한다. 이 승인 시각을 원문 검토 시각으로 사용하지 않는다.
 - 성공한 건을 다음 건의 실패 때문에 Rollback하지 않음; **해당 1건의 세 INSERT는 원자적 Rollback**. 등록 실패·중복·DB 대상 오류가 발생하면 거절·종료하고 무인 재시도하지 않음. Commit 결과 불명확 시 무조건 정지, 수동 조회 후 판단. 스크립트 재실행도 중복 차단.
 - 부하/경합 범위: 한 사람, 하나의 CLI, 순차 실행. Source URL에 전역 UNIQUE가 없으므로 사전 중복 조회만으로 **동시 Writer 경쟁까지 방어했다고 주장하지 않음**.
 - 실제 출처 확인은 사람에게 위임하며, 코드가 원문 진실성·권리·게시 적격성을 자동 보증하지 않는다.

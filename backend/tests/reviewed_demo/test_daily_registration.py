@@ -1,12 +1,20 @@
 """No MariaDB DML. Small batch validation and SQLite transaction regression."""
 
+import json
 from contextlib import contextmanager
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import (
-    Column, Integer, MetaData, String, Table, create_engine, select,
+    Column,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    select,
 )
 from sqlalchemy.engine import Connection
 
@@ -15,6 +23,7 @@ from app.models.trend import Trend
 from app.models.trend_category_map import TrendCategoryMap
 from app.models.trend_source import TrendSource
 from app.services import reviewed_demo_daily_registration as daily
+from scripts import register_reviewed_demo_daily as cli
 
 
 def batch_for(parent="IT_DIGITAL", child="인공지능"):
@@ -78,7 +87,7 @@ def test_in_batch_title_and_url_duplicates():
         daily.validate_batch(data)
 
 
-def test_responses_provenance_keeps_original_failure():
+def test_responses_provenance_keeps_original_failure(isolated_sqlite):
     data = batch_for()
     item = data["records"][0]
     item.update(
@@ -87,6 +96,12 @@ def test_responses_provenance_keeps_original_failure():
         original_failure="CITATION_URL_MISMATCH",
     )
     assert len(daily.validate_batch(data)) == 1
+    engine, _ = isolated_sqlite
+    receipt = daily.register_candidate(engine, daily.validate_batch(data)[0])
+    assert receipt["original_ai_source_url"] == item["original_ai_source_url"]
+    assert receipt["original_failure"] == "CITATION_URL_MISMATCH"
+    for key in ("source_review", "review_note", "operator_approved"):
+        assert receipt[key] == item[key]
     item["original_failure"] = "PASS"
     with pytest.raises(daily.RegistrationBlocked, match="PROVENANCE_MISMATCH"):
         daily.validate_batch(data)
@@ -163,6 +178,8 @@ def test_preflight_does_not_write_and_registration_verifies(isolated_sqlite):
 
     candidate = daily.validate_batch(data)[0]
     receipt = daily.register_candidate(engine, candidate)
+    assert receipt["original_ai_source_url"] is None
+    assert receipt["original_failure"] is None
     assert daily.verify_candidate(
         engine, candidate, receipt,
     )["status"] == "VERIFIED"
@@ -239,3 +256,91 @@ def test_wrong_target_rejected_before_db_checkout(monkeypatch):
     ):
         daily.preflight_batch(engine, batch_for())
     engine.connect.assert_not_called()
+
+
+@pytest.fixture
+def daily_cli(tmp_path, monkeypatch):
+    input_path = tmp_path / "batch.json"
+    input_path.write_text(json.dumps(batch_for()), encoding="utf-8")
+    password = tmp_path / "synthetic_password"
+    password.write_text("synthetic", encoding="utf-8")
+    receipt = tmp_path / "receipt.jsonl"
+    create = MagicMock(return_value=MagicMock())
+    writer = MagicMock(return_value={"status": "COMMITTED", "trend_id": 1})
+    monkeypatch.setattr("sqlalchemy.create_engine", create)
+    monkeypatch.setattr(daily, "preflight_batch", lambda *a: {
+        "status": "DRY_RUN_READY",
+    })
+    monkeypatch.setattr(daily, "register_candidate", writer)
+    monkeypatch.setattr(daily, "verify_candidate", lambda *a: {
+        "status": "VERIFIED",
+    })
+    monkeypatch.setattr("sys.stdin", MagicMock())
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda: "REGISTER 1")
+    args = ["--input", str(input_path), "--password-file", str(password)]
+    return args, receipt, create, writer
+
+
+def test_cli_repository_password_blocked_before_read(daily_cli, monkeypatch):
+    args, _, create, writer = daily_cli
+    password = Path(__file__).resolve().parents[2] / "synthetic_not_created"
+    args[-1] = str(password)
+    real_read = Path.read_text
+    reads = []
+
+    def track_read(path, *a, **kw):
+        reads.append(path)
+        return real_read(path, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", track_read)
+    assert cli.main(args) == 1
+    assert password not in reads
+    create.assert_not_called()
+    writer.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["directory", "invalid_jsonl", "open_error"])
+def test_cli_receipt_failure_before_registration(daily_cli, monkeypatch, case):
+    args, receipt, _, writer = daily_cli
+    if case == "directory":
+        receipt.mkdir()
+    elif case == "invalid_jsonl":
+        receipt.write_text("not json\n", encoding="utf-8")
+    else:
+        real_open = Path.open
+
+        def fail_open(path, *a, **kw):
+            if path == receipt:
+                raise OSError("synthetic private error")
+            return real_open(path, *a, **kw)
+
+        monkeypatch.setattr(Path, "open", fail_open)
+    assert cli.main(args + ["--execute", "--receipt-file", str(receipt)]) == 1
+    writer.assert_not_called()
+
+
+def test_cli_appends_receipt_and_preserves_existing_lines(daily_cli):
+    args, receipt, _, writer = daily_cli
+    receipt.write_text('{"status":"previous"}\n', encoding="utf-8")
+    assert cli.main(args + ["--execute", "--receipt-file", str(receipt)]) == 0
+    records = [json.loads(line) for line in receipt.read_text().splitlines()]
+    assert records[0] == {"status": "previous"}
+    assert records[1]["status"] == "COMMITTED"
+    writer.assert_called_once()
+
+
+def test_cli_post_commit_receipt_failure_has_no_retry(
+    daily_cli, monkeypatch, capsys,
+):
+    args, receipt, _, writer = daily_cli
+
+    def fail_save(*a):
+        raise OSError("synthetic private error")
+
+    monkeypatch.setattr(cli, "_save_receipt", fail_save)
+    assert cli.main(args + ["--execute", "--receipt-file", str(receipt)]) == 1
+    writer.assert_called_once()
+    output = capsys.readouterr()
+    assert "RECEIPT_WRITE_FAILED_NO_RETRY" in output.err
+    assert "synthetic private error" not in output.err

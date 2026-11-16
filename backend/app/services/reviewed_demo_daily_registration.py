@@ -19,8 +19,8 @@ from app.repositories.reviewed_demo_registration_repository import (
 )
 from app.repositories.reviewed_demo_repository import ReviewedDemoRepository
 from app.services.reviewed_demo_registration import (
-    RegistrationBlocked,
     TARGET,
+    RegistrationBlocked,
     validate_engine_target,
 )
 
@@ -283,6 +283,11 @@ def register_candidate(engine, candidate):
         "registered_at_utc": instant.isoformat(),
         "record_sha256": digest,
         "discovery_method": candidate.record["discovery_method"],
+        "original_ai_source_url": candidate.record.get("original_ai_source_url"),
+        "original_failure": candidate.record.get("original_failure"),
+        "source_review": candidate.record["source_review"],
+        "review_note": candidate.record["review_note"],
+        "operator_approved": candidate.record["operator_approved"],
         "approval_scope": "ISOLATED_DEMO_ONLY",
     }
 
