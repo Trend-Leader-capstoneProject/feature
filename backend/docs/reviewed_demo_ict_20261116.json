@@ -1,0 +1,43 @@
+{
+  "input_kind": "REVIEWED_DEMO",
+  "title": "[DEMO] 2026년 10월 ICT 수출 703.5억 달러, 전년 대비 202% 증가",
+  "source_title": "2026년 10월 정보통신산업(ICT) 수출입 동향",
+  "source_url": "https://www.motir.go.kr/kor/article/ATCL3f49a5a8c/172408/view",
+  "reviewer": "trend-leader-demo-operator",
+  "review_note": "실제 Responses 웹 검색으로 발견한 자료의 격리 시연 등록이다. 운영자가 trend-leader-demo-operator 별칭으로 공식 페이지에 대한 기존 Codex 제목·날짜·수치 확인 결과를 활용해 이번 메시지에서 1건 등록을 명시 승인했다. 사람의 원문 검토 완료와 그 시각은 미확인으로 보존한다. 최초 AI PDF는 접근 및 형식만 확인됐고 본문 전체 일치는 미검증이다. [DEMO]는 시연 환경 표시이며 CITATION_URL_MISMATCH 및 두 출처 URL의 차이를 보존한다.",
+  "original_failure": "CITATION_URL_MISMATCH",
+  "platform": "ETC",
+  "category_id": 44,
+  "expected_target": {
+    "host": "127.0.0.1",
+    "port": 3310,
+    "database": "trend_leader_demo_review_20261117",
+    "current_user": "trend_demo_review@%"
+  },
+  "discovery_method": "OPENAI_RESPONSES_WEB_SEARCH_LIVE",
+  "original_ai_source_url": "https://www.motir.go.kr/attach/down/095a2dda9c864e1d90d751f7668a1117/f604a620244b9bf41395655d434b6bf4",
+  "government_announced_on": "2026-11-15",
+  "official_page_registered_on": "2026-11-16",
+  "ai_search_at": null,
+  "reviewed_at": null,
+  "review_confirmed": false,
+  "approval_scope": "ISOLATED_DEMO_ONLY",
+  "approved_record_count": 1,
+  "review_policy": "ISOLATED_DEMO_OPERATOR_APPROVAL",
+  "operator_approved": true,
+  "operator_approved_at": "2026-11-16T17:37:43+09:00",
+  "operator_approval_time_basis": "승인 메시지 수신 직후 최초 도구 시각 확인값",
+  "official_page_verification": {
+    "verified_by": "CODEX_SOURCE_CHECK",
+    "checked_on": "2026-11-16",
+    "accessible": true,
+    "title_matches": true,
+    "dates_match": true,
+    "figures_match": true
+  },
+  "original_pdf_verification": {
+    "http_status": 200,
+    "pdf_format_confirmed": true,
+    "full_content_match_verified": false
+  }
+}
