@@ -2,10 +2,11 @@
 
 import json
 
-from .types import ParsedResponse, SearchRunConfig
+from .types import ParsedResponse
+from .validation_limits import ValidationLimits
 
 
-def parse_response(response: object, config: SearchRunConfig) -> ParsedResponse:
+def parse_response(response: object, config: ValidationLimits) -> ParsedResponse:
     calls = 0
     searched = False
 
@@ -62,7 +63,7 @@ def parse_response(response: object, config: SearchRunConfig) -> ParsedResponse:
 
 
 def parse_candidate_content(
-    part: dict[str, object], config: SearchRunConfig, *, calls: int, searched: bool,
+    part: dict[str, object], config: ValidationLimits, *, calls: int, searched: bool,
 ) -> ParsedResponse:
     """Parse candidate text after the caller validates its complete envelope."""
     def invalid(reason: str = "RESPONSE_STRUCTURE_INVALID") -> ParsedResponse:

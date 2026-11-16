@@ -1,11 +1,12 @@
 """Approved Gate C D2 envelope, retaining every original tool item and status."""
 
 from . import normalizer, parser
-from .types import ParsedResponse, SearchRunConfig
+from .types import ParsedResponse
+from .validation_limits import ValidationLimits
 
 
 def parse_d2_response(
-    response: dict[str, object], config: SearchRunConfig, *,
+    response: dict[str, object], config: ValidationLimits, *,
     request_max_tool_calls: object,
 ) -> ParsedResponse | None:
     """Return None unless the entire envelope meets the exact D2 profile."""

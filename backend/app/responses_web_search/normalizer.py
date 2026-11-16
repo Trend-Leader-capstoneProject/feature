@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .types import SearchRunConfig
+from .validation_limits import ValidationLimits
 
 _MAX_OUTPUT_ITEMS = 16
 _MAX_TEXT_BYTES = 32768
@@ -45,7 +45,7 @@ class NormalizationResult:
 
 
 def normalize_response(
-    response: object, config: SearchRunConfig,
+    response: object, config: ValidationLimits,
 ) -> NormalizationResult:
     """전체 원본 검증 후 정상 reasoning만 제외한 독립 사본을 반환한다."""
     status = response.get("status") if isinstance(response, dict) else None

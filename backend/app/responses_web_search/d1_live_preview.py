@@ -36,6 +36,7 @@ from . import (
 )
 from .gate_d_preflight import GateDPreflightPlan, build_preflight_plan
 from .types import SearchRunConfig
+from .validation_limits import ValidationLimits
 
 CONFIRMATION_PHRASE = "EXECUTE ONE LIVE SEARCH"
 # Serialize overlapping D1 scopes so their temporary hooks restore in order.
@@ -251,7 +252,26 @@ def run_live_preview(
         max_candidates=plan.config.max_candidates,
         max_tool_calls=plan.config.max_tool_calls,
     )
-    observations: dict[str, object] = {"requested_model": plan.config.model}
+    return _run_validated_preview(
+        model=plan.config.model, input_text=plan.input_text,
+        timeout=plan.config.timeout, max_output_tokens=plan.config.max_output_tokens,
+        config=config, profile=config.profile, api_key=api_key,
+        http_transport=http_transport,
+    )
+
+
+def _run_validated_preview(
+    *, model: str, input_text: str, timeout: float, max_output_tokens: int,
+    config: ValidationLimits, profile: str, api_key: str,
+    http_transport: httpx2.BaseTransport | None,
+    include_candidate_provenance: bool = False,
+) -> dict[str, object]:
+    """Internal execution after an entrypoint validates approval and its exact plan.
+
+    The selected profile belongs to that plan. Model-generated category fields
+    never determine the output category. This helper performs no plan coercion.
+    """
+    observations: dict[str, object] = {"requested_model": model}
 
     def observe_request(request: httpx2.Request) -> None:
         # Inspect the SDK-serialized body immediately before transport dispatch.
@@ -271,15 +291,15 @@ def run_live_preview(
                     timezone.utc,
                 ).isoformat()
                 response = c2_transport.request_response(
-                    api_key=api_key, model=plan.config.model,
-                    input_text=plan.input_text, timeout=plan.config.timeout,
-                    max_output_tokens=plan.config.max_output_tokens,
+                    api_key=api_key, model=model,
+                    input_text=input_text, timeout=timeout,
+                    max_output_tokens=max_output_tokens,
                     http_client=client,
                 )
                 observations["response_received_at_utc"] = datetime.now(
                     timezone.utc,
                 ).isoformat()
-                observations.update(_response_observations(response, plan.config.model))
+                observations.update(_response_observations(response, model))
             if observations.get("model_match") != "MATCH":
                 return _preview(
                     "INVALID_OR_INCOMPLETE_RESPONSE",
@@ -329,7 +349,7 @@ def run_live_preview(
                 return preview
             candidates, issues = validator.validate_candidates(parsed)
             review_material = manual_review.collect_review_material(
-                parsed, issues, private_texts=(api_key, plan.input_text),
+                parsed, issues, private_texts=(api_key, input_text),
             )
             citation_status = "MATCHED"
             matches = [
@@ -399,7 +419,7 @@ def run_live_preview(
                     "source_url": candidate.source_url,
                     "source_title_reference": candidate.source_title_reference,
                     "source_published_at": None,
-                    "proposed_category_ref": config.profile,
+                    "proposed_category_ref": profile,
                 } for candidate in candidates],
                 status=(
                     "PARTIAL_PREVIEW_READY" if partial and candidates
@@ -407,6 +427,20 @@ def run_live_preview(
                     else "NO_VALID_CANDIDATES" if parsed.candidates else "EMPTY_RESULT"
                 ),
             )
+            if include_candidate_provenance:
+                excluded = {item.candidate_index for item in issues}
+                indices = (index for index in range(len(parsed.candidates))
+                           if index not in excluded)
+                for index, candidate in zip(
+                    indices, preview["candidates"], strict=True,
+                ):
+                    candidate.update(
+                        candidate_index=index, citation_validation="MATCHED",
+                    )
+                for item in preview["review_only_candidates"]:
+                    item.update(
+                        proposed_category_ref=profile, citation_validation="MISMATCH",
+                    )
             return preview
     except c2_transport.C2TransportError as error:
         if error.code not in get_args(c2_transport.C2ErrorCode):
