@@ -1,8 +1,4 @@
-"""Migration maintenance entrypoint (Phase B-1: deny by default).
-
-No connection, file read, Alembic import, or migration execution is allowed in
-this phase. B-2/B-3 must introduce their own tested preflight/approval paths.
-"""
+"""Migration guard: exact B-2 preflight only; apply remains disabled."""
 
 from __future__ import annotations
 
@@ -16,17 +12,35 @@ EXIT_DENIED = 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Reject every invocation until each explicitly approved mode exists.
+    """Validate syntax before importing the preflight dependencies.
 
     Guard CLI never prints arguments or environment variables, to avoid
     accidentally reflecting credentials provided by an operator.
     """
     args = list(sys.argv[1:] if argv is None else argv)
 
+    if args == ["preflight"]:
+        try:
+            from scripts.migration_integration import run_preflight
+
+            code, reasons = run_preflight()
+        except Exception:
+            code, reasons = 4, ("OBSERVATION_FAILED",)
+        try:
+            if code == 0:
+                print("OBSERVED")
+            else:
+                for reason in reasons:
+                    print(reason, file=sys.stderr)
+        except Exception:
+            # A broken output stream must not expose a traceback or undo the
+            # persisted evidence. Do not retry the observation or the output.
+            return 4
+        return code
+
     if not args or args == ["deny"]:
         reason = DENY_DEFAULT
-    elif args in (["preflight"], ["apply"]):
-        # Reserved, not actionable until separately implemented and verified.
+    elif args == ["apply"]:
         reason = MODE_NOT_ENABLED
     else:
         reason = INVALID_MODE
