@@ -1,0 +1,752 @@
+"""Gate D1-A offline Red. Run ONLY this file with C2 --confcutdir.
+
+Proposed internal interfaces (not public/Frozen contracts):
+  d1_cli.main(argv=None, *, stdin, stdout, stderr, execution_at=None,
+              http_transport=None) -> int
+  d1_live_preview.run_live_preview(*, plan, execute_live=False,
+      interactive=False, confirmation=None, api_key=None, http_transport=None)
+      -> JSON-compatible dict
+The service independently checks all three approval conditions before C2.
+CLI uses stdin/stdout TTY, exact PHRASE on a separate input line, and reads a
+key from its environment only after approval. No key CLI argument is accepted.
+The transport injection is a test seam, not a CLI option or new framework.
+CLI prints a preflight by default; nonapproval never enters a request path.
+New LIVE/usage fields below are proposals, not changes to SDK_MOCK or Frozen.
+CONFIRMED means completed search evidence in the response, never verification
+of source truth or popularity. Timeout means unknown remote processing outcome.
+
+All authorization/key inputs here are synthetic. Never invoke as a live CLI.
+"""
+
+import dataclasses
+import importlib
+import json
+import logging
+import os
+import socket
+import sys
+from copy import deepcopy
+from datetime import datetime, timezone
+from importlib.metadata import version
+from threading import Thread
+from unittest.mock import Mock
+
+import httpx2
+import pytest
+from d1_support import (
+    CLI,
+    LIVE,
+    PHRASE,
+    USAGE,
+    Terminal,
+    assert_flow,
+    assert_no_authorization_header,
+    assert_request,
+    assert_safe,
+    cli,
+    d1_isolation as guarded_io,
+    expected_flow,
+    invoke,
+    no_dispatch as blocked_dispatch,
+    payload_for as c2_payload_for,
+    plan,
+    product as load_product,
+)
+from openai.types.responses import Response
+from support import API_KEY, MARKER, MockEndpoint
+from test_sdk_mock_preview_red import pipeline as observed_pipeline
+
+# Register reused fixtures under local names without copying their implementation.
+d1_isolation = guarded_io
+no_dispatch = blocked_dispatch
+pipeline = observed_pipeline
+
+pytestmark = pytest.mark.usefixtures("d1_isolation")
+
+STARTED = datetime(2031, 1, 2, 3, 0, tzinfo=timezone.utc)
+RECEIVED = datetime(2031, 1, 2, 3, 0, 2, tzinfo=timezone.utc)
+
+
+class ObservationClock(datetime):
+    ticks = iter(())
+
+    @classmethod
+    def now(cls, tz=None):
+        assert tz is timezone.utc
+        return next(cls.ticks)
+
+
+def product(name):
+    module = load_product(name)
+    # Keep all D1 observations synthetic, including CLI imports/cached modules.
+    if LIVE in sys.modules:
+        sys.modules[LIVE].datetime = ObservationClock
+        ObservationClock.ticks = iter((STARTED, RECEIVED))
+    return module
+
+
+def payload_for(case):
+    payload = c2_payload_for(case)
+    payload["model"] = plan().config.model
+    return payload
+
+
+@pytest.fixture(autouse=True)
+def verbose_logs(caplog):
+    # Catch sensitive HTTP/SDK debug logs too, not only warnings.
+    caplog.set_level(logging.DEBUG)
+
+
+def test_d1_isolation_control(isolated_io, d1_isolation):
+    # C2 replaced it before pytest added its own current-test marker.
+    assert set(os.environ) <= {"PYTEST_CURRENT_TEST"}
+    with pytest.raises(AssertionError, match="C2 external effect"):
+        socket.create_connection(("example.invalid", 443))
+    isolated_io.append("blocked")
+    with pytest.raises(AssertionError, match="D1 real HTTP"):
+        httpx2.HTTPTransport.handle_request(None, None)
+    d1_isolation.append("real-http")
+    for name in ("app.d1_forbidden_writer_probe", "app.external_trends",
+                 "sqlalchemy", "redis"):
+        with pytest.raises(AssertionError, match="D1 operational import"):
+            importlib.import_module(name)
+        d1_isolation.append("operational-import")
+    with pytest.raises(AssertionError, match="D1 file write"):
+        open("d1-must-never-be-created.txt", "w")
+    d1_isolation.append("file-write")
+    with pytest.raises(AssertionError, match="C2 external effect"):
+        open(".env")
+    isolated_io.append("blocked")
+
+
+def test_d1_dispatch_guard_control(no_dispatch):
+    transport = importlib.import_module("app.responses_web_search.c2_transport")
+    with pytest.raises(AssertionError, match="D1 unauthorized dispatch"):
+        transport.request_response()
+    assert no_dispatch == ["dispatch"]
+    no_dispatch.clear()  # Only the sensitivity control expects a blocked call.
+
+
+def test_d1_authorization_header_guard_control():
+    safe = {"publish_authorization": "NONE",
+            "candidates": [{"publish_authorization": "NONE"}]}
+    assert_no_authorization_header(repr(safe))
+    assert_no_authorization_header(json.dumps(safe))
+    for header in (
+        "Authorization: Basic synthetic-credentials",
+        "authorization : synthetic-credentials",
+        '"AUTHORIZATION": "synthetic-credentials"',
+        "{'aUtHoRiZaTiOn': 'synthetic-credentials'}",
+        "('Authorization', 'synthetic-credentials')",
+        "{b'authorization': b'synthetic-credentials'}",
+    ):
+        with pytest.raises(AssertionError, match="Authentication header exposed"):
+            assert_no_authorization_header(header)
+
+
+@pytest.mark.parametrize("case", ["ready", "rejected", "no-search", "empty"])
+def test_d1_fixture_control(case, endpoint, http_client):
+    """Check new fixture assumptions through real C2/C1/S1/S0, no D1 substitute."""
+    from app.responses_web_search.c1_adapter import convert_response
+    from app.responses_web_search.c2_transport import request_response
+    from app.responses_web_search.normalizer import normalize_response
+    from app.responses_web_search.types import SearchRunConfig
+
+    assert version("openai") == "3.50.0"
+    assert version("httpx2") == "2.16.0"
+    endpoint.payload = payload_for(case)
+    endpoint.payload["usage"] = USAGE
+    approved = plan()
+    response = request_response(
+        api_key=API_KEY, model=approved.config.model, input_text=approved.input_text,
+        timeout=approved.config.timeout, max_output_tokens=4096,
+        http_client=http_client,
+    )
+    converted = convert_response(response)
+    assert {key: converted["usage"][key] for key in USAGE} == USAGE
+    normalized = normalize_response(converted, SearchRunConfig())
+    assert normalized.outcome == ("REJECTED" if case == "rejected" else "NORMALIZED")
+    assert_request(endpoint, approved)
+    assert http_client.is_closed
+
+
+@pytest.mark.parametrize("case,code", [
+    (401, "AUTHENTICATION_FAILED"), (429, "RATE_LIMITED"),
+    (503, "UPSTREAM_SERVER_ERROR"), ("timeout", "TIMEOUT"),
+    ("c1", "C1_CONVERSION_FAILED"),
+])
+def test_d1_failure_fixture_control(case, code, endpoint, http_client, monkeypatch):
+    """Prove fault injection independently of the absent D1 interfaces."""
+    from app.responses_web_search.c1_adapter import C1ConversionError, convert_response
+    from app.responses_web_search.c2_transport import C2TransportError, request_response
+
+    endpoint.payload = payload_for("ready")
+    if isinstance(case, int):
+        endpoint.status = case
+    elif case == "timeout":
+        endpoint.transport_error = httpx2.ReadTimeout
+    else:
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    approved = plan()
+    error_type = C1ConversionError if case == "c1" else C2TransportError
+    with pytest.raises(error_type) as caught:
+        response = request_response(
+            api_key=API_KEY, model=approved.config.model,
+            input_text=approved.input_text, timeout=approved.config.timeout,
+            max_output_tokens=4096, http_client=http_client,
+        )
+        convert_response(response)
+    if case != "c1":
+        assert caught.value.code == code
+    assert_request(endpoint, approved)
+    assert http_client.is_closed
+
+
+@pytest.mark.parametrize("name", [CLI, LIVE])
+def test_d1_01_import_has_no_dispatch(name, no_dispatch):
+    product(name)  # Import and reload are both guarded.
+    product(name)
+    assert no_dispatch == []
+
+
+@pytest.mark.parametrize("key_present", [False, True])
+def test_d1_01_default_cli_is_preflight_only(
+    key_present, monkeypatch, no_dispatch, caplog, capsys,
+):
+    if key_present:
+        monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint()
+    code, stdin, out, err = cli(product(CLI), endpoint)
+    assert code == 0
+    assert stdin.reads == 0
+    assert endpoint.calls == []
+    assert "PREFLIGHT_VALIDATED" in out
+    assert json.loads(out)["live_request_allowed"] is False
+    captured = capsys.readouterr()
+    assert API_KEY not in out + err + caplog.text + captured.out + captured.err
+
+
+@pytest.mark.parametrize("stdin,stdout", [
+    (Terminal(""), Terminal()),
+    (Terminal("wrong\n"), Terminal()),
+    (Terminal(" " + PHRASE + "\n"), Terminal()),
+    (Terminal(PHRASE + "\n", tty=False), Terminal()),
+    (Terminal(PHRASE + "\n"), Terminal(tty=False)),
+    (Terminal(interrupt=EOFError), Terminal()),
+    (Terminal(interrupt=KeyboardInterrupt), Terminal()),
+], ids=["option-only-eof", "wrong", "not-exact", "stdin-pipe", "stdout-pipe",
+        "eof-error", "cancel"])
+def test_d1_02_cli_nonapproval_sends_zero(
+    stdin, stdout, monkeypatch, no_dispatch, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint()
+    code, _, out, err = cli(
+        product(CLI), endpoint, argv=("--execute-live",), stdin=stdin, stdout=stdout,
+    )
+    assert code != 0
+    assert endpoint.calls == []
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    assert API_KEY not in visible and "Bearer " not in visible
+
+
+@pytest.mark.parametrize("overrides", [
+    {"execute_live": False}, {"interactive": False},
+    {"confirmation": None}, {"confirmation": "wrong"},
+    {"confirmation": " " + PHRASE}, {"api_key": None},
+], ids=["no-option", "noninteractive", "no-confirmation", "wrong-confirmation",
+        "not-exact", "no-key"])
+def test_d1_02_service_cannot_bypass_confirmation(overrides, no_dispatch):
+    endpoint = MockEndpoint()
+    approved = plan()
+    before = dataclasses.asdict(approved)
+    result = invoke(product(LIVE), endpoint, plan=approved, **overrides)
+    assert endpoint.calls == []
+    assert result["status"] in {"PREFLIGHT_VALIDATED", "LIVE_NOT_AUTHORIZED",
+                                "BLOCKED_CONFIG"}
+    assert dataclasses.asdict(approved) == before
+    assert approved.live_request_allowed is False
+
+
+def test_d1_02_service_defaults_cannot_dispatch(no_dispatch):
+    result = product(LIVE).run_live_preview(plan=plan())
+    assert result["status"] in {"PREFLIGHT_VALIDATED", "LIVE_NOT_AUTHORIZED"}
+
+
+@pytest.mark.parametrize("usage", [USAGE, None], ids=["observed", "absent"])
+def test_d1_03_04_05_07_10_authorized_mock_once(
+    usage, pipeline, sdk_responses, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    if usage is not None:
+        endpoint.payload["usage"] = usage | {"untrusted_extra": MARKER}
+    approved = plan()
+    before = dataclasses.asdict(approved)
+    preview = invoke(product(LIVE), endpoint, plan=approved)
+    assert_request(endpoint, approved)
+    assert_flow(pipeline, expected_flow("ready"))
+    assert len(sdk_responses) == 1
+    assert preview["status"] == "PREVIEW_READY"
+    assert preview["search_execution"] == "CONFIRMED"
+    assert preview["response_validation"] == "VALID"
+    assert preview["tool_calls_observed"] == 1
+    assert preview["usage"] == usage
+    assert len(preview["candidates"]) == 1
+    validated, _ = pipeline.results["validate"][0]
+    for key, value in dataclasses.asdict(validated[0]).items():
+        assert preview["candidates"][0][key] == value
+    assert dataclasses.asdict(approved) == before
+    assert approved.live_request_allowed is False
+    assert_safe(preview, caplog, capsys)
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+
+
+def test_d1_03_cli_exact_confirmation_once(monkeypatch, pipeline, caplog, capsys):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    code, stdin, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code == 0
+    assert stdin.reads == 1
+    assert PHRASE in out + err  # Human can see which phrase is required.
+    assert "PREVIEW_READY" in out
+    assert_request(endpoint, plan())
+    assert_flow(pipeline, expected_flow("ready"))
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    assert_no_authorization_header(visible)
+    for marker in (API_KEY, MARKER, "Bearer "):
+        assert marker not in visible
+
+
+@pytest.mark.parametrize("case,code", [
+    (401, "AUTHENTICATION_FAILED"), (429, "RATE_LIMITED"),
+    (503, "UPSTREAM_SERVER_ERROR"), ("timeout", "TIMEOUT"),
+    ("c1", "C1_CONVERSION_FAILED"),
+])
+def test_d1_06_09_error_stops_without_retry(
+    case, code, pipeline, sdk_responses, monkeypatch, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    if isinstance(case, int):
+        endpoint.status = case
+    elif case == "timeout":
+        # Recorded before ReadTimeout: remote processing is UNKNOWN, not absent.
+        endpoint.transport_error = httpx2.ReadTimeout
+    else:
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    preview = invoke(product(LIVE), endpoint)
+    assert_request(endpoint, plan())  # Retry-sensitive endpoint has retry headers.
+    assert_flow(pipeline, ["c2", "c1"] if case == "c1" else ["c2"])
+    assert len(sdk_responses) == (1 if case == "c1" else 0)
+    assert preview["reason_codes"] == [code]
+    assert preview["status"] == (
+        "INVALID_OR_INCOMPLETE_RESPONSE" if case == "c1" else "UPSTREAM_ERROR"
+    )
+    assert preview["search_execution"] == "UNKNOWN"
+    assert preview["response_validation"] == "NOT_EVALUATED"
+    assert preview["candidates"] == []
+    assert preview["usage"] is None
+    assert_safe(preview, caplog, capsys)
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+
+
+@pytest.mark.parametrize("case,status,search", [
+    ("rejected", "INVALID_OR_INCOMPLETE_RESPONSE", "CONFIRMED"),
+    ("no-search", "SEARCH_NOT_EXECUTED", "NOT_CONFIRMED"),
+    ("empty", "EMPTY_RESULT", "CONFIRMED"),
+])
+def test_d1_08_10_nonpublishable_outcomes(
+    case, status, search, pipeline, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for(case))
+    preview = invoke(product(LIVE), endpoint)
+    assert_request(endpoint, plan())
+    assert_flow(pipeline, expected_flow(case))
+    assert preview["status"] == status
+    assert preview["search_execution"] == search
+    assert preview["candidates"] == []
+    assert_safe(preview, caplog, capsys)
+
+
+def test_d1_09_unvalidated_body_not_visible(pipeline, caplog, capsys):
+    endpoint = MockEndpoint(payload=payload_for("bad-json"))
+    endpoint.payload["output"][-1]["content"][0]["text"] = "RAW_D1_CONTENT"
+    preview = invoke(product(LIVE), endpoint)
+    assert_request(endpoint, plan())
+    assert_flow(pipeline, ["c2", "c1", "normalize", "parse"])
+    assert preview["candidates"] == []
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("case", ["http", "timeout", "c1", "raw"])
+def test_d1_09_cli_failure_has_no_traceback_or_sensitive_text(
+    case, monkeypatch, pipeline, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    if case == "http":
+        endpoint.status = 401
+    elif case == "timeout":
+        endpoint.transport_error = httpx2.ReadTimeout
+    elif case == "c1":
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    else:
+        endpoint.payload["output"][-1]["content"][0]["text"] = "RAW_D1_CONTENT"
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code != 0
+    assert_request(endpoint, plan())
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    assert_no_authorization_header(visible)
+    for marker in (API_KEY, MARKER, "Bearer ", "RAW_D1_CONTENT",
+                   "Traceback (most recent call last)"):
+        assert marker not in visible
+
+
+def test_d1_09_key_cli_argument_rejected_without_echo(no_dispatch, caplog, capsys):
+    endpoint = MockEndpoint()
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--api-key", API_KEY))
+    assert code != 0
+    assert endpoint.calls == []
+    captured = capsys.readouterr()
+    assert API_KEY not in out + err + caplog.text + captured.out + captured.err
+
+
+def test_d1_tampered_plan_blocked_before_c2(no_dispatch, caplog, capsys):
+    forged = dataclasses.replace(plan(), input_text="RAW_D1_CONTENT")
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    preview = invoke(product(LIVE), endpoint, plan=forged)
+    assert preview["status"] == "BLOCKED_CONFIG"
+    assert preview["reason_codes"] == ["INVALID_CONFIGURATION"]
+    assert endpoint.calls == []
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("boundary", ["c2", "sdk"])
+def test_d1_unexpected_exception_is_safe_and_not_retried(
+    boundary, monkeypatch, pipeline, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    error = RuntimeError(f"{MARKER} {API_KEY} Authorization: Bearer RAW_D1_CONTENT")
+    failure = Mock(side_effect=error)
+    if boundary == "c2":
+        transport = importlib.import_module("app.responses_web_search.c2_transport")
+        monkeypatch.setattr(transport, "request_response", failure)
+    else:
+        monkeypatch.setattr("openai.resources.responses.Responses.create", failure)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code != 0
+    assert failure.call_count == 1
+    assert endpoint.calls == []
+    assert "UNEXPECTED_ERROR" in out + err
+    for name in ("c1", "normalize", "parse", "validate"):
+        assert getattr(pipeline, name).call_count == 0
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    for marker in (MARKER, API_KEY, "Authorization", "Bearer ", "RAW_D1_CONTENT",
+                   "Traceback (most recent call last)"):
+        assert marker not in visible
+
+
+def test_d1_interrupt_during_request_is_unknown(
+    monkeypatch, pipeline, caplog, capsys,
+):
+    monkeypatch.setitem(os.environ, "OPENAI_API_KEY", API_KEY)
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    original = endpoint.handle
+
+    def interrupt(request):
+        original(request)  # Record one sent Mock request before cancellation.
+        raise KeyboardInterrupt(MARKER)
+
+    endpoint.handle = interrupt
+    code, _, out, err = cli(product(CLI), endpoint, argv=("--execute-live",))
+    assert code != 0
+    diagnostic = json.loads(err.splitlines()[-1])
+    assert diagnostic == {
+        "status": "UPSTREAM_ERROR", "reason_codes": ["EXECUTION_INTERRUPTED"],
+        "search_execution": "UNKNOWN",
+    }
+    assert_request(endpoint, plan())
+    assert_flow(pipeline, ["c2"])
+    assert pipeline.clients and all(client.is_closed for client in pipeline.clients)
+    captured = capsys.readouterr()
+    visible = out + err + caplog.text + captured.out + captured.err
+    for marker in (API_KEY, MARKER, "Bearer ", "RAW_D1_CONTENT", "Traceback"):
+        assert marker not in visible
+    assert_no_authorization_header(visible)
+
+
+@pytest.mark.parametrize("failure", [None, RuntimeError, KeyboardInterrupt])
+def test_d1_new_sdk_loggers_private_and_logging_restored(failure, caplog):
+    module = product(LIVE)
+    original_handle = logging.Logger.handle
+    original_factory = logging.getLogRecordFactory()
+    root_level = logging.getLogger().level
+    names = [f"{family}.d1_new_{failure}_{id(caplog)}"
+             for family in ("openai", "httpx2", "httpcore2")]
+    assert all(name not in logging.Logger.manager.loggerDict for name in names)
+    existing = logging.getLogger("openai._base_client")
+    filters_before = list(existing.filters)
+
+    def exercise():
+        with module._private_sdk_logs():
+            for name in names:
+                logger = logging.getLogger(name)
+                logger.warning(
+                    "%s %s Authorization: Bearer RAW_D1_CONTENT", MARKER, API_KEY,
+                )
+                worker = Thread(target=logger.warning, args=("D1_OTHER_THREAD",))
+                worker.start()
+                worker.join()
+            if failure:
+                raise failure(MARKER)
+
+    if failure:
+        with pytest.raises(failure):
+            exercise()
+    else:
+        exercise()
+    assert logging.Logger.handle is original_handle
+    assert logging.getLogRecordFactory() is original_factory
+    assert logging.getLogger().level == root_level
+    assert existing.filters == filters_before
+    assert caplog.text.count("D1_OTHER_THREAD") == 3
+    for marker in (MARKER, API_KEY, "Bearer ", "RAW_D1_CONTENT"):
+        assert marker not in caplog.text
+    assert_no_authorization_header(caplog.text)
+    logging.getLogger(names[0]).warning("D1_AFTER_GUARD")
+    assert "D1_AFTER_GUARD" in caplog.text
+
+
+@pytest.mark.parametrize("case", ["ready", "c1", "rejected", "bad-json"])
+def test_d1b_response_observations_survive_validation_failure(
+    case, monkeypatch, pipeline, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("ready" if case == "c1" else case))
+    if case == "c1":
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["requested_model"] == plan().config.model
+    assert preview["response_model"] == plan().config.model
+    assert preview["model_match"] == "MATCH"
+    assert preview["request_started_at_utc"] == STARTED.isoformat()
+    assert preview["response_received_at_utc"] == RECEIVED.isoformat()
+    assert preview["response_status"] == "completed"
+    assert preview["output_type_counts"] == {
+        "web_search_call": 1, "reasoning": 1, "message": 1,
+    }
+    assert preview["status"] == (
+        "PREVIEW_READY" if case == "ready" else "INVALID_OR_INCOMPLETE_RESPONSE"
+    )
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "http"])
+def test_d1b_no_response_metadata_on_transport_failure(failure, caplog, capsys):
+    endpoint = MockEndpoint(
+        transport_error=httpx2.ReadTimeout if failure == "timeout" else None,
+        status=503 if failure == "http" else 200,
+    )
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["requested_model"] == plan().config.model
+    assert preview["request_started_at_utc"] == STARTED.isoformat()
+    for key in ("response_received_at_utc", "response_model", "usage",
+                "output_type_counts", "web_search_call_details"):
+        assert preview[key] is None
+    assert preview["response_status"] == "UNKNOWN"
+    assert preview["model_match"] == "UNKNOWN"
+    assert preview["search_execution"] == "UNKNOWN"
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+def test_d3_01_preserves_frozen_rejection_and_live_partial(
+    pipeline, caplog, capsys,
+):
+    payload = payload_for("ready")
+    completed, reasoning, message = payload["output"]
+    searching = deepcopy(completed)
+    searching.update(id="ws_2", status="searching")
+    payload["output"] = [
+        reasoning, completed, dict(reasoning, id="rs_2"), searching, message,
+    ]
+    original = deepcopy(payload)
+    endpoint = MockEndpoint(payload=payload)
+
+    preview = invoke(product(LIVE), endpoint)
+
+    assert original["status"] == "completed"
+    assert preview["status"] == "PARTIAL_PREVIEW_READY"
+    assert preview["reason_codes"] == []
+    assert preview["tool_calls_observed"] == 2
+    assert preview["request_max_tool_calls"] == 1
+    assert preview["search_execution"] == "CONFIRMED"
+    assert preview["response_validation"] == "PARTIAL"
+    assert len(preview["candidates"]) == 1
+    assert preview["output_type_counts"] == {
+        "reasoning": 2, "web_search_call": 2, "message": 1,
+    }
+    assert preview["web_search_call_details"] == [
+        {"output_index": 1, "status": "completed", "action_type": "search"},
+        {"output_index": 3, "status": "searching", "action_type": "search"},
+    ]
+    assert [call[0] for call in pipeline.events.mock_calls] == [
+        "c2", "c1", "normalize", "validate",
+    ]
+    assert "parse" not in pipeline.results
+    converted, = pipeline.results["c1"]
+    assert converted["status"] == original["status"]
+    assert converted["output"] == original["output"]
+    assert endpoint.payload == original
+    normalized, = pipeline.results["normalize"]
+    assert normalized.outcome == "REJECTED"
+    assert normalized.reason_codes == ("TOOL_CALL_LIMIT_EXCEEDED",)
+    assert normalized.execution_evidence.web_search_calls_observed == 2
+    assert normalized.execution_evidence.completed_search_actions == 1
+    assert normalized.parser_input is None
+    assert_request(endpoint, plan())
+    assert len(pipeline.clients) == 1
+    assert pipeline.clients[0].is_closed
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("calls", [
+    [("completed", "search")],
+    [("completed", "search"), ("incomplete", "search")],
+    [("completed", "search"), ("completed", "search")],
+    [("completed", "search"), ("completed", "open_page")],
+    [("searching", "search")], [("failed", "search")],
+    [("in_progress", "search")], [("completed", "find_in_page")],
+    [(MARKER, MARKER)], [(None, None)], [(17, [MARKER])],
+])
+@pytest.mark.parametrize("c1_failure", [False, True])
+def test_d1b1_call_details_are_bounded_and_survive_rejection(
+    calls, c1_failure, monkeypatch, pipeline, caplog, capsys,
+):
+    endpoint = MockEndpoint(payload=payload_for("bad-json"))
+    # Put reasoning before and between calls: indexes must refer to raw output.
+    output = []
+    expected = []
+    for status, action_type in calls:
+        output.append({"type": "reasoning", "id": "rs", "summary": []})
+        expected.append({
+            "output_index": len(output),
+            "status": status if status in (
+                "completed", "incomplete", "searching", "failed", "in_progress",
+            ) else "UNKNOWN",
+            "action_type": action_type if action_type in (
+                "search", "open_page", "find_in_page",
+            ) else "UNKNOWN",
+        })
+        output.append({
+            "id": "ws", "type": "web_search_call", "status": status,
+            "action": {"type": action_type, "query": "PRIVATE_D1_QUERY",
+                       "pattern": "PRIVATE_D1_PATTERN",
+                       "url": "https://private.example.test/d1",
+                       "sources": [{"type": "url",
+                                    "url": "https://private.example.test/source"}]},
+        })
+    endpoint.payload["output"] = output + [endpoint.payload["output"][-1]]
+    endpoint.payload["usage"] = USAGE
+    if c1_failure:
+        monkeypatch.setattr(Response, "to_dict", Mock(side_effect=ValueError(MARKER)))
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["web_search_call_details"] == expected
+    assert preview["candidates"] == []
+    assert preview["status"] == (
+        "SEARCH_NOT_EXECUTED"
+        if not c1_failure and calls == [("completed", "find_in_page")]
+        else "INVALID_OR_INCOMPLETE_RESPONSE"
+    )
+    assert preview["output_type_counts"] == {
+        "reasoning": len(calls), "web_search_call": len(calls), "message": 1,
+    }
+    if c1_failure:
+        assert preview["reason_codes"] == ["C1_CONVERSION_FAILED"]
+        assert preview["usage"] is None
+        assert_flow(pipeline, ["c2", "c1"])
+    else:
+        assert preview["usage"] == USAGE
+        assert preview["tool_calls_observed"] == len(calls)
+        if len(calls) > 1:
+            assert preview["reason_codes"] == ["TOOL_CALL_LIMIT_EXCEEDED"]
+            assert preview["search_execution"] == "CONFIRMED"
+            assert_flow(pipeline, ["c2", "c1", "normalize"])
+    assert_request(endpoint, plan())
+    captured = capsys.readouterr()
+    visible = json.dumps(preview) + caplog.text + captured.out + captured.err
+    for marker in ("PRIVATE_D1_QUERY", "PRIVATE_D1_PATTERN",
+                   "https://private.example.test", "not candidate JSON"):
+        assert marker not in visible
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("case", [
+    "not-list", "scalar-item", "unknown-item", "missing-type", "bad-action",
+    "missing-action", "oversized", "at-limit", "no-search",
+])
+def test_d1b1_call_details_require_complete_output(case, caplog, capsys):
+    endpoint = MockEndpoint(payload=payload_for("bad-json"))
+    output = endpoint.payload["output"]
+    expected = None
+    if case == "not-list":
+        endpoint.payload["output"] = {"type": MARKER}
+    elif case == "scalar-item":
+        output.append(MARKER)
+    elif case == "unknown-item":
+        output.append({"type": MARKER})
+    elif case == "missing-type":
+        output.append({"id": MARKER})
+    elif case == "bad-action":
+        output[0]["action"] = MARKER
+    elif case == "missing-action":
+        output[0].pop("action")
+    elif case in {"oversized", "at-limit"}:
+        output.extend({"type": "reasoning", "id": "rs", "summary": []}
+                      for _ in range((17 if case == "oversized" else 16) - len(output)))
+        if case == "at-limit":
+            expected = [{"output_index": 0, "status": "completed",
+                         "action_type": "search"}]
+    else:
+        output.pop(0)
+        expected = []
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["web_search_call_details"] == expected
+    assert preview["candidates"] == []
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)
+
+
+@pytest.mark.parametrize("case", ["mismatch", "missing-model", "broken-output",
+                                "unknown-type", "bad-status"])
+def test_d1b_untrusted_metadata_is_not_copied(case, caplog, capsys):
+    endpoint = MockEndpoint(payload=payload_for("ready"))
+    if case == "mismatch":
+        endpoint.payload["model"] = MARKER
+    elif case == "missing-model":
+        endpoint.payload.pop("model")
+    elif case == "broken-output":
+        endpoint.payload["output"] = {"type": MARKER}
+    elif case == "unknown-type":
+        endpoint.payload["output"].append({"type": MARKER})
+    else:
+        endpoint.payload["status"] = MARKER
+    preview = invoke(product(LIVE), endpoint)
+    assert preview["response_received_at_utc"] == RECEIVED.isoformat()
+    if case in {"mismatch", "missing-model"}:
+        assert preview["response_model"] is None
+        assert preview["model_match"] == (
+            "MISMATCH" if case == "mismatch" else "UNKNOWN"
+        )
+        assert preview["candidates"] == []
+    elif case in {"broken-output", "unknown-type"}:
+        assert preview["output_type_counts"] is None
+    else:
+        assert preview["response_status"] == "UNKNOWN"
+    assert_request(endpoint, plan())
+    assert_safe(preview, caplog, capsys)

@@ -58,7 +58,21 @@ def parse_response(response: object, config: SearchRunConfig) -> ParsedResponse:
             status="SEARCH_NOT_EXECUTED", tool_calls_observed=calls,
         )
 
-    annotations = content[0].get("annotations")
+    return parse_candidate_content(content[0], config, calls=calls, searched=searched)
+
+
+def parse_candidate_content(
+    part: dict[str, object], config: SearchRunConfig, *, calls: int, searched: bool,
+) -> ParsedResponse:
+    """Parse candidate text after the caller validates its complete envelope."""
+    def invalid(reason: str = "RESPONSE_STRUCTURE_INVALID") -> ParsedResponse:
+        return ParsedResponse(
+            status="INVALID_OR_INCOMPLETE_RESPONSE",
+            tool_calls_observed=calls, simulated_web_search_executed=searched,
+            reason_codes=(reason,),
+        )
+
+    annotations = part.get("annotations")
     if not isinstance(annotations, list):
         return invalid()
     citation_urls = set()
@@ -73,7 +87,7 @@ def parse_response(response: object, config: SearchRunConfig) -> ParsedResponse:
         citation_urls.add(annotation["url"])
 
     try:
-        payload = json.loads(content[0]["text"])
+        payload = json.loads(part["text"])
     except (ValueError, RecursionError):
         return invalid()
     if not isinstance(payload, dict) or not isinstance(payload.get("candidates"), list):
