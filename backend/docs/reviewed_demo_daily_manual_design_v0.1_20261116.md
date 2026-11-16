@@ -64,7 +64,7 @@
 
 - CLI 예시 (명령 및 파일명은 구현 시 확인):
   - `python -m scripts.register_reviewed_demo_daily --input <daily.json> --password-file <external-password-file>`: 기본은 **read-only preflight**, DML 없음.
-  - 동일 명령에 `--execute`를 추가하는 경우에만 TTY에서 `REGISTER <N>` 확인 후 실행. 동일 DB 1회 실행·자동 재시도 없음.
+  - 동일 명령에 `--execute --receipt-file <external-receipt.jsonl>`을 추가하는 경우에만 TTY에서 `REGISTER <N>` 확인 후 실행. 영수증 파일은 Git 저장소 밖의 기존 디렉터리에 둔다. 동일 DB 1회 실행·자동 재시도 없음.
 - 연결 설정은 로컬 격리 대상 `127.0.0.1:3310 / trend_leader_demo_review_20261117 / trend_demo_review@%`와 고정 Alembic `b7f2c81d9e04`만 수용. 비밀정보는 저장소 외부의 credential 파일, 로그에 출력하지 않음.
 - 기존 `_verified_seed_connection`의 단일 물리 연결/Session/트랜잭션 가드를 재사용하되, Demo Seed 데이터 생성 함수를 호출하지 않는다. `app_env=local`에서만 허용. Category 조회 시 활성 Parent·Child 및 관계를 같은 트랜잭션에서 검증하고 잠근다.
 - 1건당 Trend 1, TrendSource 1, TrendCategoryMap 1 INSERT; `status=ACTIVE`, `platform=ETC`, `summary/thumbnail=null`, `is_primary=false`. UTC 시각을 MariaDB DATETIME에 UTC-naive로 기록. 성공 시 ID 3개, 입력 해시·시각·출처 유형을 기록한다.
@@ -77,7 +77,7 @@
 **권장 파일:** 신규 Daily Service, 신규 CLI, 신규 Daily 테스트 및 위 문서. 기존 조회 API/TrendCard/DB Schema·Migration 수정 없음. 기존 Repo 조회·정규화·세 INSERT 중 가능한 부분만 재사용하고, Category 조회와 동적 매핑값에 한정해 최소 조정한다. 기존 ICT 경로를 변경한다면 기존 회귀 통과가 필수다.
 
 필수 검증:
-1. batch 건수·레코드 구조·6개 parent_code·source_checks·수동/Responses provenance, 필수 검토 기록 거부 반례
+1. batch 건수·레코드 구조·6개 parent_code·source_review·수동/Responses provenance, 필수 검토 기록 거부 반례
 2. 실제 DB 활성 Parent/Child 유일성, 비활성·모호·타부모 Category 거절; 상수 Category ID 사용 금지
 3. 다른 DB(3307/3308/3309/운영) 연결 이전 차단; 기존 보안 가드·비밀값 비노출
 4. 조회 전용 기본 모드에서 DML 0; 승인 없는 `--execute`에서 DML 0
