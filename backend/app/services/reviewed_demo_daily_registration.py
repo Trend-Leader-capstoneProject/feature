@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -31,6 +32,11 @@ KIND = "REVIEWED_DEMO_DAILY_BATCH"
 REVIEW_CHECK = "URL_TITLE_KEY_CLAIMS_VERIFIED"
 MAX_RECORDS = 36
 MIGRATION_VERSION = "b7f2c81d9e04"
+_PROVENANCE_FIELDS = (
+    "original_citation_validation", "original_response_citation_validation",
+    "original_response_validation", "search_profile", "candidate_index",
+    "search_run_id", "search_evidence_sha256",
+)
 
 
 @dataclass(frozen=True)
@@ -39,10 +45,118 @@ class Candidate:
     title: object
     url: object
     record: dict
+    search_runs: list | None = None
 
 
 def _filled(value, limit):
     return type(value) is str and bool(value.strip()) and len(value) <= limit
+
+
+def _validate_responses_provenance(record):
+    failure = record.get("original_failure")
+    if "original_citation_validation" in record:
+        status = record["original_citation_validation"]
+        expected = {
+            "MATCHED": None, "MISMATCH": "CITATION_URL_MISMATCH",
+            "NOT_EVALUATED": "NOT_VALIDATED",
+        }
+        if (type(status) is not str or status not in expected
+                or "original_failure" not in record or failure != expected[status]):
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    elif type(failure) is not str or failure not in {
+        "CITATION_URL_MISMATCH", "NOT_VALIDATED",
+    }:
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    enums = {
+        "original_response_citation_validation": {
+            "MATCHED", "PARTIAL", "MISMATCH", "EMPTY", "NOT_EVALUATED",
+        },
+        "original_response_validation": {
+            "VALID", "PARTIAL", "INVALID", "NOT_EVALUATED",
+        },
+        "search_profile": ALLOWED_ROOTS,
+    }
+    for key, allowed in enums.items():
+        if key in record and (
+            type(record[key]) is not str or record[key] not in allowed
+        ):
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    if "candidate_index" in record and (
+        type(record["candidate_index"]) is not int
+        or not 0 <= record["candidate_index"] < 3
+    ):
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    for key, pattern in (
+        ("search_run_id", r"[0-9a-f]{32}"), ("search_evidence_sha256", r"[0-9a-f]{64}"),
+    ):
+        if key in record and (
+            type(record[key]) is not str or re.fullmatch(pattern, record[key]) is None
+        ):
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+
+
+def _validated_search_runs(data):
+    runs = data.get("search_runs", [])
+    if type(runs) is not list or len(runs) > MAX_RECORDS:
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    evidence_by_id = {}
+    for run in runs:
+        if type(run) is not dict or type(run.get("evidence")) is not dict:
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+        run_id, digest = run.get("search_run_id"), run.get("search_evidence_sha256")
+        if (type(run_id) is not str or re.fullmatch(r"[0-9a-f]{32}", run_id) is None
+                or type(digest) is not str or run_id in evidence_by_id):
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+        try:
+            encoded = json.dumps(
+                run["evidence"], ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (ValueError, TypeError, UnicodeError):
+            raise RegistrationBlocked("PROVENANCE_MISMATCH") from None
+        if hashlib.sha256(encoded).hexdigest() != digest:
+            raise RegistrationBlocked("PROVENANCE_MISMATCH")
+        evidence_by_id[run_id] = run
+    return evidence_by_id
+
+
+def _validate_run_reference(record, runs):
+    reference_fields = ("search_run_id", "search_evidence_sha256", "candidate_index")
+    if (record.get("original_citation_validation") == "MATCHED"
+            and not all(key in record for key in reference_fields)):
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    if not any(key in record for key in reference_fields):
+        return
+    run = runs.get(record.get("search_run_id"))
+    if (run is None
+            or record.get("search_evidence_sha256") != run["search_evidence_sha256"]):
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    evidence = run["evidence"]
+    accepted = evidence.get("candidates", [])
+    review_only = evidence.get("review_only_candidates", [])
+    if type(accepted) is not list or type(review_only) is not list:
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    values = accepted + review_only
+    if not all(type(item) is dict for item in values):
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    matches = [item for item in values
+               if item.get("candidate_index") == record.get("candidate_index")]
+    if len(matches) != 1:
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
+    item = matches[0]
+    expected = {
+        "original_ai_source_url": item.get("source_url"),
+        "original_citation_validation": item.get("citation_validation"),
+        "original_failure": item.get("rejection_reason"),
+        "search_profile": item.get("proposed_category_ref"),
+        "original_response_citation_validation": evidence.get("citation_validation"),
+        "original_response_validation": evidence.get("response_validation"),
+    }
+    if (record.get("parent_code") != record.get("search_profile")
+            or evidence.get("search_profile") != expected["search_profile"]
+            or any(key not in record or record[key] != value
+                   for key, value in expected.items())):
+        raise RegistrationBlocked("PROVENANCE_MISMATCH")
 
 
 def validate_batch(data):
@@ -62,6 +176,7 @@ def validate_batch(data):
         raise RegistrationBlocked("APPROVED_RECORD_COUNT_MISMATCH")
 
     titles, urls, candidates = set(), set(), []
+    runs = _validated_search_runs(data)
     for position, record in enumerate(records, start=1):
         if not isinstance(record, dict):
             raise RegistrationBlocked("INVALID_DAILY_RECORD")
@@ -81,16 +196,16 @@ def validate_batch(data):
         method = record.get("discovery_method")
         if method == "MANUAL_WEB_REVIEW":
             if (record.get("original_ai_source_url") is not None
-                    or record.get("original_failure") is not None):
+                    or record.get("original_failure") is not None
+                    or any(record.get(key) is not None for key in _PROVENANCE_FIELDS)):
                 raise RegistrationBlocked("PROVENANCE_MISMATCH")
         elif method == "OPENAI_RESPONSES_WEB_SEARCH_LIVE":
             original = record.get("original_ai_source_url")
             if (not _filled(original, 4096)
-                    or normalize_source_url(original) is None
-                    or record.get("original_failure") not in {
-                        "CITATION_URL_MISMATCH", "NOT_VALIDATED",
-                    }):
+                    or normalize_source_url(original) is None):
                 raise RegistrationBlocked("PROVENANCE_MISMATCH")
+            _validate_responses_provenance(record)
+            _validate_run_reference(record, runs)
         else:
             raise RegistrationBlocked("DISCOVERY_METHOD_UNSUPPORTED")
         title = normalize_title(record["title"])
@@ -101,7 +216,9 @@ def validate_batch(data):
             raise RegistrationBlocked("DUPLICATE_IN_BATCH")
         titles.add(title.normalized_title)
         urls.add(url.source_key)
-        candidates.append(Candidate(position, title, url, record))
+        candidates.append(Candidate(
+            position, title, url, record, data.get("search_runs"),
+        ))
     return candidates
 
 
@@ -214,14 +331,17 @@ def register_candidate(engine, candidate):
     if (not isinstance(candidate, Candidate)
             or type(candidate.position) is not int or candidate.position < 1):
         raise RegistrationBlocked("INVALID_DAILY_CANDIDATE")
-    verified = validate_batch({
+    validation_input = {
         "input_kind": KIND,
         "approval_scope": "ISOLATED_DEMO_ONLY",
         "expected_target": dict(TARGET),
         "reviewer_alias": "local-demo-operator",
         "approved_record_count": 1,
         "records": [candidate.record],
-    })[0]
+    }
+    if candidate.search_runs is not None:
+        validation_input["search_runs"] = candidate.search_runs
+    verified = validate_batch(validation_input)[0]
     if verified.title != candidate.title or verified.url != candidate.url:
         raise RegistrationBlocked("CANDIDATE_CHANGED_AFTER_REVIEW")
     validate_engine_target(engine)
@@ -285,6 +405,8 @@ def register_candidate(engine, candidate):
         "discovery_method": candidate.record["discovery_method"],
         "original_ai_source_url": candidate.record.get("original_ai_source_url"),
         "original_failure": candidate.record.get("original_failure"),
+        **{key: candidate.record[key] for key in _PROVENANCE_FIELDS
+           if key in candidate.record},
         "source_review": candidate.record["source_review"],
         "review_note": candidate.record["review_note"],
         "operator_approved": candidate.record["operator_approved"],

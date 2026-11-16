@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime
 from typing import TextIO
@@ -17,6 +18,7 @@ from .demo_search import (
     build_demo_plan,
     run_demo_preview,
 )
+from .draft_export import DraftExportError, reserve_draft
 
 
 def main(
@@ -30,6 +32,7 @@ def main(
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
     confirmation_accepted = False
+    preview = None
     try:
         args = list(sys.argv[1:] if argv is None else argv)
         if args == ["--check-readiness"]:
@@ -43,12 +46,18 @@ def main(
                 "available_profiles": list(PROFILE_SCOPES),
             }) + "\n")
             return 1
+        tail = args[2:]
+        draft_directory = None
+        if len(tail) >= 2 and tail[-2] == "--draft-dir":
+            draft_directory = tail[-1]
+            tail = tail[:-2]
         if (
             len(args) < 2 or args[0] != "--profile"
             or args[1] not in PROFILE_SCOPES
-            or args[2:] not in (
+            or tail not in (
                 [], ["--execute-live"], ["--execute-live", "--review-local"],
             )
+            or (draft_directory is not None and "--execute-live" not in tail)
         ):
             return _diagnostic(stderr, "BLOCKED_CONFIG", "INVALID_ARGUMENTS")
         if execution_at is not None and not isinstance(
@@ -58,7 +67,7 @@ def main(
         plan = build_demo_plan(
             config=DemoSearchConfig(profile=args[1]), execution_at=execution_at,
         )
-        if len(args) == 2:
+        if not tail:
             result = asdict(plan)
             result["start_date"] = plan.start_date.isoformat()
             result["end_date"] = plan.end_date.isoformat()
@@ -79,12 +88,23 @@ def main(
         if confirmation != CONFIRMATION_PHRASE:
             return _diagnostic(stderr, "LIVE_NOT_AUTHORIZED", "CONFIRMATION_FAILED")
         confirmation_accepted = True
-        preview = run_demo_preview(
-            plan=plan, execute_live=True, interactive=True,
-            confirmation=confirmation, api_key=os.environ.get("OPENAI_API_KEY"),
-            http_transport=http_transport,
-        )
+        api_key = os.environ.get("OPENAI_API_KEY")
+        draft_metadata = {}
+        destination = (reserve_draft(draft_directory) if draft_directory is not None
+                       else nullcontext(None))
+        with destination as target:
+            preview = run_demo_preview(
+                plan=plan, execute_live=True, interactive=True,
+                confirmation=confirmation, api_key=api_key,
+                http_transport=http_transport,
+            )
+            if target is not None:
+                draft_metadata = target.save(
+                    preview, profile=plan.config.profile,
+                    private_texts=(api_key, plan.input_text),
+                )
         visible = dict(preview)
+        visible.update(draft_metadata)
         material = visible.pop("review_only_candidates", [])
         visible["review_only_candidate_count"] = len(material)
         if "--review-local" in args:
@@ -94,6 +114,11 @@ def main(
             "PREVIEW_READY", "PARTIAL_PREVIEW_READY", "EMPTY_RESULT",
             "NO_VALID_CANDIDATES",
         } else 1
+    except DraftExportError as error:
+        return _diagnostic(
+            stderr, "DRAFT_EXPORT_FAILED", error.code,
+            search_execution=preview.get("search_execution") if preview else None,
+        )
     except (EOFError, KeyboardInterrupt):
         if confirmation_accepted:
             return _diagnostic(
