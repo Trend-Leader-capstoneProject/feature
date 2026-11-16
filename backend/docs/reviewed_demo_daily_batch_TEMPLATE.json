@@ -1,0 +1,25 @@
+{
+  "input_kind": "REVIEWED_DEMO_DAILY_BATCH",
+  "approval_scope": "ISOLATED_DEMO_ONLY",
+  "expected_target": {
+    "host": "127.0.0.1",
+    "port": 3310,
+    "database": "trend_leader_demo_review_20261117",
+    "current_user": "trend_demo_review@%"
+  },
+  "reviewer_alias": "REPLACE_WITH_ACTUAL_OPERATOR_ALIAS",
+  "approved_record_count": 1,
+  "records": [
+    {
+      "title": "REPLACE_WITH_VERIFIED_TREND_TITLE",
+      "source_title": "REPLACE_WITH_VERIFIED_SOURCE_TITLE",
+      "source_url": "https://example.org/replace-with-real-source",
+      "parent_code": "FASHION",
+      "child_name": "의류",
+      "discovery_method": "MANUAL_WEB_REVIEW",
+      "source_review": "NOT_REVIEWED",
+      "review_note": "실제로 URL·원제목·핵심 주장을 확인한 뒤 작성",
+      "operator_approved": false
+    }
+  ]
+}
