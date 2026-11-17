@@ -16,7 +16,8 @@ EVIDENCE_INPUT = "MIGRATION_PREFLIGHT_EVIDENCE_DIR"
 REQUIRED_INPUTS = (DB_INPUTS - {"MIGRATION_DB_CONNECTION_TIMEOUT"}) | {EVIDENCE_INPUT}
 
 
-def audit_environment(environ: Mapping[str, str]) -> str | None:
+def audit_environment_conflicts(environ: Mapping[str, str]) -> str | None:
+    """Shared key-only exclusion, independent of CLI input requirements."""
     keys = [key.upper() for key in environ]
     for key in keys:
         if (
@@ -30,6 +31,13 @@ def audit_environment(environ: Mapping[str, str]) -> str | None:
     inputs = DB_INPUTS | {EVIDENCE_INPUT}
     if any(keys.count(key) > 1 for key in inputs):
         return "ENV_CONFLICT"
+    return None
+
+
+def audit_environment(environ: Mapping[str, str]) -> str | None:
+    reason = audit_environment_conflicts(environ)
+    if reason:
+        return reason
     normalized = {key.upper(): value for key, value in environ.items()}
     if any(not normalized.get(key, "").strip() for key in REQUIRED_INPUTS):
         return "SETTINGS_INVALID"

@@ -1,4 +1,4 @@
-"""Migration guard: exact B-2 preflight only; apply remains disabled."""
+"""Migration guard: B-2 preflight and fail-closed APPLY integration boundary."""
 
 from __future__ import annotations
 
@@ -41,6 +41,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args or args == ["deny"]:
         reason = DENY_DEFAULT
     elif args == ["apply"]:
+        # Internal integration lives in migration_apply; no operational trust
+        # adapter is approved. Preserve zero-I/O refusal without importing it.
         reason = MODE_NOT_ENABLED
     else:
         reason = INVALID_MODE
