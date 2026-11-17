@@ -206,7 +206,7 @@ DDL 암묵 COMMIT, 강제 단절 주입, Alembic 통합, A-2/Guard apply는 검�
 이번 수정에서는 Docker 이미지 빌드, AWS 접속, MariaDB 접속, pytest 수집/실행을 하지 않았다.
 위 로컬 B-2 의존성 확인은 이전 준비 단계의 증거다. 이번 리뷰 반영에서는 Docker를 호출하지 않았다.
 오프라인 launcher 회귀는 `python -m unittest discover -s tools/l2_lock -p test_launcher_offline.py -v`로
-13개 통과했다. subprocess는 전부 차단 또는 Mock 처리하여 Docker/DB/실제 Secret을 사용하지 않는다.
+15개 통과했다(사용자 로컬 실행 확인). subprocess는 전부 차단 또는 Mock 처리하여 Docker/DB/실제 Secret을 사용하지 않는다.
 Ruff 및 AST 구문 검사를 함께 수행했다. 이는 D-2 통합 PASS를 의미하지 않는다.
 
 근거: [L-2 확정안](Trend_Leader_Phase_3-B-2_M-A1_Design_Decision_v1.0_20261113.md).
