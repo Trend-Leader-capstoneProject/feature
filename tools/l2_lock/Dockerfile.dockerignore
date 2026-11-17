@@ -1,0 +1,10 @@
+**
+!backend/
+!backend/tests/
+!backend/tests/l2_lock/
+!backend/tests/l2_lock/test_connection_lock.py
+!backend/tests/l2_lock/pytest.ini
+!tools/
+!tools/l2_lock/
+!tools/l2_lock/Dockerfile
+!tools/l2_lock/Dockerfile.dockerignore
