@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, pool
+from sqlalchemy import Connection, create_engine, pool
 
 from alembic import context
 
@@ -57,13 +57,30 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def run_migrations_with_connection(connection: Connection) -> None:
+    """호출자가 소유한 Connection을 닫지 않고 migration에 전달한다."""
+    context.configure(
+        connection=connection,
+        transaction_per_migration=True,
+        **COMMON_CONTEXT_OPTIONS,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
     """
     실제 DB에 연결하여 migration을 실행한다.
 
     API 서버의 connection pool과 migration 실행을 분리하기 위해
-    Alembic 전용 Engine은 NullPool로 생성한다.
+    외부 Connection이 없을 때만 Alembic 전용 Engine을 NullPool로 생성한다.
     """
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        run_migrations_with_connection(connection)
+        return
+
     connectable = create_engine(
         settings.connection_url,
         poolclass=pool.NullPool,
@@ -75,14 +92,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            transaction_per_migration=True,
-            **COMMON_CONTEXT_OPTIONS,
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
+        run_migrations_with_connection(connection)
 
 
 if context.is_offline_mode():
