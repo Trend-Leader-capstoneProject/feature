@@ -1,9 +1,10 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
 import { useCategories } from "../../interest/hooks/useCategories";
 import { useUserInterests } from "../../interest/hooks/useUserInterests";
-import { colors, spacing, typography } from "../../../shared/constants";
+import { spacing, typography } from "../../../shared/constants";
 import {
   TrendCategoryFilter,
   type TrendCategorySelection,
@@ -25,6 +26,7 @@ export function PersonalizedTrendFilter({
   selectedRootCategoryId,
   onSelectionChange,
 }: PersonalizedTrendFilterProps) {
+  const { styles } = useStyles();
   const categoriesQuery = useCategories();
   const interestsQuery = useUserInterests();
 
@@ -90,7 +92,7 @@ export function PersonalizedTrendFilter({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   filterRegion: {
     marginHorizontal: -spacing.screenGutter,
   },
@@ -98,4 +100,4 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
   },
-});
+}));

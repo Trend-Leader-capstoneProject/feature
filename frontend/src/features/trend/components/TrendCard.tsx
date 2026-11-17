@@ -1,14 +1,8 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 
-import {
-  borders,
-  colors,
-  radius,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../../../shared/constants";
+import { borders, radius, spacing, textLineLimits, typography } from "../../../shared/constants";
 import type { TrendListItem } from "../types/trend";
 import { TrendCategoryChips } from "./TrendCategoryChips";
 import { TrendSourceSection } from "./TrendSourceSection";
@@ -43,6 +37,7 @@ export function TrendCard({
   trend,
   onOpenSource,
 }: TrendCardProps) {
+  const { styles } = useStyles();
   const [failedThumbnailUrl, setFailedThumbnailUrl] = useState<string | null>(
     null,
   );
@@ -100,7 +95,7 @@ export function TrendCard({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   card: {
     gap: spacing.space3,
     padding: spacing.space4,
@@ -147,4 +142,4 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
   },
-});
+}));

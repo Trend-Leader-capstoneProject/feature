@@ -1,5 +1,6 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useCallback, useState } from "react";
-import { Alert, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { AppStackParamList } from "../../../app/navigation/AppNavigator";
@@ -13,6 +14,7 @@ import { useMyProfile } from "../hooks/useMyProfile";
 import { useNavigationTransitionGuard } from "../hooks/useNavigationTransitionGuard";
 
 export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackParamList, "MyInfo">) {
+  const { styles } = useStyles();
   const profile = useMyProfile();
   const transition = useNavigationTransitionGuard(navigation);
   const { logout } = useAuth();
@@ -64,12 +66,12 @@ export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackPara
     {withdrawal && <WithdrawalModal onClose={() => setWithdrawal(false)} />}
   </ScreenContainer>;
 }
-const styles = StyleSheet.create({
-  container: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, backgroundColor: "white" },
+const useStyles = createThemedStyles((colors) => ({
+  container: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, backgroundColor: colors.backgroundSurface },
   scroll: { paddingBottom: 28 }, identity: { alignItems: "center", paddingTop: 32, paddingBottom: 34, gap: 24 },
-  plus: { position: "absolute", bottom: -8, right: -12, backgroundColor: "#C9C7FF", borderRadius: 24, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  plusText: { color: "#2E23DB", fontSize: 28 }, nicknameRow: { flexDirection: "row", alignItems: "center", gap: 22 },
-  nickname: { fontSize: 21, textDecorationLine: "underline", flexShrink: 1 }, change: { padding: 12, backgroundColor: "#CAC8FF", borderRadius: 8, minHeight: 48 },
-  blue: { color: "#3023DB", fontSize: 18 }, row: { borderTopWidth: 1, borderColor: "#DDD", minHeight: 58, justifyContent: "center", paddingHorizontal: 24 },
-  label: { fontSize: 18, color: "#111" },
-});
+  plus: { position: "absolute", bottom: -8, right: -12, backgroundColor: colors.backgroundBrandMuted, borderRadius: 24, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  plusText: { color: colors.textLink, fontSize: 28 }, nicknameRow: { flexDirection: "row", alignItems: "center", gap: 22 },
+  nickname: { color: colors.textPrimary, fontSize: 21, textDecorationLine: "underline", flexShrink: 1 }, change: { padding: 12, backgroundColor: colors.backgroundBrandMuted, borderRadius: 8, minHeight: 48 },
+  blue: { color: colors.textLink, fontSize: 18 }, row: { borderTopWidth: 1, borderColor: colors.dividerDefault, minHeight: 58, justifyContent: "center", paddingHorizontal: 24 },
+  label: { fontSize: 18, color: colors.textPrimary },
+}));

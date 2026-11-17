@@ -5,7 +5,8 @@ import { useAuth } from "../../src/app/providers/AuthProvider";
 import { AccountHeader } from "../../src/features/account/components/AccountHeader";
 import { ProfileEditorModal } from "../../src/features/account/components/ProfileEditorModal";
 import { MyInfoScreen } from "../../src/features/account/screens/MyInfoScreen";
-import { MyCommentsScreen, MyPostsScreen, AppSettingsScreen } from "../../src/features/account/screens/AccountPlaceholderScreens";
+import { MyCommentsScreen, MyPostsScreen } from "../../src/features/account/screens/AccountPlaceholderScreens";
+import { AppSettingsScreen } from "../../src/features/settings/screens/SettingsScreens";
 import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import * as api from "../../src/features/account/api/accountApi";
 import * as ImagePicker from "expo-image-picker";
@@ -116,7 +117,7 @@ test("내 정보는 글·댓글 메뉴와 사이드바 없이 메인 복귀와 �
     await emit("transitionEnd");
   }
   const callback = listener.mock.calls.find(([name]) => name === "hardwareBackPress")![1];
-  expect(callback({ type: "hardwareBackPress", timeStamp: 0 })).toBe(true);
+  await act(() => { expect(callback({ type: "hardwareBackPress", timeStamp: 0 })).toBe(true); });
   expect(mockNavigation.popTo).toHaveBeenCalledWith("Main");
   listener.mockRestore();
 });
@@ -132,7 +133,9 @@ test.each([MyPostsScreen, MyCommentsScreen])("목록은 조회 0건으로 오인
 });
 test("앱 설정 내용은 준비 화면이다", async () => {
   const view = await render(<AppSettingsScreen navigation={mockNavigation as never} route={{} as never} />);
-  expect(view.getByText("설정 기능을 준비 중입니다")).toBeTruthy();
+  expect(view.getByRole("radio", { name: "기기 설정 따르기" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "앱 정보" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "도움말 / 문의" })).toBeTruthy();
 });
 test("닉네임 처리 중에는 닫기·중복 저장을 막고 따로 저장한다", async () => {
   const onClose = jest.fn();

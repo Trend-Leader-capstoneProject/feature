@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert, Animated, Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions,
@@ -8,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppStackParamList } from "../../../app/navigation/AppNavigator";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
-import { colors } from "../../../shared/constants";
+
 import { useMyProfile } from "../hooks/useMyProfile";
 import { ProtectedAvatar } from "./ProtectedAvatar";
 
@@ -18,6 +19,7 @@ type AccountHeaderProps = {
 };
 
 export function AccountHeader({ onBack, backDisabled = false }: AccountHeaderProps) {
+  const { styles } = useStyles();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [open, setOpen] = useState(false);
   const { width } = useWindowDimensions();
@@ -68,17 +70,17 @@ export function AccountHeader({ onBack, backDisabled = false }: AccountHeaderPro
     </Modal>}
   </>;
 }
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   header: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderBottomWidth: 1, borderColor: colors.dividerDefault },
   icon: { minWidth: 48, minHeight: 48, justifyContent: "center", alignItems: "center" },
-  blue: { color: "#3324DB", fontSize: 28 },
+  blue: { color: colors.textLink, fontSize: 28 },
   disabledIcon: { opacity: 0.4 },
-  logoImage: { width: 48, height: 48 },
-  settingsIcon: { width: 28, height: 28 },
+  logoImage: { width: 48, height: 48, tintColor: colors.textBrand },
+  settingsIcon: { width: 28, height: 28, tintColor: colors.textLink },
   overlay: { flex: 1, backgroundColor: "#0006" },
-  drawer: { height: "100%", backgroundColor: "white" },
+  drawer: { height: "100%", backgroundColor: colors.backgroundSurface },
   identity: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 40, gap: 18 },
-  nickname: { fontSize: 18, flexShrink: 1, textDecorationLine: "underline" },
+  nickname: { color: colors.textPrimary, fontSize: 18, flexShrink: 1, textDecorationLine: "underline" },
   row: { paddingHorizontal: 28, minHeight: 64, justifyContent: "center", borderTopWidth: 1, borderColor: colors.dividerDefault },
-  label: { fontSize: 18, color: "#111" },
-});
+  label: { fontSize: 18, color: colors.textPrimary },
+}));

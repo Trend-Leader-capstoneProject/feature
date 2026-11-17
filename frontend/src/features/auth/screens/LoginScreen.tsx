@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import axios from "axios";
 import { useRef, useState } from "react";
 import {
@@ -6,7 +7,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -19,15 +19,7 @@ import type { AuthStackParamList } from "../../../app/navigation/AuthNavigator";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { appImages } from "../../../assets";
 import { PrimaryButton, ScreenContainer } from "../../../shared/components";
-import {
-  borders,
-  colors,
-  radius,
-  sizes,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../../../shared/constants";
+import { borders, radius, sizes, spacing, textLineLimits, typography } from "../../../shared/constants";
 import { useLogin } from "../hooks/useLogin";
 
 type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, "Login">;
@@ -118,6 +110,7 @@ function getLoginErrorPresentation(error: unknown): LoginErrorPresentation {
 }
 
 export function LoginScreen({ navigation }: LoginScreenProps) {
+  const { styles, colors, scheme } = useStyles();
   const { establishSession } = useAuth();
 
   const loginMutation = useLogin(establishSession);
@@ -221,7 +214,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>아이디</Text>
 
-              <TextInput
+              <TextInput keyboardAppearance={scheme}
                 accessibilityLabel="아이디"
                 autoCapitalize="none"
                 autoComplete="username"
@@ -249,7 +242,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
               <Text style={styles.label}>비밀번호</Text>
 
               <View style={styles.passwordInputWrapper}>
-                <TextInput
+                <TextInput keyboardAppearance={scheme}
                   ref={passwordInputRef}
                   accessibilityLabel="비밀번호"
                   autoCapitalize="none"
@@ -339,7 +332,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   keyboardAvoidingView: {
     flex: 1,
   },
@@ -353,6 +346,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.space10,
   },
   logo: {
+    tintColor: colors.textBrand,
     width: 112,
     height: 112,
   },
@@ -445,4 +439,4 @@ const styles = StyleSheet.create({
     ...typography.bodyStrong,
     color: colors.textLink,
   },
-});
+}));

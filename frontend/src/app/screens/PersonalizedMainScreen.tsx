@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../shared/theme/createThemedStyles";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -7,7 +8,6 @@ import {
   Alert,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
@@ -32,13 +32,7 @@ import {
   ScreenContainer,
 } from "../../shared/components";
 
-import {
-  colors,
-  radius,
-  sizes,
-  spacing,
-  typography,
-} from "../../shared/constants";
+import { radius, sizes, spacing, typography } from "../../shared/constants";
 
 import type { AppStackParamList } from "../navigation/AppNavigator";
 
@@ -56,6 +50,7 @@ type PersonalizedMainScreenProps = NativeStackScreenProps<
 export function PersonalizedMainScreen({
   navigation,
 }: PersonalizedMainScreenProps) {
+  const { styles } = useStyles();
   const { authState, logout, revalidateSession } = useAuth();
   const { data: profile } = useMyProfile();
 
@@ -438,7 +433,7 @@ function renderHomeHeader() {
 }
 
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   // 1. 홈 상단 헤더
   header: {
     gap: spacing.space2,
@@ -557,4 +552,4 @@ const styles = StyleSheet.create({
     gap: spacing.itemGap,
     paddingBottom: spacing.screenBottomSpacing,
   },
-});
+}));

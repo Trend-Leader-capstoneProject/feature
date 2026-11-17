@@ -1,12 +1,14 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import axios from "axios";
 import { useRef, useState } from "react";
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { getErrorReason } from "../../../shared/api/authenticatedApiClient";
 import { getAuthEpoch } from "../../../shared/handler/authRequestGate";
 import { useAccountActions } from "../hooks/useAccountActions";
 
 export function WithdrawalModal({ onClose }: { onClose: () => void }) {
+  const { styles, colors, scheme } = useStyles();
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [unknown, setUnknown] = useState(false);
@@ -52,18 +54,18 @@ export function WithdrawalModal({ onClose }: { onClose: () => void }) {
   return <Modal visible transparent animationType="fade" onRequestClose={close}>
     <View style={styles.overlay}><View style={styles.card} accessibilityViewIsModal>
       <Text accessibilityRole="header" style={styles.title}>회원 탈퇴</Text>
-      <Text>현재 비밀번호를 확인한 뒤 최종 탈퇴를 진행합니다.</Text>
-      <TextInput accessibilityLabel="탈퇴 현재 비밀번호" secureTextEntry value={password} onChangeText={setPassword} editable={!pending && !unknown} autoCapitalize="none" style={styles.input} />
+      <Text style={{ color: colors.textPrimary }}>현재 비밀번호를 확인한 뒤 최종 탈퇴를 진행합니다.</Text>
+      <TextInput keyboardAppearance={scheme} placeholderTextColor={colors.textSecondary} accessibilityLabel="탈퇴 현재 비밀번호" secureTextEntry value={password} onChangeText={setPassword} editable={!pending && !unknown} autoCapitalize="none" style={styles.input} />
       {!!message && <Text accessibilityLiveRegion="polite" style={styles.message}>{message}</Text>}
-      {unknown ? <Pressable accessibilityRole="button" style={styles.button} onPress={() => { setPassword(""); void clearLocalSession().catch(() => undefined); }}><Text>로그인 화면에서 확인</Text></Pressable> :
-        <Pressable accessibilityRole="button" disabled={pending || !password} style={styles.button} onPress={() => void verify()}><Text>{pending ? "처리 중…" : "비밀번호 확인"}</Text></Pressable>}
-      <Pressable accessibilityRole="button" disabled={pending} style={styles.button} onPress={close}><Text>취소</Text></Pressable>
+      {unknown ? <Pressable accessibilityRole="button" style={styles.button} onPress={() => { setPassword(""); void clearLocalSession().catch(() => undefined); }}><Text style={{ color: colors.textPrimary }}>로그인 화면에서 확인</Text></Pressable> :
+        <Pressable accessibilityRole="button" disabled={pending || !password} style={styles.button} onPress={() => void verify()}><Text style={{ color: colors.textPrimary }}>{pending ? "처리 중…" : "비밀번호 확인"}</Text></Pressable>}
+      <Pressable accessibilityRole="button" disabled={pending} style={styles.button} onPress={close}><Text style={{ color: colors.textPrimary }}>취소</Text></Pressable>
     </View></View>
   </Modal>;
 }
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0007", padding: 24 },
-  card: { padding: 24, borderRadius: 12, backgroundColor: "white", width: "100%", maxWidth: 420, gap: 16 },
-  title: { fontSize: 22, fontWeight: "700" }, input: { borderWidth: 1, borderColor: "#AAA", minHeight: 48, padding: 12, borderRadius: 8 },
-  message: { color: "#A62828", lineHeight: 22 }, button: { minHeight: 48, alignItems: "center", justifyContent: "center" },
-});
+  card: { padding: 24, borderRadius: 12, backgroundColor: colors.backgroundSurface, width: "100%", maxWidth: 420, gap: 16 },
+  title: { color: colors.textPrimary, fontSize: 22, fontWeight: "700" }, input: { color: colors.textPrimary, borderWidth: 1, borderColor: colors.borderStrong, minHeight: 48, padding: 12, borderRadius: 8 },
+  message: { color: colors.statusNegative, lineHeight: 22 }, button: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+}));

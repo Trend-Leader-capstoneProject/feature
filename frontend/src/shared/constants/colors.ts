@@ -81,3 +81,22 @@ export const colors = {
 } as const;
 
 export type ColorToken = keyof typeof colors;
+export type ThemeColors = Record<ColorToken, string>;
+export const darkColors: ThemeColors = {
+  backgroundCanvas: "#14151B", backgroundSurface: "#1E2029", backgroundSubtle: "#292C38",
+  backgroundSelected: "#303959", backgroundBrandMuted: "#414A75", backgroundSignal: "#FFDD55",
+  backgroundDisabled: "#292C38",
+  textPrimary: "#F1F2F7", textSecondary: "#B3B7C6", textStrongSecondary: "#D5D8E3",
+  textDisabled: "#858C9E", textInverse: "#FFFFFF", textBrand: "#BBC5FF", textLink: "#BBC5FF",
+  textOnPrimary: "#171612", textOnSignal: "#171612",
+  borderDefault: "#3B4050", borderStrong: "#596176", borderSelected: "#AEBBFF",
+  borderError: "#FFAEA5", dividerDefault: "#3B4050", focusRing: "#C0CAFF",
+  actionPrimary: "#A8B5FF", actionPrimaryPressed: "#8E9DFF", actionPrimaryText: "#171612",
+  actionSecondary: "#1E2029", actionSecondaryText: "#BBC5FF",
+  actionDisabled: "#343846", actionDisabledText: "#9198AB",
+  statusPositive: "#8FE0BA", statusPositiveSubtle: "#163B2D",
+  statusNegative: "#FFAEA5", statusNegativeSubtle: "#492623",
+  statusWarning: "#FFD684", statusWarningSubtle: "#41351C",
+  statusInformation: "#9FCAFF", statusInformationSubtle: "#203851",
+  signalHighlight: "#FFDD55", signalHighlightSubtle: "#433A1B",
+};

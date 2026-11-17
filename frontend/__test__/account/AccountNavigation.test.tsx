@@ -57,7 +57,7 @@ test("설정에서 돌아온 뒤에도 내 정보 화살표와 전환 차단이 
     await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
     expect(navigation.getCurrentRoute()?.name).toBe("AppSettings");
     expect(view.getByRole("button", { name: "돌아가기" })).toBeDisabled();
-    await fireEvent(view.getByText("설정 기능을 준비 중입니다"), "appear", { nativeEvent: {} });
+    await fireEvent(view.getByText("선택한 테마는 이 기기에 저장됩니다."), "appear", { nativeEvent: {} });
     await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
     await waitFor(() => expect(navigation.getCurrentRoute()?.name).toBe("MyInfo"));
     expect(view.getByText("돌아갈프로필")).toBeTruthy();
@@ -68,4 +68,23 @@ test("설정에서 돌아온 뒤에도 내 정보 화살표와 전환 차단이 
   }
   await fireEvent.press(view.getByRole("button", { name: "메인으로 돌아가기" }));
   expect(navigation.getCurrentRoute()?.name).toBe("Main");
+});
+
+test("설정의 앱 정보·도움말에서도 전환 완료 후 설정과 홈으로 돌아온다", async () => {
+  const navigation = createNavigationContainerRef<AppStackParamList>();
+  const view = await render(<NavigationContainer ref={navigation}><AppNavigator /></NavigationContainer>);
+  await waitFor(() => expect(navigation.isReady()).toBe(true));
+  for (const [label, route] of [["앱 정보", "AppInfo"], ["도움말 / 문의", "HelpSupport"]] as const) {
+    await act(() => navigation.navigate("AppSettings"));
+    await fireEvent(view.getByRole("header", { name: "앱 설정" }), "appear", { nativeEvent: {} });
+    await fireEvent.press(view.getByRole("button", { name: label }));
+    expect(navigation.getCurrentRoute()?.name).toBe(route);
+    expect(view.getByRole("button", { name: "돌아가기" })).toBeDisabled();
+    await fireEvent(view.getByRole("header", { name: label }), "appear", { nativeEvent: {} });
+    await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
+    expect(navigation.getCurrentRoute()?.name).toBe("AppSettings");
+    await fireEvent(view.getByRole("header", { name: "앱 설정" }), "appear", { nativeEvent: {} });
+    await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
+    expect(navigation.getCurrentRoute()?.name).toBe("Main");
+  }
 });

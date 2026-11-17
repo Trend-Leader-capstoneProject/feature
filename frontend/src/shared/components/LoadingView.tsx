@@ -1,17 +1,13 @@
+import { createThemedStyles } from "../theme/createThemedStyles";
 import {
   ActivityIndicator,
-  StyleSheet,
   Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 
-import {
-  colors,
-  spacing,
-  typography,
-} from "../constants";
+import { spacing, typography } from "../constants";
 
 export type LoadingViewProps = {
   accessibilityLabel?: string;
@@ -24,6 +20,7 @@ export function LoadingView({
   message,
   style,
 }: LoadingViewProps) {
+  const { styles, colors } = useStyles();
   const resolvedAccessibilityLabel =
     accessibilityLabel ??
     message ??
@@ -51,7 +48,7 @@ export function LoadingView({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     alignItems: "center",
     justifyContent: "center",
@@ -64,4 +61,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
   },
-});
+}));

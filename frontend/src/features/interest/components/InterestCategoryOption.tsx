@@ -1,20 +1,13 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import {
   Image,
   Pressable,
-  StyleSheet,
   Text,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 
-import {
-  borders,
-  colors,
-  radius,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../../../shared/constants";
+import { borders, radius, spacing, textLineLimits, typography } from "../../../shared/constants";
 import { interestCategoryIcons } from "../constants/interestCategoryIcons";
 import type { CategoryItem } from "../types/category";
 
@@ -36,6 +29,7 @@ export function InterestCategoryOption({
   selected,
   style,
 }: InterestCategoryOptionProps) {
+  const { styles } = useStyles();
   const accessibilityHint = disabled
     ? "현재는 관심 분야 선택을 변경할 수 없습니다."
     : selected
@@ -108,7 +102,7 @@ export function InterestCategoryOption({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   option: {
     minHeight: 156,
     alignItems: "center",
@@ -154,4 +148,4 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: colors.textBrand,
   },
-});
+}));

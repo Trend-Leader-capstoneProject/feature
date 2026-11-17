@@ -1,5 +1,7 @@
 import {
   NavigationContainer,
+  DefaultTheme,
+  DarkTheme,
 } from "@react-navigation/native";
 
 import {
@@ -21,7 +23,16 @@ import {
   OnboardingNavigator,
 } from "./OnboardingNavigator";
 
+import { useAppTheme } from "../../shared/theme/ThemeProvider";
+
 export function RootNavigator() {
+  const { colors, scheme } = useAppTheme();
+  const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
+  const navigationTheme = { ...baseTheme, colors: { ...baseTheme.colors,
+    primary: colors.textBrand, background: colors.backgroundCanvas,
+    card: colors.backgroundSurface, text: colors.textPrimary,
+    border: colors.borderDefault, notification: colors.statusNegative,
+  } };
   const {
     authState,
   } = useAuth();
@@ -41,7 +52,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navigationTheme}>
       {authState.status ===
       "UNAUTHENTICATED" ? (
         <AuthNavigator />

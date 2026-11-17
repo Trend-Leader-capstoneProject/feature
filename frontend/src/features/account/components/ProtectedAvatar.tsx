@@ -1,9 +1,11 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useQuery } from "@tanstack/react-query";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, View } from "react-native";
 import { getAuthEpoch } from "../../../shared/handler/authRequestGate";
 import { getProtectedPhoto } from "../api/accountApi";
 
 export function ProtectedAvatar({ url, size = 80 }: { url: string | null | undefined; size?: number }) {
+  const { styles } = useStyles();
   const image = useQuery({
     queryKey: ["protected-photo", getAuthEpoch(), url], queryFn: () => getProtectedPhoto(url!),
     enabled: !!url, retry: false, gcTime: 0,
@@ -13,4 +15,4 @@ export function ProtectedAvatar({ url, size = 80 }: { url: string | null | undef
     {image.data && <Image source={{ uri: image.data }} style={{ width: size, height: size, borderRadius: size / 2 }} />}
   </View>;
 }
-const styles = StyleSheet.create({ circle: { backgroundColor: "#D9D9D9", overflow: "hidden" } });
+const useStyles = createThemedStyles((colors) => ({ circle: { backgroundColor: colors.backgroundDisabled, overflow: "hidden" } }));

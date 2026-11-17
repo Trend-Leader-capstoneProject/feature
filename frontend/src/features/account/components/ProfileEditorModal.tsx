@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useState } from "react";
 import {
   Alert, Image, KeyboardAvoidingView, Modal, Platform,
@@ -15,6 +16,7 @@ import type { Profile, SelectedPhoto } from "../types/account";
 export function ProfileEditorModal({ type, profile, onClose }: {
   type: "PHOTO" | "NICKNAME"; profile: Profile; onClose: () => void;
 }) {
+  const { styles, colors, scheme } = useStyles();
   const nickname = useNicknameDraft(profile.nickname, true);
   const write = useProfileWrite();
   const current = useMyProfile();
@@ -71,24 +73,24 @@ export function ProfileEditorModal({ type, profile, onClose }: {
               hitSlop={6} onPress={() => { setPhoto(null); setPhotoAction("RESET"); }} style={styles.actionButton} />
             <Text style={styles.helper}>정지 JPEG·PNG · 최대 5MB · 2,000만 화소</Text>
           </> : <>
-            <TextInput accessibilityLabel="새 닉네임" value={nickname.value} onChangeText={nickname.update} editable={!write.pending} autoCapitalize="none" autoCorrect={false} style={styles.input} />
+            <TextInput keyboardAppearance={scheme} placeholderTextColor={colors.textSecondary} accessibilityLabel="새 닉네임" value={nickname.value} onChangeText={nickname.update} editable={!write.pending} autoCapitalize="none" autoCorrect={false} style={styles.input} />
             <Text style={styles.helper}>2~10자 · 한글·영문·숫자·밑줄</Text>
             <PrimaryButton label={nickname.checking ? "확인 중…" : "중복 확인"}
               loading={nickname.checking} disabled={nickname.checking || write.pending}
               hitSlop={6} onPress={() => void nickname.check()} style={styles.actionButton} />
-            <Text accessibilityLiveRegion="polite">{nickname.feedback}</Text>
+            <Text style={{ color: colors.textPrimary }} accessibilityLiveRegion="polite">{nickname.feedback}</Text>
           </>}
           {!!selectionError && <Text style={styles.error}>{selectionError}</Text>}
           {!!write.message && <Text accessibilityLiveRegion="polite" style={styles.error}>{write.message}</Text>}
           {write.uncertain && <>
             {write.verified && <View style={styles.current}>
-              <Text>현재 서버 닉네임: {current.data?.nickname}</Text>
+              <Text style={{ color: colors.textPrimary }}>현재 서버 닉네임: {current.data?.nickname}</Text>
               <ProtectedAvatar url={current.data?.profile_image_url} size={48} />
             </View>}
-            <Pressable accessibilityRole="button" disabled={write.pending} onPress={() => void write.checkResult()} style={styles.secondary}><Text>저장 결과 확인</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={write.pending} onPress={() => void write.checkResult()} style={styles.secondary}><Text style={{ color: colors.textPrimary }}>저장 결과 확인</Text></Pressable>
           </>}
           <View style={styles.buttons}>
-            <Pressable accessibilityRole="button" disabled={write.pending} onPress={close} style={styles.secondary}><Text>취소</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={write.pending} onPress={close} style={styles.secondary}><Text style={{ color: colors.textPrimary }}>취소</Text></Pressable>
             <Pressable accessibilityRole="button" disabled={!canSave} onPress={() => void save()} style={[styles.save, !canSave && styles.disabled]}><Text style={styles.white}>{write.pending ? "처리 중…" : "저장"}</Text></Pressable>
           </View>
         </ScrollView>
@@ -96,19 +98,19 @@ export function ProfileEditorModal({ type, profile, onClose }: {
     </KeyboardAvoidingView>
   </Modal>;
 }
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   overlay: { flex: 1, backgroundColor: "#0007", justifyContent: "center", alignItems: "center", padding: 24 },
-  card: { width: "100%", maxWidth: 420, maxHeight: "85%", padding: 24, borderRadius: 14, backgroundColor: "white" },
-  title: { fontSize: 21, fontWeight: "700", marginBottom: 22 },
+  card: { width: "100%", maxWidth: 420, maxHeight: "85%", padding: 24, borderRadius: 14, backgroundColor: colors.backgroundSurface },
+  title: { color: colors.textPrimary, fontSize: 21, fontWeight: "700", marginBottom: 22 },
   preview: { alignItems: "center", marginBottom: 20 },
   photo: { width: 96, height: 96, borderRadius: 48 },
-  input: { minHeight: 48, borderWidth: 1, borderColor: "#AAA", borderRadius: 8, padding: 12 },
+  input: { color: colors.textPrimary, minHeight: 48, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 8, padding: 12 },
   secondary: { minHeight: 48, paddingHorizontal: 12, justifyContent: "center", alignItems: "center" },
   actionButton: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, marginVertical: 6 },
-  helper: { color: "#666", marginVertical: 8, lineHeight: 20 },
-  error: { color: "#A62828", marginVertical: 10, lineHeight: 22 },
+  helper: { color: colors.textSecondary, marginVertical: 8, lineHeight: 20 },
+  error: { color: colors.statusNegative, marginVertical: 10, lineHeight: 22 },
   buttons: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
-  save: { minHeight: 48, paddingHorizontal: 24, justifyContent: "center", backgroundColor: "#4031D8", borderRadius: 8 },
-  white: { color: "white", fontWeight: "600" },
+  save: { minHeight: 48, paddingHorizontal: 24, justifyContent: "center", backgroundColor: colors.actionPrimary, borderRadius: 8 },
+  white: { color: colors.actionPrimaryText, fontWeight: "600" },
   disabled: { opacity: .4 }, current: { gap: 10 },
-});
+}));

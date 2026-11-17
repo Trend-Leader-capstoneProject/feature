@@ -13,7 +13,8 @@ import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScree
 
 import { MyInfoScreen } from "../../features/account/screens/MyInfoScreen";
 import { PasswordChangeScreen } from "../../features/account/screens/PasswordChangeScreen";
-import { MyPostsScreen, MyCommentsScreen, AppSettingsScreen } from "../../features/account/screens/AccountPlaceholderScreens";
+import { MyPostsScreen, MyCommentsScreen } from "../../features/account/screens/AccountPlaceholderScreens";
+import { AppSettingsScreen, AppInfoScreen, HelpSupportScreen } from "../../features/settings/screens/SettingsScreens";
 
 export type AppStackParamList = {
   MyInfo: undefined;
@@ -21,6 +22,8 @@ export type AppStackParamList = {
   MyPosts: undefined;
   MyComments: undefined;
   AppSettings: undefined;
+  AppInfo: undefined;
+  HelpSupport: undefined;
   Main: undefined;
   InterestEdit: undefined;
   LatestTrend: undefined;
@@ -56,6 +59,8 @@ export function AppNavigator() {
       <Stack.Screen name="MyPosts" component={MyPostsScreen} />
       <Stack.Screen name="MyComments" component={MyCommentsScreen} />
       <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
+      <Stack.Screen name="AppInfo" component={AppInfoScreen} />
+      <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
     </Stack.Navigator>
   );
 }
