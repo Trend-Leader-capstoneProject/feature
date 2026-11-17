@@ -12,7 +12,12 @@ import { colors } from "../../../shared/constants";
 import { useMyProfile } from "../hooks/useMyProfile";
 import { ProtectedAvatar } from "./ProtectedAvatar";
 
-export function AccountHeader() {
+type AccountHeaderProps = {
+  onBack?: () => void;
+  backDisabled?: boolean;
+};
+
+export function AccountHeader({ onBack, backDisabled = false }: AccountHeaderProps) {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [open, setOpen] = useState(false);
   const { width } = useWindowDimensions();
@@ -35,11 +40,19 @@ export function AccountHeader() {
   function settings() { setOpen(false); navigation.navigate("AppSettings"); }
   return <>
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="사이드바 열기" onPress={() => setOpen(true)} style={styles.icon}><Text style={styles.blue}>☰</Text></Pressable>
+      {onBack ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="메인으로 돌아가기"
+          accessibilityState={{ disabled: backDisabled }} disabled={backDisabled}
+          onPress={onBack} style={[styles.icon, backDisabled && styles.disabledIcon]}>
+          <Text style={styles.blue}>←</Text>
+        </Pressable>
+      ) : (
+        <Pressable accessibilityRole="button" accessibilityLabel="사이드바 열기" onPress={() => setOpen(true)} style={styles.icon}><Text style={styles.blue}>☰</Text></Pressable>
+      )}
       <Image accessible accessibilityLabel="Trend Leader 로고" resizeMode="contain" source={appImages.trendLeaderLogo} style={styles.logoImage} />
       <Pressable accessibilityRole="button" accessibilityLabel="앱 설정" onPress={settings} style={styles.icon}><Image accessible={false} resizeMode="contain" source={appImages.settingsIcon} style={styles.settingsIcon} /></Pressable>
     </View>
-    <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+    {!onBack && <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}>
         <Pressable accessibilityRole="button" accessibilityLabel="사이드바 닫기" style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
         <Animated.View accessibilityViewIsModal style={[styles.drawer, { width: Math.min(width * .78, 360), paddingTop: insets.top, transform: [{ translateX: offset }] }]}>
@@ -52,13 +65,14 @@ export function AccountHeader() {
           <Pressable style={styles.row} accessibilityRole="button" onPress={confirmLogout}><Text style={styles.label}>로그아웃</Text></Pressable>
         </Animated.View>
       </View>
-    </Modal>
+    </Modal>}
   </>;
 }
 const styles = StyleSheet.create({
   header: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, borderBottomWidth: 1, borderColor: colors.dividerDefault },
   icon: { minWidth: 48, minHeight: 48, justifyContent: "center", alignItems: "center" },
   blue: { color: "#3324DB", fontSize: 28 },
+  disabledIcon: { opacity: 0.4 },
   logoImage: { width: 48, height: 48 },
   settingsIcon: { width: 28, height: 28 },
   overlay: { flex: 1, backgroundColor: "#0006" },

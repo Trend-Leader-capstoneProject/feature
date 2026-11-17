@@ -95,16 +95,19 @@ test("사이드바 로그아웃은 최종 확인 후 실행한다", async () => 
   await act(async () => alert.mock.calls[0][2][1].onPress());
   expect(logout).toHaveBeenCalledTimes(1);
 });
-test("내 정보의 메뉴와 기기 뒤로가기를 연결한다", async () => {
+test("내 정보는 글·댓글 메뉴와 사이드바 없이 메인 복귀와 계정 메뉴를 제공한다", async () => {
   const listener = jest.spyOn(BackHandler, "addEventListener");
   const view = await render(<MyInfoScreen navigation={mockNavigation as never} route={{} as never} />, { wrapper });
   const emit = async (event: string, data = { closing: false }) => {
     const callback = mockNavigation.addListener.mock.calls.find(([name]) => name === event)![1];
     await act(() => callback({ data }));
   };
+  expect(view.queryByRole("button", { name: "내 글 목록" })).toBeNull();
+  expect(view.queryByRole("button", { name: "내 댓글 목록" })).toBeNull();
+  expect(view.queryByRole("button", { name: "사이드바 열기" })).toBeNull();
+  expect(view.getByRole("button", { name: "메인으로 돌아가기" })).toBeTruthy();
   await emit("transitionEnd");
   for (const [label, route] of [
-    ["내 글 목록", "MyPosts"], ["내 댓글 목록", "MyComments"],
     ["비밀번호 변경", "PasswordChange"], ["관심사 재설정", "InterestEdit"],
   ]) {
     await fireEvent.press(view.getByRole("button", { name: label }));

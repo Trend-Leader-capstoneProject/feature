@@ -4,6 +4,7 @@ import {
   Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { PrimaryButton } from "../../../shared/components";
 import { resetPhoto, saveNickname, savePhoto } from "../api/accountApi";
 import { useNicknameDraft, normalizeNickname } from "../hooks/useNicknameDraft";
 import { useProfileWrite } from "../hooks/useProfileWrite";
@@ -64,13 +65,17 @@ export function ProfileEditorModal({ type, profile, onClose }: {
               {photoAction === "REPLACE" && photo ? <Image source={{ uri: photo.uri }} style={styles.photo} /> :
                 <ProtectedAvatar url={photoAction === "RESET" ? null : profile.profile_image_url} size={96} />}
             </View>
-            <Pressable accessibilityRole="button" disabled={write.pending} onPress={() => void pick()} style={styles.secondary}><Text>갤러리에서 사진 선택</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={write.pending} onPress={() => { setPhoto(null); setPhotoAction("RESET"); }} style={styles.secondary}><Text>기본 이미지로 되돌리기</Text></Pressable>
+            <PrimaryButton label="갤러리에서 사진 선택" disabled={write.pending}
+              hitSlop={6} onPress={() => void pick()} style={styles.actionButton} />
+            <PrimaryButton label="기본 이미지로 되돌리기" disabled={write.pending}
+              hitSlop={6} onPress={() => { setPhoto(null); setPhotoAction("RESET"); }} style={styles.actionButton} />
             <Text style={styles.helper}>정지 JPEG·PNG · 최대 5MB · 2,000만 화소</Text>
           </> : <>
             <TextInput accessibilityLabel="새 닉네임" value={nickname.value} onChangeText={nickname.update} editable={!write.pending} autoCapitalize="none" autoCorrect={false} style={styles.input} />
             <Text style={styles.helper}>2~10자 · 한글·영문·숫자·밑줄</Text>
-            <Pressable accessibilityRole="button" disabled={nickname.checking || write.pending} onPress={() => void nickname.check()} style={styles.secondary}><Text>{nickname.checking ? "확인 중…" : "중복 확인"}</Text></Pressable>
+            <PrimaryButton label={nickname.checking ? "확인 중…" : "중복 확인"}
+              loading={nickname.checking} disabled={nickname.checking || write.pending}
+              hitSlop={6} onPress={() => void nickname.check()} style={styles.actionButton} />
             <Text accessibilityLiveRegion="polite">{nickname.feedback}</Text>
           </>}
           {!!selectionError && <Text style={styles.error}>{selectionError}</Text>}
@@ -99,6 +104,7 @@ const styles = StyleSheet.create({
   photo: { width: 96, height: 96, borderRadius: 48 },
   input: { minHeight: 48, borderWidth: 1, borderColor: "#AAA", borderRadius: 8, padding: 12 },
   secondary: { minHeight: 48, paddingHorizontal: 12, justifyContent: "center", alignItems: "center" },
+  actionButton: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, marginVertical: 6 },
   helper: { color: "#666", marginVertical: 8, lineHeight: 20 },
   error: { color: "#A62828", marginVertical: 10, lineHeight: 22 },
   buttons: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },

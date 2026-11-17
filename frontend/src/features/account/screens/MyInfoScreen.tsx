@@ -18,14 +18,17 @@ export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackPara
   const { logout } = useAuth();
   const [editor, setEditor] = useState<"PHOTO" | "NICKNAME" | null>(null);
   const [withdrawal, setWithdrawal] = useState(false);
+  const goToMain = useCallback(() => {
+    transition.run(() => navigation.popTo("Main"));
+  }, [navigation, transition.run]);
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       // Native Modal이 열려 있으면 해당 onRequestClose가 먼저 처리한다.
-      transition.run(() => navigation.popTo("Main"));
+      goToMain();
       return true;
     });
     return () => subscription.remove();
-  }, [navigation, transition.run]));
+  }, [goToMain]));
   function confirmLogout() {
     Alert.alert("로그아웃할까요?", undefined, [
       { text: "취소", style: "cancel" },
@@ -33,15 +36,13 @@ export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackPara
     ]);
   }
   const rows = [
-    { title: "내 글 목록", navigates: true, action: () => navigation.navigate("MyPosts") },
-    { title: "내 댓글 목록", navigates: true, action: () => navigation.navigate("MyComments") },
     { title: "비밀번호 변경", navigates: true, action: () => navigation.navigate("PasswordChange") },
     { title: "관심사 재설정", navigates: true, action: () => navigation.navigate("InterestEdit") },
     { title: "로그아웃", action: confirmLogout },
     { title: "회원 탈퇴", action: () => setWithdrawal(true) },
   ];
   return <ScreenContainer contentStyle={styles.container}>
-    <AccountHeader />
+    <AccountHeader onBack={goToMain} backDisabled={transition.disabled} />
     <ScrollView contentContainerStyle={styles.scroll}>
       {profile.isPending ? <LoadingView message="내 정보를 불러오고 있습니다." /> :
         profile.isError ? <ErrorView title="내 정보를 불러오지 못했습니다." message="연결 상태를 확인하고 다시 시도해 주세요." onRetry={() => void profile.refetch()} /> :
