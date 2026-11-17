@@ -103,7 +103,10 @@ def _validate_record(record: object) -> tuple[str, str]:
 
     _require(not title.startswith("【DEMO】"), "REAL_MISLABELED")
     _require(_external_https(record.get("source_url")), "INVALID_SOURCE_URL")
-    _require(_text(record.get("review_evidence_id"), max_length=120), "G4_EVIDENCE_MISSING")
+    _require(
+        _text(record.get("review_evidence_id"), max_length=120),
+        "G4_EVIDENCE_MISSING",
+    )
     content_ref = record.get("content_ref")
     _require(
         isinstance(content_ref, str)
@@ -134,7 +137,7 @@ def _validate_record(record: object) -> tuple[str, str]:
 
 
 def inspect_manifest(data: object) -> dict[str, object]:
-    """Validate candidate declarations only; never certify approval or publishability."""
+    """Validate declarations without certifying approval or publication."""
     _require(isinstance(data, dict), "INVALID_MANIFEST")
     _require(set(data) <= {"schema", "profile_id", "approval_scope",
                             "g6_status", "batch_id", "records"},

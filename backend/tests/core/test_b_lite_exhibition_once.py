@@ -153,7 +153,9 @@ def test_cli_no_execute_option(capsys):
 
 def test_cli_read_only_result(tmp_path: Path, capsys):
     path = tmp_path / "review.json"
-    path.write_text(json.dumps(manifest(demo_record()), ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(manifest(demo_record()), ensure_ascii=False), encoding="utf-8"
+    )
     assert main(["--input", str(path)]) == 0
     outcome = json.loads(capsys.readouterr().out)
     assert outcome["status"] == "REVIEW_ONLY"
