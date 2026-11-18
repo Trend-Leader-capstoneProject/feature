@@ -67,7 +67,11 @@ beforeEach(() => {
   jest.mocked(api.savePhoto).mockResolvedValue({ ...profile, profile_image_url: "/api/users/1/profile-image/new.png" });
   jest.mocked(api.resetPhoto).mockResolvedValue(profile);
 });
-afterEach(() => { alert.mockRestore(); client.clear(); });
+afterEach(() => {
+  // Even when an assertion fails, restore BackHandler and other spies.
+  jest.restoreAllMocks();
+  client.clear();
+});
 function wrapper({ children }: React.PropsWithChildren) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
@@ -124,10 +128,8 @@ test("내 정보 설정 버튼은 native 전환 완료 전 차단하고 복귀 �
 
   await emit("transitionEnd");
   expect(settings()).not.toBeDisabled();
-  await act(() => {
-    fireEvent.press(settings());
-    fireEvent.press(settings());
-  });
+  await fireEvent.press(settings());
+  await fireEvent.press(settings());
   expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
   expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings");
 
@@ -153,8 +155,13 @@ test("내 정보는 글·댓글 메뉴와 사이드바 없이 메인 복귀와 �
   const listener = jest.spyOn(BackHandler, "addEventListener");
   const view = await render(<MyInfoScreen navigation={mockNavigation as never} route={{} as never} />, { wrapper });
   const emit = async (event: string, data = { closing: false }) => {
-    const callback = mockNavigation.addListener.mock.calls.find(([name]) => name === event)![1];
-    await act(() => callback({ data }));
+    const listeners = mockNavigation.addListener.mock.calls
+      .filter(([name]) => name === event)
+      .map(([, callback]) => callback);
+    expect(listeners.length).toBeGreaterThan(0);
+    await act(() => {
+      for (const callback of listeners) callback({ data });
+    });
   };
   expect(view.queryByRole("button", { name: "내 글 목록" })).toBeNull();
   expect(view.queryByRole("button", { name: "내 댓글 목록" })).toBeNull();
@@ -184,7 +191,7 @@ test.each([MyPostsScreen, MyCommentsScreen])("목록은 조회 0건으로 오인
   await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
   expect(mockNavigation.goBack).toHaveBeenCalledTimes(1);
 });
-test("앱 설정 내용은 준비 화면이다", async () => {
+test("앱 설정은 화면 테마 및 앱 정보·도움말 진입점을 제공한다", async () => {
   const view = await render(<AppSettingsScreen navigation={mockNavigation as never} route={{} as never} />);
   expect(view.getByRole("radio", { name: "기기 설정 따르기" })).toBeTruthy();
   expect(view.getByRole("button", { name: "앱 정보" })).toBeTruthy();
