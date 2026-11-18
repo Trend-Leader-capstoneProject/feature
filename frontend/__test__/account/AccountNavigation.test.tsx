@@ -52,6 +52,9 @@ test("설정에서 돌아온 뒤에도 내 정보 화살표와 전환 차단이 
   const view = await render(<NavigationContainer ref={navigation}><AppNavigator /></NavigationContainer>);
   await waitFor(() => expect(navigation.isReady()).toBe(true));
   await act(() => navigation.navigate("MyInfo"));
+  expect(view.getByRole("button", { name: "앱 설정" })).toBeDisabled();
+  await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+  expect(navigation.getCurrentRoute()?.name).toBe("MyInfo");
   await fireEvent(view.getByText("돌아갈프로필"), "appear", { nativeEvent: {} });
   for (let i = 0; i < 5; i += 1) {
     await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
@@ -61,6 +64,9 @@ test("설정에서 돌아온 뒤에도 내 정보 화살표와 전환 차단이 
     await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
     await waitFor(() => expect(navigation.getCurrentRoute()?.name).toBe("MyInfo"));
     expect(view.getByText("돌아갈프로필")).toBeTruthy();
+    expect(view.getByRole("button", { name: "앱 설정" })).toBeDisabled();
+    await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+    expect(navigation.getCurrentRoute()?.name).toBe("MyInfo");
     expect(view.getByRole("button", { name: "메인으로 돌아가기" })).toBeDisabled();
     await fireEvent.press(view.getByRole("button", { name: "메인으로 돌아가기" }));
     expect(navigation.getCurrentRoute()?.name).toBe("MyInfo");
