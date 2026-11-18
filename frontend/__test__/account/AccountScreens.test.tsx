@@ -84,8 +84,61 @@ test("사이드바는 이름 대신 닉네임과 두 메뉴를 표시하고 내 
   expect(view.queryByText("알림")).toBeNull();
   await fireEvent.press(view.getByRole("button", { name: "내 정보" }));
   expect(mockNavigation.navigate).toHaveBeenCalledWith("MyInfo");
-  await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  // The previous screen must not navigate again before regaining focus.
+  await view.unmount();
+  const returned = await render(<AccountHeader />);
+  await fireEvent.press(returned.getByRole("button", { name: "앱 설정" }));
   expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings");
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(2);
+});
+
+test("사이드바 설정은 닫힌 뒤 한 번만 이동하고 연속 탭을 차단한다", async () => {
+  const view = await render(<AccountHeader />);
+  await fireEvent.press(view.getByRole("button", { name: "사이드바 열기" }));
+  const buttons = view.getAllByRole("button", { name: "앱 설정" });
+  expect(buttons).toHaveLength(2);
+  await fireEvent.press(buttons[1]);
+  await waitFor(() => expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings"));
+  expect(view.queryByRole("button", { name: "사이드바 닫기" })).toBeNull();
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+});
+
+test("내 정보 설정 버튼은 native 전환 완료 전 차단하고 복귀 후 다시 활성화한다", async () => {
+  const view = await render(<MyInfoScreen navigation={mockNavigation as never} route={{} as never} />, { wrapper });
+  const settings = () => view.getByRole("button", { name: "앱 설정" });
+  const emit = async (event: string) => {
+    const handlers = mockNavigation.addListener.mock.calls
+      .filter(([name]) => name === event)
+      .map(([, handler]) => handler);
+    await act(() => {
+      for (const handler of handlers) handler({ data: { closing: false } });
+    });
+  };
+
+  expect(settings()).toBeDisabled();
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).not.toHaveBeenCalled();
+
+  await emit("transitionEnd");
+  expect(settings()).not.toBeDisabled();
+  await act(() => {
+    fireEvent.press(settings());
+    fireEvent.press(settings());
+  });
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings");
+
+  await emit("focus");
+  expect(settings()).toBeDisabled();
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+
+  await emit("transitionEnd");
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(2);
 });
 test("사이드바 로그아웃은 최종 확인 후 실행한다", async () => {
   const view = await render(<AccountHeader />);
