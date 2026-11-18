@@ -50,8 +50,12 @@ export function AccountHeader({
   const navigateTo = useCallback((route: "MyInfo" | "AppSettings") => {
     if (dispatchedNavigation.current || !navigation.isFocused()) return;
     dispatchedNavigation.current = true;
-    if (route === "AppSettings" && onOpenSettings) onOpenSettings();
-    else navigation.navigate(route);
+    if (route === "AppSettings") {
+      if (onOpenSettings) onOpenSettings();
+      else navigation.navigate("AppSettings");
+    } else {
+      navigation.navigate("MyInfo");
+    }
   }, [navigation, onOpenSettings]);
 
   // Close the drawer in React before dispatching the next screen.
