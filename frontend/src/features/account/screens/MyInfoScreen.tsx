@@ -23,6 +23,9 @@ export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackPara
   const goToMain = useCallback(() => {
     transition.run(() => navigation.popTo("Main"));
   }, [navigation, transition.run]);
+  const openSettings = useCallback(() => {
+    transition.run(() => navigation.navigate("AppSettings"));
+  }, [navigation, transition.run]);
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       // Native Modal이 열려 있으면 해당 onRequestClose가 먼저 처리한다.
@@ -44,7 +47,12 @@ export function MyInfoScreen({ navigation }: NativeStackScreenProps<AppStackPara
     { title: "회원 탈퇴", action: () => setWithdrawal(true) },
   ];
   return <ScreenContainer contentStyle={styles.container}>
-    <AccountHeader onBack={goToMain} backDisabled={transition.disabled} />
+    <AccountHeader
+      onBack={goToMain}
+      backDisabled={transition.disabled}
+      onOpenSettings={openSettings}
+      settingsDisabled={transition.disabled}
+    />
     <ScrollView contentContainerStyle={styles.scroll}>
       {profile.isPending ? <LoadingView message="내 정보를 불러오고 있습니다." /> :
         profile.isError ? <ErrorView title="내 정보를 불러오지 못했습니다." message="연결 상태를 확인하고 다시 시도해 주세요." onRetry={() => void profile.refetch()} /> :
