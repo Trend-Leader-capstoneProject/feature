@@ -12,7 +12,7 @@ import sys
 from collections.abc import Iterable
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Connection, URL
+from sqlalchemy.engine import URL, Connection
 from sqlalchemy.pool import NullPool
 
 from scripts.ap3_writer_isolation import (
