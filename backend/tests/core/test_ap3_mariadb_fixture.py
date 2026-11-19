@@ -1,5 +1,9 @@
 """MariaDB fixture boundary tests; real MariaDB remains a local verification."""
 
+import sqlite3
+from contextlib import closing
+from dataclasses import replace
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -7,6 +11,12 @@ import pytest
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 
+from app.trend_collection.godot_release_collector import REPO, ReleaseEvidence
+from app.trend_collection.publication_policy import (
+    evaluate_release,
+    synthetic_fixture_decision,
+)
+from app.trend_collection.rule_first_preview import build_rule_first_preview
 from scripts.ap3_mariadb_fixture import (
     TARGET,
     FixtureFault,
@@ -114,3 +124,87 @@ def test_stage_invokes_fault_hook_after_each_map():
         _stage_items(conn, BATCH, after_item=hook)
     assert [call.args[1] for call in hook.call_args_list] == [0, 1]
     assert conn.execute.call_count == 10
+
+
+@pytest.mark.parametrize("change", ["profile", "primary", "summary", "digest", "dict"])
+def test_policy_rejects_modified_fixture_before_connection(journal, change):
+    decision = synthetic_fixture_decision()
+    if change == "profile":
+        decision = replace(decision, profile_id="AUTO-TREND-MVP")
+    elif change == "primary":
+        decision = replace(decision, snapshot=replace(decision.snapshot, is_primary=1))
+    elif change == "summary":
+        decision = replace(decision, snapshot=replace(decision.snapshot, summary="x"))
+    elif change == "digest":
+        decision = replace(
+            decision, snapshot=replace(decision.snapshot, source_key="x")
+        )
+    else:
+        decision = {"decision": "AUTO_ELIGIBLE"}
+    with patch("scripts.ap3_mariadb_fixture.create_engine") as factory:
+        with pytest.raises(RuntimeError, match="FIXTURE_POLICY_REJECTED"):
+            run_fixture(url(), journal, "policy", decision=decision)
+        factory.assert_not_called()
+
+
+def test_real_candidate_and_forged_eligibility_never_connect(journal):
+    now = datetime(2026, 11, 19, tzinfo=timezone.utc)
+    evidence = ReleaseEvidence(
+        1, "4.8-beta4", now, f"https://github.com/{REPO}/releases/tag/4.8-beta4", True,
+    )
+    decision = evaluate_release(evidence, now, build_rule_first_preview(evidence, now))
+    assert decision.decision == "DEFERRED"
+    with patch("scripts.ap3_mariadb_fixture.create_engine") as factory:
+        for candidate in (decision, replace(decision, decision="AUTO_ELIGIBLE")):
+            with pytest.raises(RuntimeError, match="FIXTURE_POLICY_REJECTED"):
+                run_fixture(url(), journal, "policy", decision=candidate)
+        factory.assert_not_called()
+
+
+def test_policy_stage_uses_snapshot_digest_and_no_replay(journal):
+    decision = synthetic_fixture_decision()
+    with (
+        patch("scripts.ap3_mariadb_fixture.create_engine") as factory,
+        patch("scripts.ap3_mariadb_fixture._verify_session") as session,
+        patch("scripts.ap3_mariadb_fixture._stage_policy_snapshot") as stage,
+        patch("scripts.ap3_mariadb_fixture._counts", side_effect=[(3, 3, 3)] * 2),
+    ):
+        conn = factory.return_value.connect.return_value.__enter__.return_value
+        conn.exec_driver_sql.return_value.scalar_one.side_effect = [1, 3]
+
+        def check_started(_conn, snapshot):
+            assert snapshot == decision.snapshot
+            with closing(sqlite3.connect(journal._path)) as db:
+                assert db.execute("SELECT digest, state FROM attempts").fetchall() == [
+                    (snapshot.content_digest, "STARTED"),
+                ]
+
+        stage.side_effect = check_started
+        assert run_fixture(url(), journal, "policy", decision=decision) == (
+            "POLICY_FIXTURE_COMMITTED"
+        )
+        session.assert_called_once_with(conn, (2, 2, 2))
+        conn.commit.assert_called_once()
+        with pytest.raises(JournalBlocked, match="JOURNAL_BATCH_ALREADY_ATTEMPTED"):
+            run_fixture(url(), journal, "policy", decision=decision)
+        factory.assert_called_once()
+        with closing(sqlite3.connect(journal._path)) as db:
+            assert db.execute("SELECT state FROM attempts").fetchall() == [
+                ("COMMITTED",),
+            ]
+
+
+def test_policy_stage_failure_rolls_back_without_commit(journal):
+    decision = synthetic_fixture_decision()
+    with (
+        patch("scripts.ap3_mariadb_fixture.create_engine") as factory,
+        patch("scripts.ap3_mariadb_fixture._verify_session"),
+        patch("scripts.ap3_mariadb_fixture._stage_policy_snapshot",
+              side_effect=RuntimeError),
+        patch("scripts.ap3_mariadb_fixture._counts", return_value=(2, 2, 2)),
+    ):
+        conn = factory.return_value.connect.return_value.__enter__.return_value
+        conn.exec_driver_sql.return_value.scalar_one.return_value = 1
+        assert run_fixture(url(), journal, "policy", decision=decision) == "HOLD"
+        conn.rollback.assert_called_once()
+        conn.commit.assert_not_called()

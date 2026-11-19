@@ -11,6 +11,8 @@ import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import URL
 
+from app.trend_collection.publication_policy import synthetic_fixture_decision
+from scripts.ap3_mariadb_fixture import _stage_policy_snapshot
 from scripts.ap3_writer_journal import JournalBlocked, SyntheticJournal
 from scripts.ap3_writer_transaction import (
     BATCH,
@@ -253,3 +255,31 @@ def test_operational_target_is_rejected_before_connect_or_claim(journal):
     assert run_synthetic_batch(engine, log) == "BLOCKED_NON_SYNTHETIC_TARGET"
     engine.connect.assert_not_called()
     assert state(path) == []
+
+
+def test_single_policy_snapshot_uses_existing_stage_sql(engine, journal):
+    log, _ = journal
+    assert run_synthetic_batch(engine, log) == "COMMITTED"
+    snapshot = synthetic_fixture_decision().snapshot
+    with engine.begin() as conn:
+        _stage_policy_snapshot(conn, snapshot)
+    assert counts(engine) == (3, 3, 3)
+    with engine.connect() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT title, summary, status, is_primary, external_id, source_key "
+            "FROM trends JOIN trend_sources USING (trend_id) "
+            "JOIN trend_category_map USING (trend_id) ORDER BY trend_id"
+        ).all()
+    assert rows[:2] == [
+        (item.title, None, "HIDDEN", 0, item.external_id, item.source_key)
+        for item in BATCH
+    ]
+    assert rows[2] == (snapshot.title, snapshot.summary, "HIDDEN", 1,
+                       snapshot.external_id, snapshot.source_key)
+
+
+def test_policy_snapshot_does_not_accept_missing_prior_fixture(engine):
+    with engine.begin() as conn:
+        with pytest.raises(RuntimeError, match="FIXTURE_BASELINE_MISMATCH"):
+            _stage_policy_snapshot(conn, synthetic_fixture_decision().snapshot)
+    assert counts(engine) == (0, 0, 0)
