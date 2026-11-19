@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Connection, URL
+from sqlalchemy.engine import URL, Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
 
