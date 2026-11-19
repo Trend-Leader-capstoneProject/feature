@@ -26,6 +26,9 @@ class JournalBlocked(RuntimeError):
 class SyntheticJournal:
     """Explicitly provisioned test journal; never auto-create on open."""
 
+    profile_id = PROFILE
+    target = TARGET
+
     def __init__(self, path: Path, journal_id: str) -> None:
         if not path.is_absolute() or not re.fullmatch(r"[a-f0-9]{32}", journal_id):
             raise JournalBlocked("JOURNAL_CONFIG_INVALID")
@@ -94,7 +97,7 @@ class SyntheticJournal:
                     "OR investigation_ref <> attempt_id "
                     "OR state NOT IN ('STARTED','COMMITTED','ROLLED_BACK',"
                     "'COMMIT_UNKNOWN') LIMIT 1",
-                    (PROFILE, POLICY, TARGET, MODE),
+                    (self.profile_id, POLICY, self.target, MODE),
                 ).fetchone():
                     raise JournalBlocked("JOURNAL_RECORD_MISMATCH")
                 yield conn
@@ -128,8 +131,8 @@ class SyntheticJournal:
                 raise JournalBlocked("JOURNAL_BATCH_ALREADY_ATTEMPTED")
             conn.execute(
                 "INSERT INTO attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'STARTED')",
-                (batch_id, digest, attempt_id, PROFILE, POLICY, TARGET, MODE,
-                 attempt_id),
+                (batch_id, digest, attempt_id, self.profile_id, POLICY,
+                 self.target, MODE, attempt_id),
             )
 
     def finish(

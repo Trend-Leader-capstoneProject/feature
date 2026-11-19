@@ -6,6 +6,7 @@ must independently verify target, privileges, journal protection and authority.
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -78,9 +79,17 @@ def _category_id(conn: Connection) -> int:
 def _stage_batch(conn: Connection) -> None:
     """Stage both fixture items, never commit or open another connection."""
     _verify_memory_database(conn)
+    _stage_items(conn, BATCH)
+
+
+def _stage_items(
+    conn: Connection, items: tuple[SyntheticItem, ...], *,
+    after_item: Callable[[Connection, int, int, int], None] | None = None,
+) -> None:
+    """Fixture SQL only; caller owns isolation guard and transaction."""
     category_id = _category_id(conn)
     fixture_at = FIXTURE_TIME.isoformat(sep=" ")
-    for item in BATCH:
+    for item in items:
         if conn.execute(text(
             "SELECT 1 FROM trend_sources WHERE platform = :platform "
             "AND (external_id = :external_id OR source_key = :source_key) LIMIT 1"
@@ -91,7 +100,7 @@ def _stage_batch(conn: Connection) -> None:
             "SELECT 1 FROM trends WHERE normalized_title = :title LIMIT 1"
         ), {"title": item.normalized_title}).first():
             raise FixtureBlocked("FIXTURE_TITLE_COLLISION")
-    for item in BATCH:
+    for index, item in enumerate(items):
         trend_id = conn.execute(text(
             "INSERT INTO trends (title, normalized_title, summary, thumbnail_url, "
             "status, first_collected_at, last_collected_at) "
@@ -110,6 +119,8 @@ def _stage_batch(conn: Connection) -> None:
             "INSERT INTO trend_category_map (trend_id, category_id, is_primary, "
             "created_at) VALUES (:id, :category, 0, :at)"
         ), {"id": trend_id, "category": category_id, "at": fixture_at})
+        if after_item is not None:
+            after_item(conn, index, trend_id, category_id)
 
 
 def run_synthetic_batch(engine: Engine, journal: SyntheticJournal) -> str:
