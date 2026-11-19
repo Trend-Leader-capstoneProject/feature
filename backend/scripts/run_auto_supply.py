@@ -22,7 +22,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.pool import NullPool
 
-from app.trend_collection.godot_release_collector import CollectionError
+from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.publication_policy import ContentSnapshot
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
@@ -405,6 +405,9 @@ def main() -> int:
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             result = run_writer(profile, envelope)
+    except RateLimited as exc:
+        result = {"status": "HOLD", "reason": "RATE_LIMITED",
+                  "retry_not_before": exc.retry_not_before}
     except (CollectionError, SupplyBlocked, JournalBlocked) as exc:
         result = {"status": "HOLD", "reason": str(exc)}
     except Exception:
