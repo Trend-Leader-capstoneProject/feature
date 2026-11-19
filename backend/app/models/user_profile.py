@@ -25,6 +25,7 @@ class UserProfile(Base):
 
     __tablename__ = "user_profiles"
     __table_args__ = (
+        UniqueConstraint("nickname_key", name="uq_user_profiles_nickname_key"),
         # 사용자 한 명당 하나의 프로필만 생성할 수 있다.
         UniqueConstraint(
             "user_id",
@@ -53,9 +54,13 @@ class UserProfile(Base):
     )
 
     nickname: Mapped[str] = mapped_column(
-        String(50),
+        String(10),
         nullable=False,
         comment="화면 표시용 닉네임",
+    )
+
+    nickname_key: Mapped[str] = mapped_column(
+        String(10, collation="utf8mb4_bin"), nullable=False
     )
 
     profile_image_url: Mapped[str | None] = mapped_column(

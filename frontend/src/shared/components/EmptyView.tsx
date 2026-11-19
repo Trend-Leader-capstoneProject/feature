@@ -1,16 +1,12 @@
+import { createThemedStyles } from "../theme/createThemedStyles";
 import {
-  StyleSheet,
   Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 
-import {
-  colors,
-  spacing,
-  typography,
-} from "../constants";
+import { spacing, typography } from "../constants";
 
 export type EmptyViewProps = {
   message?: string;
@@ -23,6 +19,7 @@ export function EmptyView({
   style,
   title,
 }: EmptyViewProps) {
+  const { styles } = useStyles();
   return (
     <View
       accessibilityLiveRegion="polite"
@@ -41,7 +38,7 @@ export function EmptyView({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     alignItems: "center",
     justifyContent: "center",
@@ -59,4 +56,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
   },
-});
+}));

@@ -137,6 +137,7 @@ describe("InterestSelectScreen auth session integration", () => {
       restoreSession: jest.fn(async (): Promise<void> => undefined),
       revalidateSession: revalidateSessionMock,
       completeInterestSelection: completeInterestSelectionMock,
+      clearLocalSession: jest.fn(async (): Promise<void> => undefined),
       logout: jest.fn(async (): Promise<void> => undefined),
     } as ReturnType<typeof useAuth>);
 

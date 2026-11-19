@@ -1,624 +1,80 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react-native";
-import type { PropsWithChildren } from "react";
-
+import {
+  deferred, loginB, mockStorage, renderAuth, resetHarness, serverPost, sessionB, storageDelete,
+} from "../helpers/authHarness";
+import { act, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
-import { AuthProvider, useAuth } from "../../src/app/providers/AuthProvider";
-import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
-import type {
-  LoginResponse,
-  SessionResponse,
-} from "../../src/features/auth/types/auth";
-import { getPersonalizedTrends } from "../../src/features/trend/api/getPersonalizedTrends";
-import { trendQueryKeys } from "../../src/features/trend/queryKeys";
-import { TrendListData } from "../../src/features/trend/types/trend";
-import {
-  registerAuthFailureHandler,
-  type AuthFailureHandler,
-} from "../../src/shared/handler/authFailureHandler";
-import {
-  allowAuthenticatedRequests,
-  blockAuthenticatedRequests,
-} from "../../src/shared/handler/authRequestGate";
-import {
-  deleteAccessToken,
-  getAccessToken,
-  saveAccessToken,
-} from "../../src/shared/storage/tokenStorage";
+import { notifyAuthFailure } from "../../src/shared/handler/authFailureHandler";
+import { areAuthenticatedRequestsBlocked } from "../../src/shared/handler/authRequestGate";
+import { AUTH_STORAGE_KEY } from "../../src/shared/storage/tokenStorage";
 
-jest.mock("../../src/features/auth/api/getAuthSession", () => ({
-  getAuthSession: jest.fn(),
-}));
 
-jest.mock("../../src/shared/storage/tokenStorage", () => ({
-  saveAccessToken: jest.fn(),
-  getAccessToken: jest.fn(),
-  deleteAccessToken: jest.fn(),
-}));
+beforeEach(resetHarness);
 
-jest.mock("../../src/shared/handler/authFailureHandler", () => ({
-  registerAuthFailureHandler: jest.fn(),
-}));
-
-jest.mock("../../src/shared/handler/authRequestGate", () => ({
-  allowAuthenticatedRequests: jest.fn(),
-  blockAuthenticatedRequests: jest.fn(),
-}));
-
-jest.mock("../../src/features/trend/api/getPersonalizedTrends", () => ({
-  getPersonalizedTrends: jest.fn(),
-}));
-
-const mockedGetPersonalizedTrends = jest.mocked(getPersonalizedTrends);
-
-const mockedGetAuthSession = jest.mocked(getAuthSession);
-
-const mockedGetAccessToken = jest.mocked(getAccessToken);
-
-const mockedSaveAccessToken = jest.mocked(saveAccessToken);
-
-const mockedDeleteAccessToken = jest.mocked(deleteAccessToken);
-
-const mockedRegisterAuthFailureHandler = jest.mocked(
-  registerAuthFailureHandler,
-);
-
-const mockedAllowAuthenticatedRequests = jest.mocked(
-  allowAuthenticatedRequests,
-);
-
-const mockedBlockAuthenticatedRequests = jest.mocked(
-  blockAuthenticatedRequests,
-);
-
-const MAIN_SESSION: SessionResponse = {
-  user: {
-    user_id: 1,
-    login_id: "user_a",
-    name: "사용자 A",
-    status: "ACTIVE",
-  },
-  has_selected_interests: true,
-  next_step: "MAIN",
-};
-
-const LOGIN_B_RESPONSE: LoginResponse = {
-  access_token: "TOKEN_B",
-  token_type: "Bearer",
-  user: {
-    user_id: 2,
-    login_id: "user_b",
-    name: "사용자 B",
-    status: "ACTIVE",
-  },
-  has_selected_interests: true,
-  next_step: "MAIN",
-};
-
-let registeredAuthFailureHandler: AuthFailureHandler | null = null;
-
-function createTestQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        gcTime: Infinity,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
+test("로그아웃 표시를 먼저 저장하고 서버 종료·기기/Cache 삭제를 완료한다", async () => {
+  const { result, client } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  client.setQueryData(["personalized"], "private A");
+  const mutation = client.getMutationCache().build(client, {
+    mutationFn: async (_variables: { current_password: string }) => null, gcTime: Infinity,
   });
-}
-
-function createWrapper(queryClient: QueryClient) {
-  return function TestWrapper({ children }: PropsWithChildren) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>{children}</AuthProvider>
-      </QueryClientProvider>
-    );
-  };
-}
-
-function createDeferredVoid() {
-  let resolve: (() => void) | null = null;
-
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = () => {
-      resolvePromise();
-    };
+  await mutation.execute({ current_password: "sensitive-old-input" });
+  expect(client.getMutationCache().getAll()).toHaveLength(1);
+  serverPost.mockImplementationOnce(async () => {
+    expect(JSON.parse(mockStorage.get(AUTH_STORAGE_KEY)!).phase).toBe("TERMINATING");
+    expect(areAuthenticatedRequestsBlocked()).toBe(true);
+    return { data: { data: null } };
   });
-
-  return {
-    promise,
-    resolve(): void {
-      if (!resolve) {
-        throw new Error("Deferred Promise가 초기화되지 않았습니다.");
-      }
-
-      resolve();
-    },
-  };
-}
-
-async function renderAuthenticatedProvider(queryClient: QueryClient) {
-  const rendered = await renderHook(() => useAuth(), {
-    wrapper: createWrapper(queryClient),
-  });
-
-  await waitFor(() => {
-    expect(rendered.result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: MAIN_SESSION,
-    });
-  });
-
-  await waitFor(() => {
-    expect(registeredAuthFailureHandler).not.toBeNull();
-  });
-
-  return rendered;
-}
-
-function clearTerminationMockCalls(): void {
-  mockedSaveAccessToken.mockClear();
-  mockedDeleteAccessToken.mockClear();
-
-  mockedAllowAuthenticatedRequests.mockClear();
-
-  mockedBlockAuthenticatedRequests.mockClear();
-}
-
-describe("AuthProvider session termination", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-
-    registeredAuthFailureHandler = null;
-
-    mockedGetAccessToken.mockResolvedValue("TOKEN_A");
-
-    mockedGetAuthSession.mockResolvedValue(MAIN_SESSION);
-
-    mockedSaveAccessToken.mockResolvedValue(undefined);
-
-    mockedDeleteAccessToken.mockResolvedValue(undefined);
-
-    mockedRegisterAuthFailureHandler.mockImplementation((handler) => {
-      registeredAuthFailureHandler = handler;
-
-      return () => {
-        if (registeredAuthFailureHandler === handler) {
-          registeredAuthFailureHandler = null;
-        }
-      };
-    });
-  });
-
-  test("수동 Logout은 Token과 Query Cache를 삭제하고 UNAUTHENTICATED가 된다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const sensitiveQueryKey = ["user", "profile"] as const;
-
-    queryClient.setQueryData(sensitiveQueryKey, {
-      userId: 1,
-    });
-
-    const cancelQueriesSpy = jest.spyOn(queryClient, "cancelQueries");
-
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    clearTerminationMockCalls();
-
-    cancelQueriesSpy.mockClear();
-
-    await act(async () => {
-      await result.current.logout();
-    });
-
-    expect(mockedBlockAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    expect(cancelQueriesSpy).toHaveBeenCalledTimes(1);
-
-    expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-
-    expect(queryClient.getQueryData(sensitiveQueryKey)).toBeUndefined();
-
-    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-
-    expect(mockedAllowAuthenticatedRequests).not.toHaveBeenCalled();
-  });
-
-  test("동시에 두 Auth Failure가 발생해도 Session Cleanup은 한 번만 실행한다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    clearTerminationMockCalls();
-
-    const deferredDelete = createDeferredVoid();
-
-    mockedDeleteAccessToken.mockImplementation(() => deferredDelete.promise);
-
-    const handler = registeredAuthFailureHandler;
-
-    if (!handler) {
-      throw new Error("Auth Failure Handler가 등록되지 않았습니다.");
-    }
-
-    const firstTermination = handler();
-
-    const secondTermination = handler();
-
-    await waitFor(() => {
-      expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-    });
-
-    expect(mockedBlockAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      deferredDelete.resolve();
-
-      await Promise.all([firstTermination, secondTermination]);
-    });
-
-    expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-
-    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-  });
-
-  test("401 강제 종료 중 Token 삭제 실패 시 안내를 한 번만 표시하고 재시도할 수 있다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    clearTerminationMockCalls();
-
-    const alertSpy = jest
-      .spyOn(Alert, "alert")
-      .mockImplementation(() => undefined);
-
-    mockedDeleteAccessToken
-      .mockRejectedValueOnce(new Error("SecureStore deletion failed"))
-      .mockResolvedValueOnce(undefined);
-
-    const handler = registeredAuthFailureHandler;
-
-    if (!handler) {
-      throw new Error("Auth Failure Handler가 등록되지 않았습니다.");
-    }
-
-    await act(async () => {
-      await Promise.all([handler(), handler()]);
-    });
-
-    expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-
-    expect(mockedAllowAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-
-    expect(result.current.authState.status).toBe("AUTHENTICATED");
-
-    const buttons = alertSpy.mock.calls[0]?.[2];
-
-    const retryButton = buttons?.find((button) => button.text === "다시 시도");
-
-    if (!retryButton?.onPress) {
-      throw new Error("재시도 버튼을 찾을 수 없습니다.");
-    }
-
-    retryButton.onPress();
-
-    await waitFor(() => {
-      expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-    });
-
-    expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(2);
-
-    alertSpy.mockRestore();
-  });
-
-  test("SecureStore Token 삭제가 실패하면 Session과 Cache를 유지하고 요청 Gate를 다시 연다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const sensitiveQueryKey = ["user", "profile"] as const;
-
-    const cachedUser = {
-      userId: 1,
-    };
-
-    queryClient.setQueryData(sensitiveQueryKey, cachedUser);
-
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    clearTerminationMockCalls();
-
-    const deletionError = new Error("SecureStore deletion failed");
-
-    mockedDeleteAccessToken.mockRejectedValue(deletionError);
-
-    let logoutError: unknown = null;
-
-    await act(async () => {
-      try {
-        await result.current.logout();
-      } catch (error) {
-        logoutError = error;
-      }
-    });
-
-    expect(logoutError).toBe(deletionError);
-
-    expect(mockedBlockAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    expect(mockedAllowAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    expect(queryClient.getQueryData(sensitiveQueryKey)).toEqual(cachedUser);
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: MAIN_SESSION,
-    });
-  });
-
-  test("기존 Session Cleanup 중 새 로그인에 성공하면 Cleanup 완료 후 새 Token을 저장한다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    clearTerminationMockCalls();
-
-    const deferredDelete = createDeferredVoid();
-
-    mockedDeleteAccessToken.mockImplementation(() => deferredDelete.promise);
-
-    const handler = registeredAuthFailureHandler;
-
-    if (!handler) {
-      throw new Error("Auth Failure Handler가 등록되지 않았습니다.");
-    }
-
-    const terminationPromise = handler();
-
-    await waitFor(() => {
-      expect(mockedDeleteAccessToken).toHaveBeenCalledTimes(1);
-    });
-
-    const establishPromise = result.current.establishSession(LOGIN_B_RESPONSE);
-
-    expect(mockedSaveAccessToken).not.toHaveBeenCalled();
-
-    await act(async () => {
-      deferredDelete.resolve();
-
-      await Promise.all([terminationPromise, establishPromise]);
-    });
-
-    expect(mockedSaveAccessToken).toHaveBeenCalledTimes(1);
-
-    expect(mockedSaveAccessToken).toHaveBeenCalledWith("TOKEN_B");
-
-    expect(mockedAllowAuthenticatedRequests).toHaveBeenCalledTimes(1);
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        user: LOGIN_B_RESPONSE.user,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-  });
-
-  test("사용자 A 로그아웃 후 사용자 B 로그인 시 Personalized Cache가 남지 않는다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const key20 = trendQueryKeys.personalizedList(20);
-    const key5 = trendQueryKeys.personalizedList(5);
-
-    // 1. 사용자 A의 기존 Personalized Cache
-    const userACache = {
-      pages: [
-        {
-          items: [],
-          next_cursor: "USER_A_CURSOR",
-          has_next: true,
-        },
-      ],
-      pageParams: [undefined],
-    };
-
-    // 서로 다른 limit을 가진 Cache를 준비한다.
-    queryClient.setQueryData(key20, userACache);
-    queryClient.setQueryData(key5, userACache);
-
-    // 2. 사용자 A 인증 Session 복원
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: MAIN_SESSION,
-    });
-
-    expect(queryClient.getQueryData(key20)).toEqual(userACache);
-
-    expect(queryClient.getQueryData(key5)).toEqual(userACache);
-
-    // 3. 사용자 A 로그아웃
-    await act(async () => {
-      await result.current.logout();
-    });
-
-    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-
-    // 기존 Personalized Cache 전체 삭제
-    expect(queryClient.getQueryData(key20)).toBeUndefined();
-    expect(queryClient.getQueryData(key5)).toBeUndefined();
-
-    expect(
-      queryClient.getQueryCache().findAll({
-        queryKey: trendQueryKeys.personalizedAll,
-      }),
-    ).toHaveLength(0);
-
-    // 4. 같은 Provider에서 사용자 B 로그인
-    await act(async () => {
-      await result.current.establishSession(LOGIN_B_RESPONSE);
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        user: LOGIN_B_RESPONSE.user,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-
-    // 5. B 로그인 직후 A의 Cache가 복원되지 않아야 한다.
-    expect(queryClient.getQueryData(key20)).toBeUndefined();
-    expect(queryClient.getQueryData(key5)).toBeUndefined();
-
-    expect(
-      queryClient.getQueryCache().findAll({
-        queryKey: trendQueryKeys.personalizedAll,
-      }),
-    ).toHaveLength(0);
-
-    // B의 Main 조회는 새 요청으로 시작해야 한다.
-  });
-
-  test("사용자 A의 늦은 Personalized 응답이 사용자 B의 Cache를 오염시키지 않는다", async () => {
-    const queryClient = createTestQueryClient();
-
-    const personalizedKey = trendQueryKeys.personalizedList(20);
-
-    const userAPage: TrendListData = {
-      items: [],
-      next_cursor: "USER_A_CURSOR",
-      has_next: true,
-    };
-
-    const userBPage: TrendListData = {
-      items: [],
-      next_cursor: "USER_B_CURSOR",
-      has_next: true,
-    };
-
-    // 사용자 A의 지연된 응답
-    let resolveUserAResponse!: (value: TrendListData) => void;
-
-    const userAResponse = new Promise<TrendListData>((resolve) => {
-      resolveUserAResponse = resolve;
-    });
-
-    let userARequestSignal: AbortSignal | undefined;
-
-    mockedGetPersonalizedTrends.mockReset();
-
-    mockedGetPersonalizedTrends
-      .mockImplementationOnce((_params, signal) => {
-        userARequestSignal = signal;
-
-        // 취소 신호를 무시하는 늦은 응답 재현
-        return userAResponse;
-      })
-      .mockResolvedValueOnce(userBPage);
-
-    // 실제 QueryClient의 Infinite Query를 사용한다.
-    function fetchPersonalized() {
-      return queryClient.fetchInfiniteQuery({
-        queryKey: personalizedKey,
-
-        queryFn: ({ pageParam, signal }) =>
-          getPersonalizedTrends(
-            {
-              cursor: pageParam,
-              limit: 20,
-            },
-            signal,
-          ),
-
-        initialPageParam: undefined as string | undefined,
-
-        getNextPageParam: (lastPage: TrendListData) =>
-          lastPage.has_next ? (lastPage.next_cursor ?? undefined) : undefined,
-
-        retry: false,
-      });
-    }
-
-    // 1. 사용자 A Session 활성화
-    const { result } = await renderAuthenticatedProvider(queryClient);
-
-    expect(result.current.authState.status).toBe("AUTHENTICATED");
-
-    // 2. 사용자 A의 Personalized 조회 시작
-    // 취소로 인한 Promise rejection은 처리해 둔다.
-    const userAQueryPromise = fetchPersonalized().catch(() => undefined);
-
-    await waitFor(() => {
-      expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(1);
-    });
-
-    expect(userARequestSignal?.aborted).toBe(false);
-
-    // 3. A의 요청이 진행 중인 상태에서 로그아웃
-    await act(async () => {
-      await result.current.logout();
-    });
-
-    expect(userARequestSignal?.aborted).toBe(true);
-
-    expect(queryClient.getQueryData(personalizedKey)).toBeUndefined();
-
-    expect(result.current.authState.status).toBe("UNAUTHENTICATED");
-
-    // 4. 사용자 B의 새 Session 수립
-    await act(async () => {
-      await result.current.establishSession(LOGIN_B_RESPONSE);
-    });
-
-    expect(result.current.authState).toEqual({
-      status: "AUTHENTICATED",
-      session: {
-        user: LOGIN_B_RESPONSE.user,
-        has_selected_interests: true,
-        next_step: "MAIN",
-      },
-    });
-
-    // 5. 동일한 Query Key로 B의 첫 페이지 조회
-    const userBData = await fetchPersonalized();
-
-    expect(userBData.pages).toEqual([userBPage]);
-
-    expect(userBData.pageParams).toEqual([undefined]);
-
-    expect(mockedGetPersonalizedTrends).toHaveBeenNthCalledWith(
-      2,
-      {
-        cursor: undefined,
-        limit: 20,
-      },
-      expect.any(AbortSignal),
-    );
-
-    // 6. 사용자 A의 취소된 응답이 뒤늦게 도착
-    await act(async () => {
-      resolveUserAResponse(userAPage);
-
-      await userAResponse;
-      await userAQueryPromise;
-    });
-
-    // 7. 사용자 B의 Cache가 유지되어야 한다.
-    expect(queryClient.getQueryData(personalizedKey)).toMatchObject({
-      pages: [userBPage],
-      pageParams: [undefined],
-    });
-
-    expect(mockedGetPersonalizedTrends).toHaveBeenCalledTimes(2);
-  });
+  await act(async () => result.current.logout());
+  expect(serverPost).toHaveBeenCalledWith("/auth/logout", { refresh_token: "refresh-A" });
+  expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+  expect(mockStorage.has(AUTH_STORAGE_KEY)).toBe(false);
+  expect(client.getQueryData(["personalized"])).toBeUndefined();
+  expect(client.getMutationCache().getAll()).toHaveLength(0);
+});
+test("서버 통신 실패도 로컬 삭제 성공 후 로그아웃하고 미확인을 알린다", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  serverPost.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => result.current.logout());
+  expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+  expect(mockStorage.has(AUTH_STORAGE_KEY)).toBe(false);
+  expect(alert).toHaveBeenCalledWith("기기에서 로그아웃했습니다", "서버의 로그인 종료는 확인하지 못했습니다.");
+  alert.mockRestore();
+});
+test("기기 삭제 실패는 보호 화면과 Gate를 차단하고 재시작 복구가 가능하다", async () => {
+  const { result, client } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  client.setQueryData(["private"], "old account");
+  storageDelete.mockRejectedValueOnce(new Error("delete failed"));
+  await act(async () => { await expect(result.current.clearLocalSession()).rejects.toThrow(); });
+  expect(result.current.authState).toEqual({ status: "RESTORE_ERROR", kind: "STORAGE" });
+  expect(areAuthenticatedRequestsBlocked()).toBe(true);
+  expect(client.getQueryData(["private"])).toBeUndefined();
+  expect(JSON.parse(mockStorage.get(AUTH_STORAGE_KEY)!).phase).toBe("TERMINATING");
+  await act(async () => result.current.restoreSession());
+  expect(result.current.authState.status).toBe("UNAUTHENTICATED");
+});
+test("동시 인증 실패 두 개는 하나의 로컬 정리 작업을 공유한다", async () => {
+  const { result } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  await act(async () => { notifyAuthFailure(); notifyAuthFailure(); });
+  await waitFor(() => expect(result.current.authState.status).toBe("UNAUTHENTICATED"));
+  expect(storageDelete.mock.calls.filter(([key]) => key === AUTH_STORAGE_KEY)).toHaveLength(1);
+});
+test("기존 종료가 끝난 뒤 새 계정 토큰을 저장한다", async () => {
+  const { result, client } = await renderAuth();
+  await waitFor(() => expect(result.current.authState.status).toBe("AUTHENTICATED"));
+  const stopped = deferred<{ data: { data: null } }>();
+  serverPost.mockReturnValueOnce(stopped.promise);
+  client.setQueryData(["private"], "A");
+  let logout!: Promise<void>;
+  let login!: Promise<void>;
+  await act(() => { logout = result.current.logout(); });
+  await waitFor(() => expect(serverPost).toHaveBeenCalled());
+  await act(() => { login = result.current.establishSession(loginB); });
+  await act(async () => { stopped.resolve({ data: { data: null } }); await logout; await login; });
+  expect(result.current.authState).toEqual({ status: "AUTHENTICATED", session: sessionB });
+  expect(JSON.parse(mockStorage.get(AUTH_STORAGE_KEY)!).access_token).toBe("access-B");
+  expect(client.getQueryData(["private"])).toBeUndefined();
 });

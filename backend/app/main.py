@@ -13,8 +13,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.exception_handler import register_exception_handlers
+from app.api.middleware.image_body_limit import ImageBodyLimitMiddleware
 from app.api.router import api_router, root_router
 from app.core.config import get_settings
+from app.services.maintenance import maintenance_lifespan
 
 settings = get_settings()
 
@@ -27,6 +29,7 @@ def create_app() -> FastAPI:
         설정이 완료된 FastAPI 애플리케이션
     """
     application = FastAPI(
+        lifespan=maintenance_lifespan(settings),
         title=settings.app_name,
         description=(
             "사용자의 관심사를 기반으로 맞춤형 트렌드를 제공하는 "
@@ -38,17 +41,21 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json",
     )
-    
+
     register_exception_handlers(
         application,
     )
-    
+
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    application.add_middleware(
+        ImageBodyLimitMiddleware, path=f"{settings.api_prefix}/users/me/profile-image"
     )
 
     # 서버 기본 진입점: GET /

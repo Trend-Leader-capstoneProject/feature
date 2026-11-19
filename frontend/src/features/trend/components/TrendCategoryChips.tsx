@@ -1,17 +1,11 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import {
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
 
-import {
-  borders,
-  colors,
-  radius,
-  spacing,
-  typography,
-} from "../../../shared/constants";
+import { borders, radius, spacing, typography } from "../../../shared/constants";
 import type {
   TrendCategoryItem,
 } from "../types/trend";
@@ -24,6 +18,7 @@ export interface TrendCategoryChipsProps {
 export function TrendCategoryChips({
   categories,
 }: TrendCategoryChipsProps) {
+  const { styles } = useStyles();
   if (categories.length === 0) {
     return null;
   }
@@ -57,7 +52,7 @@ export function TrendCategoryChips({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.space2,
   },
@@ -82,4 +77,4 @@ const styles = StyleSheet.create({
     color:
       colors.textStrongSecondary,
   },
-});
+}));

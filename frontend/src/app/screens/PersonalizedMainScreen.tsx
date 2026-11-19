@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../shared/theme/createThemedStyles";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -7,13 +8,15 @@ import {
   Alert,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
 } from "react-native";
 
 import { TrendCard } from "../../features/trend/components/TrendCard";
+import { PersonalizedTrendFilter } from "../../features/trend/components/PersonalizedTrendFilter";
+import { FilteredPersonalizedTrendList } from "../../features/trend/components/FilteredPersonalizedTrendList";
+import type { TrendCategorySelection } from "../../features/trend/components/TrendCategoryFilter";
 import { usePersonalizedTrends } from "../../features/trend/hooks/usePersonalizedTrends";
 import type {
   TrendListErrorData,
@@ -29,19 +32,15 @@ import {
   ScreenContainer,
 } from "../../shared/components";
 
-import {
-  colors,
-  radius,
-  sizes,
-  spacing,
-  typography,
-} from "../../shared/constants";
+import { radius, sizes, spacing, typography } from "../../shared/constants";
 
 import type { AppStackParamList } from "../navigation/AppNavigator";
 
 import { isAxiosError } from "axios";
 import type { CommonErrorResponse } from "../../shared/types/api";
 import { useAuth } from "../providers/AuthProvider";
+import { AccountHeader } from "../../features/account/components/AccountHeader";
+import { useMyProfile } from "../../features/account/hooks/useMyProfile";
 
 type PersonalizedMainScreenProps = NativeStackScreenProps<
   AppStackParamList,
@@ -51,7 +50,9 @@ type PersonalizedMainScreenProps = NativeStackScreenProps<
 export function PersonalizedMainScreen({
   navigation,
 }: PersonalizedMainScreenProps) {
+  const { styles } = useStyles();
   const { authState, logout, revalidateSession } = useAuth();
+  const { data: profile } = useMyProfile();
 
   const {
     data: trendData,
@@ -71,6 +72,14 @@ export function PersonalizedMainScreen({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+
+  function handleFilterSelection(selection: TrendCategorySelection): void {
+    setSelectedRootCategoryId(selection.rootCategoryId);
+    setSelectedCategoryId(selection.categoryId);
+  }
 
   const refreshInFlightRef = useRef(false);
 
@@ -142,12 +151,14 @@ export function PersonalizedMainScreen({
 
   const nextCursor = lastPage?.next_cursor ?? null;
 
-  const userName =
-    authState.status === "AUTHENTICATED" ? authState.session.user.name : null;
+  // AccountHeader and the personalized home should display the same nickname.
+  const userName = profile?.nickname ??
+    (authState.status === "AUTHENTICATED" ? authState.session.user.name : null);
 
   // 실제 맞춤 목록을 표시하는 상태에서만
   // 홈 헤더를 FlatList 내부에 배치한다.
   const isScrollableHome =
+    selectedCategoryId === null &&
     trends.length > 0 &&
     !isInterestsNotInitializedError &&
     !isInterestsNotAvailableError &&
@@ -278,106 +289,35 @@ export function PersonalizedMainScreen({
 
 function renderHomeHeader() {
   return (
-    <>
-      <View style={styles.header}>
-        <View style={styles.topBar} testID="home-top-bar">
-          <Text accessibilityRole="header" style={styles.title}>
-            Trend Leader
+    <View style={styles.personalizedSection} testID="home-personalized-section">
+      <View style={styles.actions} testID="home-quick-actions">
+        <View style={styles.sectionHeadingRow}>
+          <Text accessibilityRole="header" style={styles.personalizedSectionTitle}>
+            관심사 맞춤 트렌드
           </Text>
-
           <Pressable
-            accessibilityLabel="로그아웃"
+            accessibilityLabel="최신 트렌드 보기"
             accessibilityRole="button"
-            accessibilityState={{
-              busy: isLoggingOut,
-              disabled: isLoggingOut,
-            }}
-            disabled={isLoggingOut}
-            onPress={() => {
-              void handleLogout();
-            }}
-            style={({ pressed }) => [
-              styles.logoutButton,
-              pressed && !isLoggingOut && styles.secondaryPressed,
-            ]}
+            onPress={() => navigation.navigate("LatestTrend")}
+            style={styles.latestTrendButton}
           >
-            {isLoggingOut && (
-              <ActivityIndicator
-                color={colors.textSecondary}
-                size="small"
-              />
-            )}
-            <Text style={styles.logoutButtonText}>
-              로그아웃
-            </Text>
+            <Text style={styles.latestTrendText}>전체 최신 보기 ↗</Text>
           </Pressable>
         </View>
-
         <Text style={styles.description}>
           {userName
             ? `${userName}님, 관심 분야의 최신 흐름을 확인해 보세요.`
             : "관심 분야의 최신 흐름을 확인해 보세요."}
         </Text>
+        <PersonalizedTrendFilter
+          selectedCategoryId={selectedCategoryId}
+          selectedRootCategoryId={selectedRootCategoryId}
+          onSelectionChange={handleFilterSelection}
+        />
       </View>
-
-      <View
-        style={styles.personalizedSection}
-        testID="home-personalized-section"
-      >
-        <View
-          style={styles.actions}
-          testID="home-quick-actions"
-        >
-          {showStandardInterestEditAction && (
-            <View style={styles.sectionHeadingRow}>
-              <Text
-                accessibilityRole="header"
-                style={styles.personalizedSectionTitle}
-              >
-                관심사 맞춤 트렌드
-              </Text>
-
-              <Pressable
-                accessibilityLabel="관심사 수정하기"
-                accessibilityRole="button"
-                onPress={() => {
-                  navigation.navigate("InterestEdit");
-                }}
-                style={({ pressed }) => [
-                  styles.interestEditButton,
-                  pressed && styles.secondaryPressed,
-                ]}
-              >
-                <Text style={styles.interestEditText}>
-                  관심사 수정
-                </Text>
-              </Pressable>
-            </View>
-          )}
-
-          <View style={styles.latestActionRow}>
-            <Pressable
-              accessibilityLabel="최신 트렌드 보기"
-              accessibilityRole="button"
-              onPress={() => {
-                navigation.navigate("LatestTrend");
-              }}
-              style={({ pressed }) => [
-                styles.latestTrendButton,
-                pressed && styles.secondaryPressed,
-              ]}
-            >
-              <Text style={styles.latestTrendText}>
-                전체 최신 보기 ↗
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </>
+    </View>
   );
 }
-
   function renderContent() {
     // Phase 5-3A: 관심사 미초기화 시 Session 재검증 우선
 
@@ -424,6 +364,11 @@ function renderHomeHeader() {
           />
         </View>
       );
+    }
+
+    // An explicit category selection uses a separate cursor and query cache.
+    if (selectedCategoryId !== null) {
+      return <FilteredPersonalizedTrendList categoryId={selectedCategoryId} />;
     }
 
     // Phase 5-2A: 최초 Loading
@@ -479,6 +424,7 @@ function renderHomeHeader() {
 
   return (
     <ScreenContainer>
+      <AccountHeader />
       {!isScrollableHome && renderHomeHeader()}
 
       <View style={styles.contentRegion}>{renderContent()}</View>
@@ -487,7 +433,7 @@ function renderHomeHeader() {
 }
 
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   // 1. 홈 상단 헤더
   header: {
     gap: spacing.space2,
@@ -515,6 +461,7 @@ const styles = StyleSheet.create({
 
   // 2. 개인화 트렌드 섹션
   personalizedSection: {
+    marginTop: spacing.space4,
     marginBottom: spacing.space2,
   },
 
@@ -605,4 +552,4 @@ const styles = StyleSheet.create({
     gap: spacing.itemGap,
     paddingBottom: spacing.screenBottomSpacing,
   },
-});
+}));

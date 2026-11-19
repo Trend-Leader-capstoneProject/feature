@@ -1,6 +1,6 @@
+import { createThemedStyles } from "../theme/createThemedStyles";
 import type { PropsWithChildren } from "react";
 import {
-  StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
@@ -10,10 +10,7 @@ import {
   type Edge,
 } from "react-native-safe-area-context";
 
-import {
-  colors,
-  spacing,
-} from "../constants";
+import { spacing } from "../constants";
 
 export type ScreenContainerProps = PropsWithChildren<{
   contentStyle?: StyleProp<ViewStyle>;
@@ -27,6 +24,7 @@ export function ScreenContainer({
   edges,
   style,
 }: ScreenContainerProps) {
+  const { styles } = useStyles();
   return (
     <SafeAreaView
       edges={edges}
@@ -39,7 +37,7 @@ export function ScreenContainer({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   safeArea: {
     flex: 1,
     backgroundColor: colors.backgroundCanvas,
@@ -50,4 +48,4 @@ const styles = StyleSheet.create({
     paddingTop: spacing.screenTopSpacing,
     paddingBottom: spacing.screenBottomSpacing,
   },
-});
+}));

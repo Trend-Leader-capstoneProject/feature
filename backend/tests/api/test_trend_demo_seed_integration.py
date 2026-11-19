@@ -45,6 +45,7 @@ def client(
 def test_demo_seed_returns_twenty_plus_five_active_trends(
     client: TestClient,
     db_session: Session,
+    demo_seed_approval: dict[str, object],
 ) -> None:
     """Demo Seed가 실제 목록 API에서 20 + 5 Pagination을 만든다."""
 
@@ -55,6 +56,7 @@ def test_demo_seed_returns_twenty_plus_five_active_trends(
     seed_demo_trends(
         db_session,
         app_env="local",
+        **demo_seed_approval,
     )
 
     first_response = client.get(

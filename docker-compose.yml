@@ -44,6 +44,11 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${API_DB_USER:?API_DB_USER is required}
       DB_PASSWORD: ${API_DB_PASSWORD:?API_DB_PASSWORD is required}
+      PROFILE_IMAGE_ROOT: /var/lib/trend-leader/profile-images
+      MAINTENANCE_ENABLED: ${MAINTENANCE_ENABLED:-true}
+
+    volumes:
+      - trend_leader_profile_images:/var/lib/trend-leader/profile-images
 
     ports:
       - "${BACKEND_EXTERNAL_PORT}:8000"
@@ -53,4 +58,5 @@ services:
         condition: service_healthy
 
 volumes:
+  trend_leader_profile_images:
   trend_leader_db:

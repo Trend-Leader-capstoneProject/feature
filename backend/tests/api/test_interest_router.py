@@ -62,13 +62,9 @@ def client(
             interest_service_mock,
         )
 
-    application.dependency_overrides[
-        get_current_user
-    ] = override_current_user
+    application.dependency_overrides[get_current_user] = override_current_user
 
-    application.dependency_overrides[
-        get_interest_service
-    ] = override_interest_service
+    application.dependency_overrides[get_interest_service] = override_interest_service
 
     try:
         with TestClient(application) as test_client:
@@ -83,14 +79,12 @@ def test_create_interests_returns_created_response(
 ) -> None:
     """관심사 최초 저장 성공 시 201 공통 응답을 반환한다."""
 
-    interest_service_mock.create_interests.return_value = (
-        InterestCreateData(
-            selected_category_ids=[
-                1,
-                2,
-            ],
-            selected_count=2,
-        )
+    interest_service_mock.create_interests.return_value = InterestCreateData(
+        selected_category_ids=[
+            1,
+            2,
+        ],
+        selected_count=2,
     )
 
     response = client.post(
@@ -184,10 +178,8 @@ def test_create_interests_returns_conflict_response(
 ) -> None:
     """이미 관심사가 존재하면 Service의 409 예외를 반환한다."""
 
-    interest_service_mock.create_interests.side_effect = (
-        ConflictException(
-            message="이미 관심사가 저장된 사용자입니다.",
-        )
+    interest_service_mock.create_interests.side_effect = ConflictException(
+        message="이미 관심사가 저장된 사용자입니다.",
     )
 
     response = client.post(
@@ -225,13 +217,9 @@ def test_create_interests_returns_401_when_authentication_fails(
             interest_service_mock,
         )
 
-    application.dependency_overrides[
-        get_current_user
-    ] = override_current_user
+    application.dependency_overrides[get_current_user] = override_current_user
 
-    application.dependency_overrides[
-        get_interest_service
-    ] = override_interest_service
+    application.dependency_overrides[get_interest_service] = override_interest_service
 
     try:
         with TestClient(application) as client:
@@ -265,14 +253,12 @@ def test_get_interests_returns_current_interests(
 ) -> None:
     """현재 관심사 조회 성공 시 200 공통 응답을 반환한다."""
 
-    interest_service_mock.get_interests.return_value = (
-        InterestReadData(
-            selected_category_ids=[
-                1,
-                2,
-            ],
-            selected_count=2,
-        )
+    interest_service_mock.get_interests.return_value = InterestReadData(
+        selected_category_ids=[
+            1,
+            2,
+        ],
+        selected_count=2,
     )
 
     response = client.get(
@@ -305,11 +291,9 @@ def test_get_interests_returns_empty_collection(
 ) -> None:
     """저장된 관심사가 없어도 200과 빈 Collection을 반환한다."""
 
-    interest_service_mock.get_interests.return_value = (
-        InterestReadData(
-            selected_category_ids=[],
-            selected_count=0,
-        )
+    interest_service_mock.get_interests.return_value = InterestReadData(
+        selected_category_ids=[],
+        selected_count=0,
     )
 
     response = client.get(
@@ -335,14 +319,12 @@ def test_update_interests_returns_updated_response(
 ) -> None:
     """관심사 전체 교체 성공 시 200 공통 응답을 반환한다."""
 
-    interest_service_mock.update_interests.return_value = (
-        InterestUpdateData(
-            selected_category_ids=[
-                1,
-                3,
-            ],
-            selected_count=2,
-        )
+    interest_service_mock.update_interests.return_value = InterestUpdateData(
+        selected_category_ids=[
+            1,
+            3,
+        ],
+        selected_count=2,
     )
 
     response = client.put(
@@ -418,19 +400,14 @@ def test_update_interests_returns_bad_request_response(
 ) -> None:
     """비활성 또는 하위 카테고리는 400 응답을 유지한다."""
 
-    interest_service_mock.update_interests.side_effect = (
-        BadRequestException(
-            message=(
-                "활성 상태의 대분류 카테고리만 "
-                "관심사로 선택할 수 있습니다."
-            ),
-            data={
-                "inactive_category_ids": [
-                    3,
-                ],
-                "child_category_ids": [],
-            },
-        )
+    interest_service_mock.update_interests.side_effect = BadRequestException(
+        message=("활성 상태의 대분류 카테고리만 관심사로 선택할 수 있습니다."),
+        data={
+            "inactive_category_ids": [
+                3,
+            ],
+            "child_category_ids": [],
+        },
     )
 
     response = client.put(
@@ -457,15 +434,13 @@ def test_update_interests_returns_not_found_response(
 ) -> None:
     """존재하지 않는 카테고리는 404 응답을 유지한다."""
 
-    interest_service_mock.update_interests.side_effect = (
-        NotFoundException(
-            message="존재하지 않는 카테고리가 포함되어 있습니다.",
-            data={
-                "category_ids": [
-                    999,
-                ],
-            },
-        )
+    interest_service_mock.update_interests.side_effect = NotFoundException(
+        message="존재하지 않는 카테고리가 포함되어 있습니다.",
+        data={
+            "category_ids": [
+                999,
+            ],
+        },
     )
 
     response = client.put(
@@ -491,13 +466,11 @@ def test_update_interests_returns_not_initialized_conflict(
 ) -> None:
     """기존 관심사가 없으면 machine-readable 409를 반환한다."""
 
-    interest_service_mock.update_interests.side_effect = (
-        ConflictException(
-            message="수정할 기존 관심사가 없습니다.",
-            data={
-                "reason": "INTERESTS_NOT_INITIALIZED",
-            },
-        )
+    interest_service_mock.update_interests.side_effect = ConflictException(
+        message="수정할 기존 관심사가 없습니다.",
+        data={
+            "reason": "INTERESTS_NOT_INITIALIZED",
+        },
     )
 
     response = client.put(
@@ -541,8 +514,6 @@ def test_update_interests_returns_not_initialized_conflict(
         ),
     ],
 )
-
-
 def test_read_and_update_interests_return_401_when_authentication_fails(
     interest_service_mock: Mock,
     method: str,
@@ -561,13 +532,9 @@ def test_read_and_update_interests_return_401_when_authentication_fails(
             interest_service_mock,
         )
 
-    application.dependency_overrides[
-        get_current_user
-    ] = override_current_user
+    application.dependency_overrides[get_current_user] = override_current_user
 
-    application.dependency_overrides[
-        get_interest_service
-    ] = override_interest_service
+    application.dependency_overrides[get_interest_service] = override_interest_service
 
     try:
         with TestClient(application) as client:
@@ -598,9 +565,7 @@ def test_interest_openapi_contract() -> None:
 
     application = create_app()
 
-    operations = application.openapi()["paths"][
-        "/api/users/me/interests"
-    ]
+    operations = application.openapi()["paths"]["/api/users/me/interests"]
 
     assert {
         "get",
@@ -685,5 +650,5 @@ def test_read_and_update_interests_require_real_bearer_credentials(
         "success": False,
         "statusCode": 401,
         "message": "로그인이 필요합니다.",
-        "data": None,
+        "data": {"reason": "ACCESS_TOKEN_REQUIRED"},
     }

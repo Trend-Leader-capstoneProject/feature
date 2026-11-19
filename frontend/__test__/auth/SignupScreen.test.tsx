@@ -13,6 +13,7 @@ import type {
 import {
     Alert,
 } from "react-native";
+import { usePreventRemove } from "@react-navigation/native";
 
 import {
     useAuth,
@@ -32,6 +33,10 @@ import type {
     SignupErrorResponse,
     SignupResponse,
 } from "../../src/features/auth/types/auth";
+
+import { checkNickname } from "../../src/features/account/api/accountApi";
+jest.mock("../../src/features/account/api/accountApi", () => ({ checkNickname: jest.fn() }));
+jest.mock("@react-navigation/native", () => ({ usePreventRemove: jest.fn() }));
 
 jest.mock(
   "../../src/app/providers/AuthProvider",
@@ -56,6 +61,7 @@ jest.mock(
 
 const mockedUseAuth =
   jest.mocked(useAuth);
+const mockedUsePreventRemove = jest.mocked(usePreventRemove);
 
 const mockedUseCheckLoginId =
   jest.mocked(useCheckLoginId);
@@ -74,6 +80,7 @@ const establishSessionMock =
 
 const goBackMock =
   jest.fn();
+const dispatchMock = jest.fn();
 
 const VALID_LOGIN_ID =
   "trend_new_user";
@@ -91,6 +98,9 @@ const VALID_EMAIL =
   "trend@example.com";
 
 const SIGNUP_RESPONSE: SignupResponse = {
+  refresh_token: "SIGNUP_REFRESH_TOKEN",
+  access_expires_at: "2030-01-01T00:15:00Z",
+  refresh_expires_at: "2030-01-31T00:00:00Z",
   access_token: "SIGNUP_ACCESS_TOKEN",
   token_type: "Bearer",
   user: {
@@ -111,6 +121,7 @@ type SignupRenderResult =
 
 const navigationMock = {
   goBack: goBackMock,
+  dispatch: dispatchMock,
 } as unknown as
   SignupScreenComponentProps["navigation"];
 
@@ -225,6 +236,9 @@ async function fillRemainingValidFields({
   email?: string;
 } = {}): Promise<void> {
   const view = getRendered();
+  await fireEvent.changeText(view.getByLabelText("닉네임"), "테스트닉");
+  await fireEvent.press(view.getByRole("button", { name: "닉네임 중복 확인" }));
+  await waitFor(() => expect(view.getByText("사용 가능한 닉네임입니다.")).toBeTruthy());
 
   await fireEvent.changeText(
     view.getByLabelText("비밀번호"),
@@ -352,6 +366,7 @@ describe(
 
     beforeEach(() => {
       jest.resetAllMocks();
+      jest.mocked(checkNickname).mockImplementation(async nickname => ({ nickname, is_available: true, reason: null }));
 
       rendered = null;
 
@@ -379,6 +394,7 @@ describe(
           ),
         completeInterestSelection:
           jest.fn(),
+        clearLocalSession: jest.fn(async () => undefined),
         logout:
           jest.fn(
             async (): Promise<void> =>
@@ -415,6 +431,42 @@ describe(
 
     afterEach(() => {
       alertSpy.mockRestore();
+    });
+
+    test("회원가입 중 뒤로가기 시 취소 또는 입력 폐기를 확인한다", async () => {
+      const view = await renderSignupScreen();
+      await fireEvent.changeText(view.getByLabelText("아이디"), "temporary_id");
+
+      expect(mockedUsePreventRemove).toHaveBeenLastCalledWith(
+        true,
+        expect.any(Function),
+      );
+
+      const callback = mockedUsePreventRemove.mock.calls.at(-1)?.[1];
+      if (!callback) throw new Error("이탈 보호 콜백이 등록되지 않았습니다.");
+
+      const action = { type: "GO_BACK" } as const;
+      await act(() => {
+        callback({ data: { action } } as Parameters<typeof callback>[0]);
+      });
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "회원가입을 중단하시겠습니까?",
+        "입력한 회원가입 정보는 저장되지 않습니다.",
+        expect.any(Array),
+      );
+
+      const buttons = alertSpy.mock.calls.at(-1)?.[2];
+      if (!buttons || buttons.length !== 2) {
+        throw new Error("이탈 확인 버튼이 누락됐습니다.");
+      }
+
+      await act(() => buttons[0]?.onPress?.());
+      expect(dispatchMock).not.toHaveBeenCalled();
+
+      await act(() => buttons[1]?.onPress?.());
+      expect(dispatchMock).toHaveBeenCalledWith(action);
+      expect(signupMutateAsyncMock).not.toHaveBeenCalled();
     });
 
     test(
@@ -741,7 +793,7 @@ describe(
         await waitFor(() => {
           expect(
             view.getByText(
-              "서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.",
+              "가입 결과를 확인하지 못했습니다. 자동 재가입은 하지 않습니다. 연결을 확인한 뒤 로그인 화면에서 가입 여부를 확인해 주세요.",
             ),
           ).toBeTruthy();
         });
@@ -840,6 +892,7 @@ describe(
               VALID_PASSWORD,
             password_confirm:
               VALID_PASSWORD,
+            nickname: "테스트닉",
             name: VALID_NAME,
             email: VALID_EMAIL,
           });

@@ -19,6 +19,10 @@
 | `archive/g5-a1/` | [Trend_Leader_MVP_A_G5_A1_승인증거_Batch_대조_검증안_v0.1.md](archive/g5-a1/Trend_Leader_MVP_A_G5_A1_%EC%8A%B9%EC%9D%B8%EC%A6%9D%EA%B1%B0_Batch_%EB%8C%80%EC%A1%B0_%EA%B2%80%EC%A6%9D%EC%95%88_v0.1.md) | A1 v0.1 역사적 대조 계약, v0.2 출처 안내 규칙으로 확장됨 |
 | `archive/g5-templates/` | [Trend_Leader_MVP_A_G5_G6_Batch_승인_게시_기록표_템플릿_v0.1.md](archive/g5-templates/Trend_Leader_MVP_A_G5_G6_Batch_%EC%8A%B9%EC%9D%B8_%EA%B2%8C%EC%8B%9C_%EA%B8%B0%EB%A1%9D%ED%91%9C_%ED%85%9C%ED%94%8C%EB%A6%BF_v0.1.md) | P4 이전 Batch 템플릿, PARTIAL 상태는 P4 확정 Batch 전체 Rollback과 상충 가능 |
 
+## 2026-11-13 후속 검증 체크포인트 (원문 11개 복원 목록과 별개)
+
+- [G5 P1 격리 MariaDB HOLD 차단 실측 PASS (2026-11-13)](evidence/Trend_Leader_G5_P1_Isolated_MariaDB_HOLD_Probe_20261113.md): 사용자 제공 로컬 Codex 실행 보고 기준, 전용 SELECT 계정·G6 미승인 3종 차단·0행 스냅샷 전후 동일 확인. **격리 시험 범위 PASS**이며 G5 전체·G6·P4 및 실제 게시 상태는 HOLD. 원본 로그·로컬 Probe는 이 저장소에서 독립 재검증하지 않음.
+
 ## 복원 후보이나 추가 확보·선별 판단이 필요한 문서: 16개
 
 다음 16개는 1차 목록에서 원본 확보 또는 현행 계약으로서의 필요성 검토가 아직 완료되지 않은 후보입니다. 전부 커밋해야 한다는 뜻은 아니며, 과거 초안·실험 증거는 필요할 때만 선별합니다.

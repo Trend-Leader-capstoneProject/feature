@@ -1,3 +1,7 @@
+jest.mock("../../src/features/account/components/AccountHeader", () => ({ AccountHeader: () => null }));
+jest.mock("../../src/features/trend/components/PersonalizedTrendFilter", () => ({ PersonalizedTrendFilter: () => null }));
+jest.mock("../../src/features/trend/components/FilteredPersonalizedTrendList", () => ({ FilteredPersonalizedTrendList: () => null }));
+jest.mock("../../src/features/account/hooks/useMyProfile", () => ({ useMyProfile: jest.fn() }));
 
 import {
   QueryClient,
@@ -23,12 +27,16 @@ import { PersonalizedMainScreen } from "../../src/app/screens/PersonalizedMainSc
 import { getAuthSession } from "../../src/features/auth/api/getAuthSession";
 import type { SessionResponse } from "../../src/features/auth/types/auth";
 import { usePersonalizedTrends } from "../../src/features/trend/hooks/usePersonalizedTrends";
+import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import { registerAuthFailureHandler } from "../../src/shared/handler/authFailureHandler";
-import { getAccessToken } from "../../src/shared/storage/tokenStorage";
+import { readAuthBundle } from "../../src/shared/storage/tokenStorage";
+jest.mock("../../src/shared/api/publicApiClient", () => ({ publicApiClient: { post: jest.fn() } }));
 
 // 실제 RootNavigator 분기는 유지하고,
 // NavigationContainer의 Native 연결만 대체한다.
 jest.mock("@react-navigation/native", () => ({
+  DefaultTheme: jest.requireActual("@react-navigation/native").DefaultTheme,
+  DarkTheme: jest.requireActual("@react-navigation/native").DarkTheme,
   NavigationContainer: ({
     children,
   }: PropsWithChildren) => children,
@@ -58,9 +66,11 @@ jest.mock("../../src/features/trend/hooks/usePersonalizedTrends", () => ({
 }));
 
 jest.mock("../../src/shared/storage/tokenStorage", () => ({
-  getAccessToken: jest.fn(),
-  saveAccessToken: jest.fn(),
-  deleteAccessToken: jest.fn(),
+  readAuthBundle: jest.fn(),
+  saveTokenPair: jest.fn(),
+  clearAuthBundle: jest.fn(),
+  cleanLegacyAccessToken: jest.fn(),
+  markAuthPhase: jest.fn(),
 }));
 
 jest.mock("../../src/shared/handler/authFailureHandler", () => ({
@@ -68,12 +78,14 @@ jest.mock("../../src/shared/handler/authFailureHandler", () => ({
 }));
 
 jest.mock("../../src/shared/handler/authRequestGate", () => ({
+  ...jest.requireActual("../../src/shared/handler/authRequestGate"),
   allowAuthenticatedRequests: jest.fn(),
   blockAuthenticatedRequests: jest.fn(),
 }));
 
 const mockedGetAuthSession = jest.mocked(getAuthSession);
-const mockedGetAccessToken = jest.mocked(getAccessToken);
+const mockedUseMyProfile = jest.mocked(useMyProfile);
+const mockedGetAuthBundle = jest.mocked(readAuthBundle);
 const mockedUsePersonalizedTrends = jest.mocked(
   usePersonalizedTrends,
 );
@@ -137,8 +149,15 @@ function createDeferred<T>() {
 describe("Personalized Main onboarding recovery", () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockedUseMyProfile.mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof useMyProfile>);
 
-    mockedGetAccessToken.mockResolvedValue("TOKEN_A");
+    mockedGetAuthBundle.mockResolvedValue({
+      schema_version: 1, phase: "READY", access_token: "TOKEN_A", refresh_token: "REFRESH_A",
+      token_type: "Bearer", access_expires_at: "2030-01-01T00:15:00Z", refresh_expires_at: "2030-01-31T00:00:00Z",
+    });
 
     mockedRegisterAuthFailureHandler.mockImplementation(
       () => () => undefined,
@@ -242,7 +261,7 @@ describe("Personalized Main onboarding recovery", () => {
 
       // 4. 기존 Main 화면은 제거되어야 한다.
       expect(
-        screen.queryByText("Trend Leader"),
+        screen.queryByText("관심사 맞춤 트렌드"),
       ).toBeNull();
 
       expect(

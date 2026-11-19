@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, pool
+from sqlalchemy import Connection, create_engine, pool
 
 from alembic import context
 
@@ -18,7 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 # 실제 ORM 모델 모듈을 import해야 Base.metadata에 테이블이 등록된다.
 import app.models  # noqa: E402, F401
-from app.core.config import get_settings  # noqa: E402
+from app.core.migration_db_config import MigrationDbSettings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 
 config = context.config
@@ -26,7 +26,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-settings = get_settings()
+settings = MigrationDbSettings(_env_file=None)
 target_metadata = Base.metadata
 
 COMMON_CONTEXT_OPTIONS: dict[str, Any] = {
@@ -45,9 +45,23 @@ def run_migrations_offline() -> None:
         python -m alembic upgrade head --sql
     """
     context.configure(
-        url=settings.sync_database_url,
+        url=settings.connection_url.set(password=None).render_as_string(
+            hide_password=True,
+        ),
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        **COMMON_CONTEXT_OPTIONS,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_with_connection(connection: Connection) -> None:
+    """호출자가 소유한 Connection을 닫지 않고 migration에 전달한다."""
+    context.configure(
+        connection=connection,
+        transaction_per_migration=True,
         **COMMON_CONTEXT_OPTIONS,
     )
 
@@ -60,27 +74,25 @@ def run_migrations_online() -> None:
     실제 DB에 연결하여 migration을 실행한다.
 
     API 서버의 connection pool과 migration 실행을 분리하기 위해
-    Alembic 전용 Engine은 NullPool로 생성한다.
+    외부 Connection이 없을 때만 Alembic 전용 Engine을 NullPool로 생성한다.
     """
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        run_migrations_with_connection(connection)
+        return
+
     connectable = create_engine(
-        settings.sync_database_url,
+        settings.connection_url,
         poolclass=pool.NullPool,
         pool_pre_ping=True,
         connect_args={
-            "connect_timeout": settings.db_connection_timeout,
+            "connect_timeout": settings.connection_timeout,
             "charset": "utf8mb4",
         },
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            transaction_per_migration=True,
-            **COMMON_CONTEXT_OPTIONS,
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
+        run_migrations_with_connection(connection)
 
 
 if context.is_offline_mode():

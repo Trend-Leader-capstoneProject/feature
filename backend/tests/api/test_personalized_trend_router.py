@@ -31,9 +31,7 @@ def client() -> Iterator[TestClient]:
             status=UserStatus.ACTIVE,
         )
 
-    application.dependency_overrides[
-        get_current_user
-    ] = override_current_user
+    application.dependency_overrides[get_current_user] = override_current_user
 
     try:
         with TestClient(application) as test_client:
@@ -104,7 +102,7 @@ def test_personalized_trends_requires_bearer_credentials() -> None:
         "success": False,
         "statusCode": 401,
         "message": "로그인이 필요합니다.",
-        "data": None,
+        "data": {"reason": "ACCESS_TOKEN_REQUIRED"},
     }
 
     list_personalized_trends.assert_not_called()
@@ -174,10 +172,7 @@ def test_personalized_trends_rejects_invalid_limit(
 
     assert body["success"] is False
     assert body["statusCode"] == 422
-    assert (
-        body["message"]
-        == "요청 데이터가 올바르지 않습니다."
-    )
+    assert body["message"] == "요청 데이터가 올바르지 않습니다."
 
     list_personalized_trends.assert_not_called()
 
@@ -319,9 +314,7 @@ def test_personalized_trends_openapi_declares_error_responses() -> None:
 
     application = create_app()
 
-    operation = application.openapi()["paths"][
-        "/api/trends/personalized"
-    ]["get"]
+    operation = application.openapi()["paths"]["/api/trends/personalized"]["get"]
 
     expected_response_codes = {
         "200",
@@ -342,9 +335,7 @@ def test_personalized_trends_openapi_requires_bearer_auth() -> None:
 
     application = create_app()
 
-    operation = application.openapi()["paths"][
-        "/api/trends/personalized"
-    ]["get"]
+    operation = application.openapi()["paths"]["/api/trends/personalized"]["get"]
 
     assert {
         "BearerAuth": [],
@@ -359,14 +350,9 @@ def test_personalized_trends_openapi_query_contract() -> None:
 
     application = create_app()
 
-    operation = application.openapi()["paths"][
-        "/api/trends/personalized"
-    ]["get"]
+    operation = application.openapi()["paths"]["/api/trends/personalized"]["get"]
 
-    parameters = {
-        parameter["name"]: parameter
-        for parameter in operation["parameters"]
-    }
+    parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
 
     # 공식 Query Parameter는 limit과 cursor뿐이다.
     assert set(parameters) == {
@@ -374,10 +360,7 @@ def test_personalized_trends_openapi_query_contract() -> None:
         "cursor",
     }
 
-    assert all(
-        parameter["in"] == "query"
-        for parameter in parameters.values()
-    )
+    assert all(parameter["in"] == "query" for parameter in parameters.values())
 
     # limit: 선택, 기본값 20, 허용 범위 1~50
     limit_parameter = parameters["limit"]

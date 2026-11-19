@@ -1,8 +1,8 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useRef, useState } from "react";
 import {
   FlatList,
   Image,
-  StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
@@ -17,7 +17,7 @@ import {
   LoadingView,
   ScreenContainer,
 } from "../../../shared/components";
-import { colors, sizes, spacing, typography } from "../../../shared/constants";
+import { sizes, spacing, typography } from "../../../shared/constants";
 import { useCategories } from "../../interest/hooks/useCategories";
 import { TrendCard } from "../components/TrendCard";
 import {
@@ -30,6 +30,7 @@ import type { TrendListItem } from "../types/trend";
 import { openTrendSourceUrl } from "../utils/openTrendSourceUrl";
 
 export function LatestTrendScreen() {
+  const { styles } = useStyles();
   const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<
     number | null
   >(null);
@@ -259,7 +260,7 @@ export function LatestTrendScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   brandHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -313,4 +314,4 @@ const styles = StyleSheet.create({
   nextPageFeedback: {
     paddingVertical: spacing.space4,
   },
-});
+}));

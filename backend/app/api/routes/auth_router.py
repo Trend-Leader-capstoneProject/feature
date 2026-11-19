@@ -2,15 +2,21 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from app.api.dependencies.auth_dependency import AuthServiceDep, CurrentUserDep
+from app.api.dependencies.auth_dependency import (
+    AuthServiceDep,
+    CurrentUserDep,
+    SessionServiceDep,
+)
 from app.schemas.auth_schema import (
     LOGIN_ID_PATTERN,
     CheckLoginIdData,
     LoginData,
     LoginRequest,
+    RefreshRequest,
     SessionData,
     SignupData,
     SignupRequest,
+    TokenPair,
 )
 from app.schemas.common_schema import CommonResponse
 from app.utils.response import success_response
@@ -92,8 +98,7 @@ def check_login_id(
     status_code=status.HTTP_200_OK,
     summary="일반 로그인",
     description=(
-        "로그인 ID와 비밀번호를 검증하고 "
-        "JWT Access Token과 사용자 정보를 반환합니다."
+        "로그인 ID와 비밀번호를 검증하고 JWT Access Token과 사용자 정보를 반환합니다."
     ),
 )
 def login(
@@ -138,3 +143,18 @@ def get_session(
         data=result,
         status_code=status.HTTP_200_OK,
     )
+
+
+@router.post("/refresh", response_model=CommonResponse[TokenPair])
+def refresh(request: RefreshRequest, service: SessionServiceDep):
+    return success_response(
+        message="인증을 갱신했습니다.",
+        data=service.refresh(request.refresh_token.get_secret_value()),
+        status_code=200,
+    )
+
+
+@router.post("/logout", response_model=CommonResponse[None])
+def logout(request: RefreshRequest, service: SessionServiceDep):
+    service.logout(request.refresh_token.get_secret_value())
+    return success_response(message="로그아웃했습니다.", data=None, status_code=200)

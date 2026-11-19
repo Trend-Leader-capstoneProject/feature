@@ -1,7 +1,7 @@
+import { createThemedStyles } from "../theme/createThemedStyles";
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type PressableProps,
@@ -10,14 +10,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import {
-  colors,
-  radius,
-  sizes,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../constants";
+import { radius, sizes, spacing, textLineLimits, typography } from "../constants";
 
 export type PrimaryButtonProps = Omit<
   PressableProps,
@@ -40,6 +33,7 @@ export function PrimaryButton({
   textStyle,
   ...pressableProps
 }: PrimaryButtonProps) {
+  const { styles, colors } = useStyles();
   const isInteractionDisabled = disabled || loading;
 
   return (
@@ -85,7 +79,7 @@ export function PrimaryButton({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   button: {
     minHeight: sizes.buttonHeight,
     alignItems: "center",
@@ -114,4 +108,4 @@ const styles = StyleSheet.create({
   disabledLabel: {
     color: colors.actionDisabledText,
   },
-});
+}));

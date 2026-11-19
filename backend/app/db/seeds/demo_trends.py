@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
 
-from sqlalchemy import select
+from sqlalchemy import event, select, text
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
 from app.models.category import Category
@@ -20,6 +24,140 @@ from app.models.trend_source import TrendSource
 
 class DemoTrendSeedError(RuntimeError):
     """Demo Trend Seed를 안전하게 실행할 수 없을 때 발생한다."""
+
+
+_SEED_MODELS = (Category, Trend, TrendCategoryMap, TrendSource)
+
+
+def _single_seed_bind(db_session: Session) -> Engine | Connection:
+    """기본 Session의 모든 Seed ORM 경로가 한 bind를 사용하는지 확인한다."""
+    # 사용자 정의 routing Session은 정적 비교만으로 DML 목적지를 증명할 수 없다.
+    if (
+        not isinstance(db_session, Session)
+        or type(db_session).get_bind is not Session.get_bind
+        or type(db_session).connection is not Session.connection
+    ):
+        raise DemoTrendSeedError("Demo Seed guard: session_binding")
+    bind = db_session.get_bind()
+    if not isinstance(bind, (Engine, Connection)) or any(
+        db_session.get_bind(mapper=model) is not bind
+        or db_session.get_bind(clause=model.__table__) is not bind
+        for model in _SEED_MODELS
+    ):
+        raise DemoTrendSeedError("Demo Seed guard: session_binding")
+    return bind
+
+
+@contextmanager
+def _verified_seed_connection(
+    db_session: Session,
+    *,
+    app_env: str,
+    allowed_host: str | None,
+    allowed_port: int | None,
+    allowed_database: str | None,
+    allowed_current_user: str | None,
+) -> Iterator[None]:
+    """검증 연결과 트랜잭션을 Seed의 마지막 Commit까지 유지한다."""
+    listeners = []
+    try:
+        try:
+            if not isinstance(app_env, str) or app_env.strip().lower() != "local":
+                raise DemoTrendSeedError(
+                    "Demo Trend Seed는 local 환경에서만 실행합니다."
+                )
+            if (
+                any(
+                    not isinstance(value, str) or not value.strip()
+                    for value in (allowed_host, allowed_database, allowed_current_user)
+                )
+                or type(allowed_port) is not int
+                or not 1 <= allowed_port <= 65535
+                or not all(allowed_current_user.rpartition("@")[::2])
+            ):
+                raise DemoTrendSeedError("Demo Seed guard: approval_settings")
+            if db_session.new or db_session.dirty or db_session.deleted:
+                raise DemoTrendSeedError("Demo Seed guard: pending_changes")
+            bind = _single_seed_bind(db_session)
+            engine = bind.engine if isinstance(bind, Connection) else bind
+            url = engine.url
+            # 현재 지원하는 명시적 TCP URL만 허용한다. 소켓/옵션 파일/다중 host는 거절.
+            if (
+                url.drivername != "mysql+pymysql"
+                or not url.host
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+", url.host)
+                or url.port is None
+                or set(url.query) - {"charset"}
+                or url.host != allowed_host
+                or url.port != allowed_port
+                or url.database != allowed_database
+            ):
+                raise DemoTrendSeedError("Demo Seed guard: connection_target")
+
+            # Session.connection()은 ORM autoflush를 수행하지 않는다.
+            connection = db_session.connection()
+            if (
+                connection.engine is not engine
+                or isinstance(bind, Connection) and connection is not bind
+                or any(
+                    db_session.connection(bind_arguments={"mapper": model})
+                    is not connection
+                    for model in _SEED_MODELS
+                )
+            ):
+                raise DemoTrendSeedError("Demo Seed guard: connection_mismatch")
+            driver_connection = connection.connection.dbapi_connection
+            if driver_connection is None:
+                raise DemoTrendSeedError("Demo Seed guard: connection_mismatch")
+            transaction = connection.get_transaction()
+            nested_transaction = connection.get_nested_transaction()
+            session_transaction = db_session.get_transaction()
+
+            def check_connection(*_args, **_kwargs):
+                if (
+                    connection.closed
+                    or connection.invalidated
+                    or connection.connection.dbapi_connection is not driver_connection
+                    or transaction is None
+                    or not transaction.is_active
+                    or connection.get_transaction() is not transaction
+                    or connection.get_nested_transaction() is not nested_transaction
+                    or db_session.get_transaction() is not session_transaction
+                    or _single_seed_bind(db_session) is not bind
+                ):
+                    raise DemoTrendSeedError("Demo Seed guard: connection_changed")
+
+            def reject_new_transaction(*_args, **_kwargs):
+                raise DemoTrendSeedError("Demo Seed guard: connection_changed")
+
+            for target, name, listener in (
+                (connection, "before_cursor_execute", check_connection),
+                (db_session, "before_flush", check_connection),
+                (db_session, "before_commit", check_connection),
+                (db_session, "after_begin", reject_new_transaction),
+            ):
+                event.listen(target, name, listener)
+                listeners.append((target, name, listener))
+
+            check_connection()
+            identity = connection.execute(text(
+                "SELECT DATABASE() AS db_name, CURRENT_USER() AS authenticated_user"
+            )).mappings().one()
+            if (
+                identity["db_name"] != allowed_database
+                or identity["authenticated_user"] != allowed_current_user
+            ):
+                raise DemoTrendSeedError("Demo Seed guard: database_identity")
+            check_connection()
+        except DemoTrendSeedError:
+            raise
+        except Exception:
+            # URL, DBAPI 및 Settings의 입력값을 예외 메시지에 포함하지 않는다.
+            raise DemoTrendSeedError("Demo Seed guard: verification_failed") from None
+        yield
+    finally:
+        for target, name, listener in reversed(listeners):
+            event.remove(target, name, listener)
 
 
 @dataclass(frozen=True)
@@ -757,50 +895,61 @@ def seed_demo_trends(
     db_session: Session,
     *,
     app_env: str,
+    allowed_host: str | None = None,
+    allowed_port: int | None = None,
+    allowed_database: str | None = None,
+    allowed_current_user: str | None = None,
 ) -> None:
     """전체 트렌드 목록 검증용 Demo 데이터를 생성하거나 검증한다."""
 
-    if app_env.strip().lower() != "local":
-        raise DemoTrendSeedError(
-            "Demo Trend Seed는 local 환경에서만 실행할 수 있습니다."
-        )
-
     try:
-        for seed in DEMO_TRENDS:
-            category_ids = tuple(
-                _resolve_category(
-                    db_session,
-                    category_ref,
-                ).category_id
-                for category_ref in seed.categories
-            )
-
-            existing = db_session.scalars(
-                select(
-                    Trend,
-                ).where(
-                    Trend.normalized_title
-                    == seed.normalized_title,
-                )
-            ).one_or_none()
-
-            if existing is not None:
-                _verify_existing_trend(
-                    db_session,
-                    trend=existing,
-                    seed=seed,
-                    category_ids=category_ids,
-                )
-                continue
-
-            _create_demo_trend(
-                db_session,
-                seed=seed,
-                category_ids=category_ids,
-            )
-
-        db_session.commit()
+        with _verified_seed_connection(
+            db_session,
+            app_env=app_env,
+            allowed_host=allowed_host,
+            allowed_port=allowed_port,
+            allowed_database=allowed_database,
+            allowed_current_user=allowed_current_user,
+        ):
+            _seed_demo_rows(db_session)
+            db_session.commit()
 
     except Exception:
         db_session.rollback()
         raise
+
+
+def _seed_demo_rows(db_session: Session) -> None:
+    """검증된 Session에서 기존 Demo 데이터 계약을 적용한다."""
+    for seed in DEMO_TRENDS:
+        category_ids = tuple(
+            _resolve_category(
+                db_session,
+                category_ref,
+            ).category_id
+            for category_ref in seed.categories
+        )
+
+        existing = db_session.scalars(
+            select(
+                Trend,
+            ).where(
+                Trend.normalized_title
+                == seed.normalized_title,
+            )
+        ).one_or_none()
+
+        if existing is not None:
+            _verify_existing_trend(
+                db_session,
+                trend=existing,
+                seed=seed,
+                category_ids=category_ids,
+            )
+            continue
+
+        _create_demo_trend(
+            db_session,
+            seed=seed,
+            category_ids=category_ids,
+        )

@@ -1,0 +1,25 @@
+{
+  "schema": "A1_RECONCILE_V02",
+  "policy_version": "v0.3_POLICY_CONFIRMED",
+  "records": [
+    {
+      "trend_ref": "SIM-TREND-001",
+      "review_evidence_id": "SIM-G4-001",
+      "rights_evidence_id": "SIM-RIGHTS-001",
+      "approved_by": "SIM-FEATURE-OWNER",
+      "approved_at": "2026-11-09T15:00:00+09:00",
+      "g4_result": "PASS",
+      "approval_status": "APPROVED",
+      "risk_class": "GENERAL_ELIGIBLE",
+      "rights_checked": true,
+      "link_checked": true,
+      "no_reproduction_checked": true,
+      "google_rss_derived": false,
+      "revoked": false,
+      "policy_version": "v0.3_POLICY_CONFIRMED",
+      "source_title_origin": "EDITORIAL_LABEL",
+      "source_label_evidence_id": "SIM-E-G4-LABEL-001",
+      "content_ref": "sha256:fb26db0785fd10bb15d2351e0b996863b9e113e7c5e090d63bbe0568ff7fc16e"
+    }
+  ]
+}

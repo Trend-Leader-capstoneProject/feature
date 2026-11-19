@@ -1,8 +1,8 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useState } from "react";
 import {
   Alert,
   FlatList,
-  StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
@@ -16,12 +16,7 @@ import {
   PrimaryButton,
   ScreenContainer,
 } from "../../../shared/components";
-import {
-  colors,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../../../shared/constants";
+import { spacing, textLineLimits, typography } from "../../../shared/constants";
 import { InterestCategoryOption } from "../components";
 import { useCategories } from "../hooks/useCategories";
 import { useSaveInterests } from "../hooks/useSaveInterests";
@@ -29,6 +24,7 @@ import type { CategoryItem } from "../types/category";
 
 
 export function InterestSelectScreen() {
+  const { styles } = useStyles();
   const {
     data,
     isError: isCategoryError,
@@ -274,7 +270,7 @@ export function InterestSelectScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   header: {
     gap: spacing.contentGap,
     marginBottom: spacing.sectionGap,
@@ -304,4 +300,4 @@ const styles = StyleSheet.create({
   feedbackView: {
     flex: 1,
   },
-});
+}));
