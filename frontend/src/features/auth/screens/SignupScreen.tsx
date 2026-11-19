@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import type {
     NativeStackScreenProps,
 } from "@react-navigation/native-stack";
@@ -15,7 +16,6 @@ import {
     KeyboardAvoidingView,
     Pressable,
     ScrollView,
-    StyleSheet,
     Text,
     TextInput,
     View,
@@ -31,14 +31,7 @@ import {
     PrimaryButton,
     ScreenContainer,
 } from "../../../shared/components";
-import {
-    borders,
-    colors,
-    radius,
-    sizes,
-    spacing,
-    typography,
-} from "../../../shared/constants";
+import { borders, radius, sizes, spacing, typography } from "../../../shared/constants";
 import {
     useCheckLoginId,
 } from "../hooks/useCheckLoginId";
@@ -232,6 +225,7 @@ function getBackendValidationMessage(
 export function SignupScreen({
   navigation,
 }: SignupScreenProps) {
+  const { styles, colors, scheme } = useStyles();
   const {
     establishSession,
   } = useAuth();
@@ -756,7 +750,7 @@ export function SignupScreen({
               <View
                 style={styles.loginIdInputRow}
               >
-                <TextInput
+                <TextInput keyboardAppearance={scheme}
                   accessibilityLabel="아이디"
                   autoCapitalize="none"
                   autoComplete="username-new"
@@ -877,7 +871,7 @@ export function SignupScreen({
                   styles.passwordInputWrapper
                 }
               >
-                <TextInput
+                <TextInput keyboardAppearance={scheme}
                   ref={passwordInputRef}
                   accessibilityLabel="비밀번호"
                   autoCapitalize="none"
@@ -993,7 +987,7 @@ export function SignupScreen({
                   styles.passwordInputWrapper
                 }
               >
-                <TextInput
+                <TextInput keyboardAppearance={scheme}
                   ref={
                     passwordConfirmInputRef
                   }
@@ -1097,7 +1091,7 @@ export function SignupScreen({
               }}
             >
               <Text style={styles.label}>닉네임</Text>
-              <TextInput accessibilityLabel="닉네임" value={nickname.value}
+              <TextInput keyboardAppearance={scheme} placeholderTextColor={colors.textSecondary} accessibilityLabel="닉네임" value={nickname.value}
                 onChangeText={(value) => { nickname.update(value); clearFieldError("nickname"); clearFormError(); }}
                 onFocus={() => focusKeyboardField("nickname")}
                 onBlur={() => {
@@ -1124,7 +1118,7 @@ export function SignupScreen({
                 이름
               </Text>
 
-              <TextInput
+              <TextInput keyboardAppearance={scheme}
                 ref={nameInputRef}
                 accessibilityLabel="이름"
                 autoCorrect={false}
@@ -1180,7 +1174,7 @@ export function SignupScreen({
                 </Text>
               </Text>
 
-              <TextInput
+              <TextInput keyboardAppearance={scheme}
                 ref={emailInputRef}
                 accessibilityLabel="이메일"
                 autoCapitalize="none"
@@ -1284,7 +1278,7 @@ export function SignupScreen({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   keyboardAvoidingView: {
     flex: 1,
   },
@@ -1410,4 +1404,4 @@ const styles = StyleSheet.create({
     ...typography.bodyStrong,
     color: colors.textLink,
   },
-});
+}));

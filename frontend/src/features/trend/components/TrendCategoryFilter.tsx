@@ -1,19 +1,12 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import {
     Pressable,
     ScrollView,
-    StyleSheet,
     Text,
     View,
 } from "react-native";
 
-import {
-    borders,
-    colors,
-    radius,
-    sizes,
-    spacing,
-    typography,
-} from "../../../shared/constants";
+import { borders, radius, sizes, spacing, typography } from "../../../shared/constants";
 import type {
     CategoryItem,
 } from "../../interest/types/category";
@@ -44,6 +37,7 @@ function CategoryChip({
   selected,
   onPress,
 }: CategoryChipProps) {
+  const { styles } = useStyles();
   return (
     <Pressable
       accessibilityLabel={label}
@@ -84,6 +78,7 @@ export function TrendCategoryFilter({
   selectedRootCategoryId,
   onSelectionChange,
 }: TrendCategoryFilterProps) {
+  const { styles } = useStyles();
   const selectedRootCategory =
     categories.find(
       (category) =>
@@ -220,7 +215,7 @@ export function TrendCategoryFilter({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.space2,
   },
@@ -272,4 +267,4 @@ const styles = StyleSheet.create({
   selectedChipLabel: {
     color: colors.textBrand,
   },
-});
+}));

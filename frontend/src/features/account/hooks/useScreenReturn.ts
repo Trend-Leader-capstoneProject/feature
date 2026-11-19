@@ -17,5 +17,5 @@ export function useScreenReturn(navigation: ReturnNavigation) {
     return () => subscription.remove();
   }, [goBack]));
 
-  return { goBack, disabled };
+  return { goBack, disabled, run };
 }

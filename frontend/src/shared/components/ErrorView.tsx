@@ -1,22 +1,14 @@
+import { createThemedStyles } from "../theme/createThemedStyles";
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 
-import {
-  borders,
-  colors,
-  radius,
-  sizes,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../constants";
+import { borders, radius, sizes, spacing, textLineLimits, typography } from "../constants";
 
 export type ErrorViewProps = {
   message?: string;
@@ -35,6 +27,7 @@ export function ErrorView({
   style,
   title,
 }: ErrorViewProps) {
+  const { styles, colors } = useStyles();
   return (
     <View style={[styles.container, style]}>
       <View
@@ -95,7 +88,7 @@ export function ErrorView({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     alignItems: "center",
     justifyContent: "center",
@@ -141,4 +134,4 @@ const styles = StyleSheet.create({
     color: colors.actionSecondaryText,
     textAlign: "center",
   },
-});
+}));

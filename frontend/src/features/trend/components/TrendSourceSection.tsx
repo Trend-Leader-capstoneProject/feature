@@ -1,18 +1,11 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import {
     Pressable,
-    StyleSheet,
     Text,
     View,
 } from "react-native";
 
-import {
-    borders,
-    colors,
-    radius,
-    sizes,
-    spacing,
-    typography,
-} from "../../../shared/constants";
+import { borders, radius, sizes, spacing, typography } from "../../../shared/constants";
 import type {
     TrendLatestSource,
     TrendSourcePlatform,
@@ -46,6 +39,7 @@ export function TrendSourceSection({
   source,
   onOpenSource,
 }: TrendSourceSectionProps) {
+  const { styles } = useStyles();
   if (source === null) {
     return (
       <Text style={styles.unavailable}>
@@ -95,7 +89,7 @@ export function TrendSourceSection({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.space3,
   },
@@ -146,4 +140,4 @@ const styles = StyleSheet.create({
     color:
       colors.actionSecondaryText,
   },
-});
+}));

@@ -1,6 +1,7 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import axios from "axios";
 import { useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TextInput } from "react-native";
+import { Alert, ScrollView, Text, TextInput } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { AppStackParamList } from "../../../app/navigation/AppNavigator";
 import { PrimaryButton, ScreenContainer } from "../../../shared/components";
@@ -9,6 +10,7 @@ import { getAuthEpoch } from "../../../shared/handler/authRequestGate";
 import { useAccountActions } from "../hooks/useAccountActions";
 
 export function PasswordChangeScreen({ navigation }: NativeStackScreenProps<AppStackParamList, "PasswordChange">) {
+  const { styles, colors, scheme } = useStyles();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -44,14 +46,14 @@ export function PasswordChangeScreen({ navigation }: NativeStackScreenProps<AppS
       { label: "현재 비밀번호", value: current, update: setCurrent },
       { label: "새 비밀번호", value: next, update: setNext },
       { label: "새 비밀번호 확인", value: confirm, update: setConfirm },
-    ].map(field => <TextInput key={field.label} accessibilityLabel={field.label} placeholder={field.label} value={field.value} onChangeText={field.update} secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!password.isPending} style={styles.input} />)}
+    ].map(field => <TextInput keyboardAppearance={scheme} placeholderTextColor={colors.textSecondary} key={field.label} accessibilityLabel={field.label} placeholder={field.label} value={field.value} onChangeText={field.update} secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!password.isPending} style={styles.input} />)}
     {!!message && <Text accessibilityLiveRegion="polite" style={styles.error}>{message}</Text>}
     <PrimaryButton label="변경 저장" disabled={!current || password.isPending} loading={password.isPending} onPress={() => void save()} />
     <PrimaryButton label="돌아가기" disabled={password.isPending} onPress={() => navigation.goBack()} />
   </ScrollView></ScreenContainer>;
 }
-const styles = StyleSheet.create({
-  content: { gap: 18 }, title: { fontSize: 24, fontWeight: "700" },
-  input: { minHeight: 52, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: "#AAA" },
-  error: { color: "#A62828", lineHeight: 22 },
-});
+const useStyles = createThemedStyles((colors) => ({
+  content: { gap: 18 }, title: { color: colors.textPrimary, fontSize: 24, fontWeight: "700" },
+  input: { color: colors.textPrimary, minHeight: 52, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: colors.borderStrong },
+  error: { color: colors.statusNegative, lineHeight: 22 },
+}));

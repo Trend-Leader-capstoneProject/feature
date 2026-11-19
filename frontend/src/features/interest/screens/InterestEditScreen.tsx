@@ -1,3 +1,4 @@
+import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import {
   useEffect,
   useState,
@@ -6,7 +7,6 @@ import {
 import {
   Alert,
   FlatList,
-  StyleSheet,
   Text,
   View,
   type ListRenderItemInfo,
@@ -28,12 +28,7 @@ import {
   PrimaryButton,
   ScreenContainer,
 } from "../../../shared/components";
-import {
-  colors,
-  spacing,
-  textLineLimits,
-  typography,
-} from "../../../shared/constants";
+import { spacing, textLineLimits, typography } from "../../../shared/constants";
 import {
   InterestCategoryOption,
 } from "../components";
@@ -91,6 +86,7 @@ function areSameCategoryIdSet(
 export function InterestEditScreen({
   navigation,
 }: InterestEditScreenProps) {
+  const { styles } = useStyles();
   const {
     data: categoryData,
     isError: isCategoryError,
@@ -441,7 +437,7 @@ export function InterestEditScreen({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   header: {
     gap: spacing.contentGap,
     marginBottom: spacing.sectionGap,
@@ -472,4 +468,4 @@ const styles = StyleSheet.create({
   feedbackView: {
     flex: 1,
   },
-});
+}));

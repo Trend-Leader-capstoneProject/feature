@@ -5,7 +5,8 @@ import { useAuth } from "../../src/app/providers/AuthProvider";
 import { AccountHeader } from "../../src/features/account/components/AccountHeader";
 import { ProfileEditorModal } from "../../src/features/account/components/ProfileEditorModal";
 import { MyInfoScreen } from "../../src/features/account/screens/MyInfoScreen";
-import { MyCommentsScreen, MyPostsScreen, AppSettingsScreen } from "../../src/features/account/screens/AccountPlaceholderScreens";
+import { MyCommentsScreen, MyPostsScreen } from "../../src/features/account/screens/AccountPlaceholderScreens";
+import { AppSettingsScreen } from "../../src/features/settings/screens/SettingsScreens";
 import { useMyProfile } from "../../src/features/account/hooks/useMyProfile";
 import * as api from "../../src/features/account/api/accountApi";
 import * as ImagePicker from "expo-image-picker";
@@ -66,7 +67,11 @@ beforeEach(() => {
   jest.mocked(api.savePhoto).mockResolvedValue({ ...profile, profile_image_url: "/api/users/1/profile-image/new.png" });
   jest.mocked(api.resetPhoto).mockResolvedValue(profile);
 });
-afterEach(() => { alert.mockRestore(); client.clear(); });
+afterEach(() => {
+  // Even when an assertion fails, restore BackHandler and other spies.
+  jest.restoreAllMocks();
+  client.clear();
+});
 function wrapper({ children }: React.PropsWithChildren) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
@@ -83,8 +88,59 @@ test("사이드바는 이름 대신 닉네임과 두 메뉴를 표시하고 내 
   expect(view.queryByText("알림")).toBeNull();
   await fireEvent.press(view.getByRole("button", { name: "내 정보" }));
   expect(mockNavigation.navigate).toHaveBeenCalledWith("MyInfo");
-  await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  // The previous screen must not navigate again before regaining focus.
+  await view.unmount();
+  const returned = await render(<AccountHeader />);
+  await fireEvent.press(returned.getByRole("button", { name: "앱 설정" }));
   expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings");
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(2);
+});
+
+test("사이드바 설정은 닫힌 뒤 한 번만 이동하고 연속 탭을 차단한다", async () => {
+  const view = await render(<AccountHeader />);
+  await fireEvent.press(view.getByRole("button", { name: "사이드바 열기" }));
+  const buttons = view.getAllByRole("button", { name: "앱 설정" });
+  expect(buttons).toHaveLength(2);
+  await fireEvent.press(buttons[1]);
+  await waitFor(() => expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings"));
+  expect(view.queryByRole("button", { name: "사이드바 닫기" })).toBeNull();
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  await fireEvent.press(view.getByRole("button", { name: "앱 설정" }));
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+});
+
+test("내 정보 설정 버튼은 native 전환 완료 전 차단하고 복귀 후 다시 활성화한다", async () => {
+  const view = await render(<MyInfoScreen navigation={mockNavigation as never} route={{} as never} />, { wrapper });
+  const settings = () => view.getByRole("button", { name: "앱 설정" });
+  const emit = async (event: string) => {
+    const handlers = mockNavigation.addListener.mock.calls
+      .filter(([name]) => name === event)
+      .map(([, handler]) => handler);
+    await act(() => {
+      for (const handler of handlers) handler({ data: { closing: false } });
+    });
+  };
+
+  expect(settings()).toBeDisabled();
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).not.toHaveBeenCalled();
+
+  await emit("transitionEnd");
+  expect(settings()).not.toBeDisabled();
+  await fireEvent.press(settings());
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+  expect(mockNavigation.navigate).toHaveBeenCalledWith("AppSettings");
+
+  await emit("focus");
+  expect(settings()).toBeDisabled();
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(1);
+
+  await emit("transitionEnd");
+  await fireEvent.press(settings());
+  expect(mockNavigation.navigate).toHaveBeenCalledTimes(2);
 });
 test("사이드바 로그아웃은 최종 확인 후 실행한다", async () => {
   const view = await render(<AccountHeader />);
@@ -95,16 +151,24 @@ test("사이드바 로그아웃은 최종 확인 후 실행한다", async () => 
   await act(async () => alert.mock.calls[0][2][1].onPress());
   expect(logout).toHaveBeenCalledTimes(1);
 });
-test("내 정보의 메뉴와 기기 뒤로가기를 연결한다", async () => {
+test("내 정보는 글·댓글 메뉴와 사이드바 없이 메인 복귀와 계정 메뉴를 제공한다", async () => {
   const listener = jest.spyOn(BackHandler, "addEventListener");
   const view = await render(<MyInfoScreen navigation={mockNavigation as never} route={{} as never} />, { wrapper });
   const emit = async (event: string, data = { closing: false }) => {
-    const callback = mockNavigation.addListener.mock.calls.find(([name]) => name === event)![1];
-    await act(() => callback({ data }));
+    const listeners = mockNavigation.addListener.mock.calls
+      .filter(([name]) => name === event)
+      .map(([, callback]) => callback);
+    expect(listeners.length).toBeGreaterThan(0);
+    await act(() => {
+      for (const callback of listeners) callback({ data });
+    });
   };
+  expect(view.queryByRole("button", { name: "내 글 목록" })).toBeNull();
+  expect(view.queryByRole("button", { name: "내 댓글 목록" })).toBeNull();
+  expect(view.queryByRole("button", { name: "사이드바 열기" })).toBeNull();
+  expect(view.getByRole("button", { name: "메인으로 돌아가기" })).toBeTruthy();
   await emit("transitionEnd");
   for (const [label, route] of [
-    ["내 글 목록", "MyPosts"], ["내 댓글 목록", "MyComments"],
     ["비밀번호 변경", "PasswordChange"], ["관심사 재설정", "InterestEdit"],
   ]) {
     await fireEvent.press(view.getByRole("button", { name: label }));
@@ -113,7 +177,7 @@ test("내 정보의 메뉴와 기기 뒤로가기를 연결한다", async () => 
     await emit("transitionEnd");
   }
   const callback = listener.mock.calls.find(([name]) => name === "hardwareBackPress")![1];
-  expect(callback({ type: "hardwareBackPress", timeStamp: 0 })).toBe(true);
+  await act(() => { expect(callback({ type: "hardwareBackPress", timeStamp: 0 })).toBe(true); });
   expect(mockNavigation.popTo).toHaveBeenCalledWith("Main");
   listener.mockRestore();
 });
@@ -127,9 +191,11 @@ test.each([MyPostsScreen, MyCommentsScreen])("목록은 조회 0건으로 오인
   await fireEvent.press(view.getByRole("button", { name: "돌아가기" }));
   expect(mockNavigation.goBack).toHaveBeenCalledTimes(1);
 });
-test("앱 설정 내용은 준비 화면이다", async () => {
+test("앱 설정은 화면 테마 및 앱 정보·도움말 진입점을 제공한다", async () => {
   const view = await render(<AppSettingsScreen navigation={mockNavigation as never} route={{} as never} />);
-  expect(view.getByText("설정 기능을 준비 중입니다")).toBeTruthy();
+  expect(view.getByRole("radio", { name: "기기 설정 따르기" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "앱 정보" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "도움말 / 문의" })).toBeTruthy();
 });
 test("닉네임 처리 중에는 닫기·중복 저장을 막고 따로 저장한다", async () => {
   const onClose = jest.fn();

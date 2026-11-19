@@ -35,6 +35,8 @@ jest.mock("../../src/shared/api/publicApiClient", () => ({ publicApiClient: { po
 // 실제 RootNavigator 분기는 유지하고,
 // NavigationContainer의 Native 연결만 대체한다.
 jest.mock("@react-navigation/native", () => ({
+  DefaultTheme: jest.requireActual("@react-navigation/native").DefaultTheme,
+  DarkTheme: jest.requireActual("@react-navigation/native").DarkTheme,
   NavigationContainer: ({
     children,
   }: PropsWithChildren) => children,
