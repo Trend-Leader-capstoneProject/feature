@@ -10,6 +10,7 @@ from app.trend_collection.godot_release_collector import (
     build_candidate,
     collect,
 )
+from app.trend_collection.publication_policy import build_policy_preview
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 
 
@@ -56,16 +57,22 @@ def main():
     count.add_argument("--runs", type=int, default=1)
     count.add_argument("--continuous", action="store_true")
     parser.add_argument("--interval-seconds", type=int, default=21600)
-    parser.add_argument("--rule-first", action="store_true")
+    projection = parser.add_mutually_exclusive_group()
+    projection.add_argument("--rule-first", action="store_true")
+    projection.add_argument("--policy-preview", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.runs <= 100 or not 60 <= args.interval_seconds <= 86400:
         parser.error("runs: 1..100; interval: 60..86400 seconds")
+    project = build_candidate
+    if args.rule_first:
+        project = build_rule_first_preview
+    elif args.policy_preview:
+        project = build_policy_preview
     try:
         return run_cycles(None if args.continuous else args.runs,
                           args.interval_seconds,
                           emit=lambda line: print(line, flush=True),
-                          project=(build_rule_first_preview if args.rule_first
-                                   else build_candidate))
+                          project=project)
     except KeyboardInterrupt:
         return 130
 
