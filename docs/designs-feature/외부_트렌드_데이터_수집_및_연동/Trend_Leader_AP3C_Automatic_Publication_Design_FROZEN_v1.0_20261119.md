@@ -67,3 +67,23 @@ Journal 보호·미해결·교체·장애·프로세스 경합 및 정책 철회
 
 dev 기준 Godot Collector 37b139f, Rule-first Preview d6528c5, 기존 CLI 8ccb937, AP3 Writer Transaction d41995d, Journal 167a311, MariaDB fixture f6ba1b1. 자동 게시 정책 개정안 v0.1 + §0 Rule-first 8022822, Gate v0.3 4140b11, P4 Addendum v0.2 ac974e5, 별도 B-Lite E1-W1 동결 계약(847970d), 첨부 schema_decisions.md SD-009~012 및 개발 가이드 v1.3·GitHub Write Safety Policy.
 기존 실제 테스트 결과는 사용자가 전달한 기록이며 이번에 DB/운영 권리/배포를 재실행하거나 승인하지 않았다. 실제 운영 HOLD 유지.
+
+
+## 7. 사용자 승인 DEC-11~16 — 실제 공급 수직 통합 (Stage 1, 2026-11-19)
+
+> 승인: 제한된 Godot 사실·메타데이터 이용을 첫 공급 범위로 채택, 최초 독립 운영 승인, 비게시/실제 경로 분리, 기존 Writer 재사용, OS Scheduler 단회 실행 및 로컬→Lightsail 실증. Stage 4의 다분야 공급 확장을 염두에 둔다. **설계 및 코드 구현 승인에 한정; G6 실제 운영 승인·DB 변경·배포는 별도이며 현재 HOLD.**
+
+- DEC-11: Godot 공식 Release ID·버전·유형·공개일·원문 URL과 자체 사실 기반 제목/설명만. GitHub 공식 REST 공개 접근과 약관 D.8/H, 사실과 창작 표현의 구분(인수인계 문서 공식 근거 참조)을 바탕으로 이 범위를 채택하되 포괄 허가로 확대하지 않는다. 원문/이미지/로고/첨부/개인정보/AI 전달 제외. 별도 문의를 무조건 선행하지 않고 실제 범위에 중대한 제한이 있는 경우 해당 소스/행위만 제외한다. NCP·Google RSS 기존 제한 유지. 운영 프로필의 독립 권리 근거 등록은 남아 있다.
+- DEC-12~13: 보호된 운영 프로필 AUTO-TREND-MVP / AUTO_V1, 승인 소스 목록 및 개별 이용 범위·근거, 승인자·유효기간·실제 대상·G5/G6 참조를 확인한다. AP-3C-1 검토용 DEFERRED 및 합성 경로는 유지. 실제 경로는 보호 프로필과 독립 상세 검증으로 Snapshot을 대상에 결합하며, 검토용 Boolean/해시만으로 권한을 부여하지 않는다.
+- DEC-14: 공급원별 Adapter의 수집·검증만 특화한다. 고정 registry와 승인 목록으로 소스 확장, 공통 Snapshot/Category/영속 중복/SQL/Journal 재사용. Writer는 독립 공식 상세 조회 1회를 추가한다(DEC-10 정상 수집 2회는 유지, 신규 후보 전체 최대 3회/Cycle, 6시간 기준 첫 소스 최대 12회/일 예상). 동일 ID와 일치하는 Source Key면 무변경 SKIP(HIDDEN 포함), 충돌/비활성/불명확한 Commit 차단. MariaDB 활성 부모/Child는 명시적 REPEATABLE READ Transaction 안에서 공유 잠금 조회, 단건 3개 INSERT 원자성. 실제 잠금/권한 및 다른 쓰기 경로 배제는 운영 전 실측한다.
+- DEC-15~16: OS Scheduler 단회 실행, 6시간, 기존 로컬 3309와 기존 Lightsail만 활용. 실제 APK 조회 및 원문 이동까지 수직 통합 후 여러 분야 공급으로 확대. OS 스케줄러 등록/배포/실데이터 적재는 이번 Stage 1에서 하지 않는다.
+
+### 7.1 Stage 1 구현 세부 계약 및 제한
+
+- `app/trend_collection/supply_adapter.py`: SourceAdapter(collect_preview/verify/scope)와 고정 registry. 현재 실제 Godot만 등록. ID로 공식 상세 endpoint 고정, 정확한 Rule-first Preview 재구성, 관측 10분 이내 및 공개 7일 이내 검증. 입력에서 받은 URL로 직접 요청하지 않는다. 복수 승인 소스 목록 지원은 Stage 4를 위한 최소 확장 지점이며 다분야 실수집 구현 완료는 아니다.
+- `scripts/run_auto_supply.py`: collect/write 단회 CLI와 제한된 JSON handoff. Linux의 독립 비root UID 및 root 소유 비쓰기 가능 디렉터리/파일, 승인/철회를 조정하는 안정된 control.lock(배타 flock), 승인 근거/대상/만료 검증을 사용한다. 실제 파일은 /etc/trend-leader/auto-supply/approval.json, control.lock 및 writer-password; 권리 레코드에는 각 source_id, scope, rights, rights_ref, 프로필에는 environment, collector_uid, writer_uid, port, database, current_user, journal_id/device/inode, approved_at/valid_until/approved_by, g5_ref/g6_ref를 요구한다. enabled=true 및 PROFILE/VERSION 검사는 독립 관리자 발행 기록에 한한다. 실행자는 자동 발행·초기화할 수 없다. 증거 참조의 실질적 심사는 독립 승인 책임이며 문자열 존재 자체가 증거가 아님.
+- 독립 Writer 전용 DB 계정 trend_auto_writer의 정확한 CURRENT_USER 및 승인된 loopback 대상(3306/3309, 테스트 DB 제외), SHOW GRANTS, PUBLIC grants 없음, InnoDB 및 FK/unique 검사. 자격증명은 root 소유, Writer 그룹 읽기, Collector 그룹 접근 금지. 실제 환경의 코드/실행 경로 보호, 다른 계정의 쓰기 배제, 계정/그룹/DB 대상은 Stage 2/3 검증.
+- SQLite Journal 기존 schema/검증/claim/finish 재사용, 운영 모드/대상 분리. 신규 운영 journal은 /var/lib/trend-leader/auto-supply/journal.sqlite3, 사전 독립 등록된 identity 및 device/inode 대조, 보호된 부모/Writer 전용 디렉터리, 미해결 기록 시 연결 전 차단. 기존 3307 합성 Journal은 절대 변경하지 않는다. Stage 1은 운영 Journal을 생성하지 않는다. inode 검사만으로 악의적 동일 UID/관리자 조작까지 방어한다고 보지 않는다.
+- Collector/Writer/승인 변경은 동일 안정된 control.lock과 권한 분리 아래 단일 호스트에서 동작한다. Writer는 잠금 구간에서 최신 승인 재대조 및 Commit 직전 만료 확인. 독립 관리자가 동일 잠금 아래 승인 철회를 발효하고 사후 공개중단은 별도 승인 권한으로 HIDDEN 및 조회/캐시 확인. 관리자 철회/공개중단 실행, Journal 안전한 사전 등록, 실제 OS 권한·잠금 경쟁 및 DB 동시성 검증은 아직 미실행. 활성 승인 파일 예시/자동 생성 경로를 배포하지 않는다.
+- 운영 진입점은 Linux만 지원하는 구현 선택(기존 Windows 순수 테스트는 유지). 기존 로컬 WSL/Linux 환경과 3309 연결 가능성을 먼저 확인해야 하며, 불가하면 로컬→Lightsail 실증 순서 변경은 별도 결정한다. 6시간 스케줄 등록, Retry-After/요청 제한의 장기 재시도 제어, 실제 G5/G6·공개중단·APK 검증은 운영 활성화 전에 완료. 별도의 외부 서비스/DB/컨테이너/의존성은 도입하지 않았다.
+- Stage 1 검사: 격리 사본에서 기존 112 + 신규 31 = 143 PASS, compileall, CLI help 및 미승인 root 실행 HOLD. Mock/SQLite 시험으로 실제 MariaDB/OS 권한·철회 경합을 검증했다고 주장하지 않는다. Ruff/전체 프로젝트 conftest 및 실데이터 저장 미실행. 실제 운영 HOLD 유지.

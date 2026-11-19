@@ -53,7 +53,12 @@ def check_direct_grants(
     """
     if expected != expected_test_target(expected.current_user.partition("@")[2]):
         raise IsolationError("OBSERVATION_TARGET_MISMATCH")
-    user, _, host = expected.current_user.partition("@")
+    check_table_grants(grants, expected.database, expected.current_user)
+
+
+def check_table_grants(grants: Iterable[str], database: str, current_user: str) -> None:
+    """Exact direct-grant grammar, shared by explicitly bound writer profiles."""
+    user, _, host = current_user.partition("@")
     # MariaDB can render the same account with backticks or single quotes.
     principal = "(?:" + "|".join(
         re.escape(f"{quote}{user}{quote}@{quote}{host}{quote}")
@@ -64,7 +69,7 @@ def check_direct_grants(
         + r"(?: IDENTIFIED BY PASSWORD '\*[0-9A-Fa-f]{40}')?"
     )
     table_grant = re.compile(
-        r"GRANT ([A-Z, ]+) ON `" + re.escape(DATABASE)
+        r"GRANT ([A-Z, ]+) ON `" + re.escape(database)
         + r"`\.`([a-z_]+)` TO " + principal
     )
     observed: dict[str, frozenset[str]] = {}
