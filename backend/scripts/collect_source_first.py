@@ -10,6 +10,7 @@ from app.trend_collection.godot_release_collector import (
     build_candidate,
     collect,
 )
+from app.trend_collection.rule_first_preview import build_rule_first_preview
 
 
 def now_utc():
@@ -17,7 +18,7 @@ def now_utc():
 
 
 def run_cycles(runs, interval, *, fetch=collect, clock=now_utc,
-               sleep=time.sleep, emit=print):
+               sleep=time.sleep, emit=print, project=build_candidate):
     """Sequential fixed-delay loop; runs=None means until stopped."""
     seen = set()
     index = 0
@@ -30,7 +31,7 @@ def run_cycles(runs, interval, *, fetch=collect, clock=now_utc,
             "publish_authorization": "NONE", "database_write_performed": False,
         }
         try:
-            candidate = build_candidate(fetch(), clock())
+            candidate = project(fetch(), clock())
             identity = candidate["candidate_identity"]
             result.update(candidate_identity=identity)
             if identity in seen:
@@ -55,13 +56,16 @@ def main():
     count.add_argument("--runs", type=int, default=1)
     count.add_argument("--continuous", action="store_true")
     parser.add_argument("--interval-seconds", type=int, default=21600)
+    parser.add_argument("--rule-first", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.runs <= 100 or not 60 <= args.interval_seconds <= 86400:
         parser.error("runs: 1..100; interval: 60..86400 seconds")
     try:
         return run_cycles(None if args.continuous else args.runs,
                           args.interval_seconds,
-                          emit=lambda line: print(line, flush=True))
+                          emit=lambda line: print(line, flush=True),
+                          project=(build_rule_first_preview if args.rule_first
+                                   else build_candidate))
     except KeyboardInterrupt:
         return 130
 
