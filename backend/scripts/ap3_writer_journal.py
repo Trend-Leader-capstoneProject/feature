@@ -28,6 +28,8 @@ class SyntheticJournal:
 
     profile_id = PROFILE
     target = TARGET
+    policy_version = POLICY
+    mode = MODE
 
     def __init__(self, path: Path, journal_id: str) -> None:
         if not path.is_absolute() or not re.fullmatch(r"[a-f0-9]{32}", journal_id):
@@ -97,7 +99,7 @@ class SyntheticJournal:
                     "OR investigation_ref <> attempt_id "
                     "OR state NOT IN ('STARTED','COMMITTED','ROLLED_BACK',"
                     "'COMMIT_UNKNOWN') LIMIT 1",
-                    (self.profile_id, POLICY, self.target, MODE),
+                    (self.profile_id, self.policy_version, self.target, self.mode),
                 ).fetchone():
                     raise JournalBlocked("JOURNAL_RECORD_MISMATCH")
                 yield conn
@@ -106,6 +108,15 @@ class SyntheticJournal:
                 conn.close()
         except (OSError, sqlite3.Error):
             raise JournalBlocked("JOURNAL_UNAVAILABLE_OR_LOCKED") from None
+
+    def check_ready(self) -> None:
+        """Read the protected journal before opening an operational connector."""
+        with self._locked() as conn:
+            if conn.execute(
+                "SELECT 1 FROM attempts WHERE state IN "
+                "('STARTED','COMMIT_UNKNOWN') LIMIT 1"
+            ).fetchone():
+                raise JournalBlocked("JOURNAL_UNRESOLVED_ATTEMPT")
 
     def claim(self, batch_id: str, digest: str, attempt_id: str) -> None:
         """Commit STARTED before any trend DML. Claims serialize all attempts.
@@ -131,8 +142,8 @@ class SyntheticJournal:
                 raise JournalBlocked("JOURNAL_BATCH_ALREADY_ATTEMPTED")
             conn.execute(
                 "INSERT INTO attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'STARTED')",
-                (batch_id, digest, attempt_id, self.profile_id, POLICY,
-                 self.target, MODE, attempt_id),
+                (batch_id, digest, attempt_id, self.profile_id, self.policy_version,
+                 self.target, self.mode, attempt_id),
             )
 
     def finish(

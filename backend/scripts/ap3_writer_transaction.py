@@ -64,14 +64,15 @@ def _verify_memory_database(conn: Connection) -> None:
         raise FixtureBlocked("FIXTURE_FOREIGN_KEYS_DISABLED")
 
 
-def _category_id(conn: Connection) -> int:
+def _category_id(conn: Connection, parent=PARENT, child=CHILD, *, lock=False) -> int:
     rows = conn.execute(text(
         "SELECT c.category_id, c.category_name, c.category_code, c.is_active, "
         "p.category_code, p.parent_id, p.is_active FROM categories c "
         "JOIN categories p ON c.parent_id = p.category_id "
         "WHERE p.category_code = :parent AND c.category_name = :child LIMIT 2"
-    ), {"parent": PARENT, "child": CHILD}).all()
-    if len(rows) != 1 or tuple(rows[0][1:]) != (CHILD, None, 1, PARENT, None, 1):
+        + (" LOCK IN SHARE MODE" if lock else "")
+    ), {"parent": parent, "child": child}).all()
+    if len(rows) != 1 or tuple(rows[0][1:]) != (child, None, 1, parent, None, 1):
         raise FixtureBlocked("FIXTURE_CATEGORY_MISSING_OR_AMBIGUOUS")
     return rows[0][0]
 
@@ -102,27 +103,38 @@ def _stage_items(
         ), {"title": item.normalized_title}).first():
             raise FixtureBlocked("FIXTURE_TITLE_COLLISION")
     for index, item in enumerate(items):
-        trend_id = conn.execute(text(
-            "INSERT INTO trends (title, normalized_title, summary, thumbnail_url, "
-            "status, first_collected_at, last_collected_at) "
-            "VALUES (:title, :normalized, :summary, NULL, 'HIDDEN', :at, :at)"
-        ), {"title": item.title, "normalized": item.normalized_title,
-            "at": fixture_at, "summary": summary}).lastrowid
-        if type(trend_id) is not int or trend_id <= 0:
-            raise FixtureBlocked("FIXTURE_INSERT_ID_INVALID")
-        conn.execute(text(
-            "INSERT INTO trend_sources (trend_id, source_key, source_url, "
-            "source_title, platform, collected_at, external_id) VALUES "
-            "(:id, :key, :url, NULL, 'ETC', :at, :external_id)"
-        ), {"id": trend_id, "key": item.source_key, "url": item.source_url,
-            "at": fixture_at, "external_id": item.external_id})
-        conn.execute(text(
-            "INSERT INTO trend_category_map (trend_id, category_id, is_primary, "
-            "created_at) VALUES (:id, :category, :primary, :at)"
-        ), {"id": trend_id, "category": category_id, "at": fixture_at,
-            "primary": is_primary})
+        trend_id = insert_trend_item(
+            conn, item, category_id=category_id, collected_at=fixture_at,
+            summary=summary, is_primary=is_primary, status="HIDDEN", platform="ETC",
+        )
         if after_item is not None:
             after_item(conn, index, trend_id, category_id)
+
+
+def insert_trend_item(conn: Connection, item, *, category_id: int, collected_at,
+                      summary: str | None, is_primary: bool, status: str,
+                      platform: str) -> int:
+    """Shared DML only; caller owns authority, isolation and transaction."""
+    trend_id = conn.execute(text(
+        "INSERT INTO trends (title, normalized_title, summary, thumbnail_url, "
+        "status, first_collected_at, last_collected_at) "
+        "VALUES (:title, :normalized, :summary, NULL, :status, :at, :at)"
+    ), {"title": item.title, "normalized": item.normalized_title,
+        "at": collected_at, "summary": summary, "status": status}).lastrowid
+    if type(trend_id) is not int or trend_id <= 0:
+        raise FixtureBlocked("FIXTURE_INSERT_ID_INVALID")
+    conn.execute(text(
+        "INSERT INTO trend_sources (trend_id, source_key, source_url, "
+        "source_title, platform, collected_at, external_id) VALUES "
+        "(:id, :key, :url, NULL, :platform, :at, :external_id)"
+    ), {"id": trend_id, "key": item.source_key, "url": item.source_url,
+        "at": collected_at, "external_id": item.external_id, "platform": platform})
+    conn.execute(text(
+        "INSERT INTO trend_category_map (trend_id, category_id, is_primary, "
+        "created_at) VALUES (:id, :category, :primary, :at)"
+    ), {"id": trend_id, "category": category_id, "at": collected_at,
+        "primary": is_primary})
+    return trend_id
 
 
 def run_synthetic_batch(engine: Engine, journal: SyntheticJournal) -> str:

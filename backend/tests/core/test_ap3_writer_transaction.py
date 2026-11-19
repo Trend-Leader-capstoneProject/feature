@@ -3,6 +3,7 @@
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from dataclasses import replace
 from threading import Barrier
 from unittest.mock import Mock
 from uuid import uuid4
@@ -18,8 +19,11 @@ from scripts.ap3_writer_transaction import (
     BATCH,
     BATCH_ID,
     DIGEST,
+    _category_id,
+    insert_trend_item,
     run_synthetic_batch,
 )
+from scripts.run_auto_supply import inspect_snapshot
 
 
 @pytest.fixture
@@ -283,3 +287,28 @@ def test_policy_snapshot_does_not_accept_missing_prior_fixture(engine):
         with pytest.raises(RuntimeError, match="FIXTURE_BASELINE_MISMATCH"):
             _stage_policy_snapshot(conn, synthetic_fixture_decision().snapshot)
     assert counts(engine) == (0, 0, 0)
+
+
+def test_shared_active_insert_and_duplicate_query(engine):
+    # Synthetic fixture in memory only; exercises the actual common DML parameters.
+    item = synthetic_fixture_decision().snapshot
+    with engine.begin() as conn:
+        assert inspect_snapshot(conn, item) == "NEW"
+        category = _category_id(conn, item.parent_code, item.child_name)
+        insert_trend_item(conn, item, category_id=category,
+                          collected_at="2000-01-01 00:00:00",
+                          summary=item.summary, is_primary=True,
+                          status="ACTIVE", platform=item.platform)
+    with engine.begin() as conn:
+        assert inspect_snapshot(conn, replace(item, title="changed")) == (
+            "SKIP_EXISTING_RELEASE"
+        )
+        assert conn.exec_driver_sql(
+            "SELECT status, summary, is_primary FROM trends "
+            "JOIN trend_category_map USING (trend_id)"
+        ).one() == ("ACTIVE", item.summary, 1)
+        conn.exec_driver_sql("UPDATE trends SET status='HIDDEN'")
+        assert inspect_snapshot(conn, item) == "SKIP_EXISTING_RELEASE"
+        with pytest.raises(RuntimeError, match="SOURCE_IDENTITY_COLLISION"):
+            inspect_snapshot(conn, replace(item, source_key="different"))
+    assert counts(engine) == (1, 1, 1)
