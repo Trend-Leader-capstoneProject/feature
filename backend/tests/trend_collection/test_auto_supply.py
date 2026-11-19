@@ -199,11 +199,17 @@ def test_new_adapter_does_not_change_writer(monkeypatch):
                            "rights": dict(supply.RIGHTS), "rights_ref": "other-ref"})
     approved = supply.parse_profile(raw, NOW)
     writer = Mock(return_value="COMMITTED")
+    journal_factory = Mock()
+    monkeypatch.setattr(supply, "OperationalJournal", journal_factory)
     monkeypatch.setattr(supply, "_write", writer)
     monkeypatch.setattr(supply, "now_utc", lambda: NOW)
     assert supply.run_writer(approved, {"source_id": "other-source", "preview": {}})[
         "status"] == "COMMITTED"
     adapter.verify.assert_called_once_with({}, NOW)
+    journal_factory.assert_called_once_with(approved)
+    writer.assert_called_once()
+    assert writer.call_args.args[0] == approved
     assert writer.call_args.args[1].target == approved.target
+    assert writer.call_args.args[2] is journal_factory.return_value
     with pytest.raises(SupplyBlocked):
         approved.source(None)
