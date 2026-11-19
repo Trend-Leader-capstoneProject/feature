@@ -33,6 +33,47 @@ def test_direct_grant_profile():
     check_direct_grants(with_hash + GRANTS[1:], TARGET)
 
 
+@pytest.mark.parametrize("quote", ["'", "`"])
+def test_mariadb_observed_account_quoting(quote):
+    target = expected_test_target("172.20.0.1")
+    account = f"{quote}{USERNAME}{quote}@{quote}172.20.0.1{quote}"
+    grants = [
+        f"GRANT USAGE ON *.* TO {account} IDENTIFIED BY PASSWORD '"
+        + "*" + "A" * 40 + "'",
+        f"GRANT SELECT ON `{DATABASE}`.`categories` TO {account}",
+        f"GRANT SELECT, INSERT ON `{DATABASE}`.`trend_category_map` TO {account}",
+        f"GRANT SELECT, INSERT ON `{DATABASE}`.`trends` TO {account}",
+        f"GRANT SELECT, INSERT ON `{DATABASE}`.`trend_sources` TO {account}",
+    ]
+    check_direct_grants(grants, target)
+
+
+@pytest.mark.parametrize("account", [
+    f"`{USERNAME}`@`172.20.0.2`",
+    f"`{USERNAME}`@`%`",
+    "`other_user`@`172.20.0.1`",
+    f"`{USERNAME}'@`172.20.0.1`",
+])
+def test_mismatched_backtick_account_is_held(account):
+    target = expected_test_target("172.20.0.1")
+    with pytest.raises(IsolationError, match="GRANT_SCOPE_OR_FORMAT_UNRECOGNIZED"):
+        check_direct_grants([f"GRANT USAGE ON *.* TO {account}"], target)
+
+
+@pytest.mark.parametrize("extra", [
+    f"GRANT SELECT ON *.* TO `{USERNAME}`@`172.20.0.1`",
+    f"GRANT SELECT ON `{DATABASE}`.* TO `{USERNAME}`@`172.20.0.1`",
+    f"GRANT SELECT ON `{DATABASE}`.`trends` TO "
+    f"`{USERNAME}`@`172.20.0.1` WITH GRANT OPTION",
+])
+def test_broad_backtick_grants_are_held(extra):
+    target = expected_test_target("172.20.0.1")
+    account = f"`{USERNAME}`@`172.20.0.1`"
+    grants = [grant.replace(ACCOUNT, account) for grant in GRANTS]
+    with pytest.raises(IsolationError, match="GRANT_SCOPE_OR_FORMAT_UNRECOGNIZED"):
+        check_direct_grants(grants + [extra], target)
+
+
 @pytest.mark.parametrize("extra", [
     f"GRANT SELECT ON *.* TO {ACCOUNT}",
     f"GRANT SELECT ON `{DATABASE}`.* TO {ACCOUNT}",
