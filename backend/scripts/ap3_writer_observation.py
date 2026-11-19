@@ -54,7 +54,11 @@ def check_direct_grants(
     if expected != expected_test_target(expected.current_user.partition("@")[2]):
         raise IsolationError("OBSERVATION_TARGET_MISMATCH")
     user, _, host = expected.current_user.partition("@")
-    principal = re.escape(f"'{user}'@'{host}'")
+    # MariaDB can render the same account with backticks or single quotes.
+    principal = "(?:" + "|".join(
+        re.escape(f"{quote}{user}{quote}@{quote}{host}{quote}")
+        for quote in ("'", "`")
+    ) + ")"
     usage = re.compile(
         r"GRANT USAGE ON \*\.\* TO " + principal
         + r"(?: IDENTIFIED BY PASSWORD '\*[0-9A-Fa-f]{40}')?"
