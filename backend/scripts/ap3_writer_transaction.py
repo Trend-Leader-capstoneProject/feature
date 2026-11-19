@@ -85,6 +85,7 @@ def _stage_batch(conn: Connection) -> None:
 def _stage_items(
     conn: Connection, items: tuple[SyntheticItem, ...], *,
     after_item: Callable[[Connection, int, int, int], None] | None = None,
+    summary: str | None = None, is_primary: bool = False,
 ) -> None:
     """Fixture SQL only; caller owns isolation guard and transaction."""
     category_id = _category_id(conn)
@@ -104,9 +105,9 @@ def _stage_items(
         trend_id = conn.execute(text(
             "INSERT INTO trends (title, normalized_title, summary, thumbnail_url, "
             "status, first_collected_at, last_collected_at) "
-            "VALUES (:title, :normalized, NULL, NULL, 'HIDDEN', :at, :at)"
+            "VALUES (:title, :normalized, :summary, NULL, 'HIDDEN', :at, :at)"
         ), {"title": item.title, "normalized": item.normalized_title,
-            "at": fixture_at}).lastrowid
+            "at": fixture_at, "summary": summary}).lastrowid
         if type(trend_id) is not int or trend_id <= 0:
             raise FixtureBlocked("FIXTURE_INSERT_ID_INVALID")
         conn.execute(text(
@@ -117,8 +118,9 @@ def _stage_items(
             "at": fixture_at, "external_id": item.external_id})
         conn.execute(text(
             "INSERT INTO trend_category_map (trend_id, category_id, is_primary, "
-            "created_at) VALUES (:id, :category, 0, :at)"
-        ), {"id": trend_id, "category": category_id, "at": fixture_at})
+            "created_at) VALUES (:id, :category, :primary, :at)"
+        ), {"id": trend_id, "category": category_id, "at": fixture_at,
+            "primary": is_primary})
         if after_item is not None:
             after_item(conn, index, trend_id, category_id)
 
