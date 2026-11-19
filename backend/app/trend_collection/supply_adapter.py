@@ -9,6 +9,7 @@ from app.trend_collection.godot_release_collector import (
     RELEASES,
     REPO,
     CollectionError,
+    RateLimited,
     _parse,
     _request_json,
     collect,
@@ -47,8 +48,11 @@ def utc(value: str) -> datetime:
 class GodotAdapter:
     scope = "GODOT_FACTS_LINK_V1"
 
-    def __init__(self, request_json=_request_json):
-        self._request_json = request_json
+    def __init__(self, request_json=None):
+        self._request_json = (
+            request_json if request_json is not None
+            else lambda url: _request_json(url, enforce_rate_limit=True)
+        )
 
     def collect_preview(self) -> dict:
         evidence = collect(request_json=self._request_json)
@@ -68,6 +72,8 @@ class GodotAdapter:
         rid = int(identity.rsplit(":", 1)[1])
         try:
             evidence = _parse(self._request_json(f"{RELEASES}/{rid}"))
+        except RateLimited:
+            raise
         except CollectionError:
             raise SupplyBlocked("SOURCE_DETAIL_UNAVAILABLE") from None
         if evidence.release_id != rid or not (

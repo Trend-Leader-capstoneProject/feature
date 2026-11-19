@@ -4,6 +4,7 @@ import json
 import re
 import socket
 import ssl
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
@@ -11,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from app.external_trends.normalizer import normalize_source_url, normalize_title
+from app.trend_collection.rate_limit import retry_deadline
 
 REPO = "godotengine/godot-builds"
 RELEASES = f"https://api.github.com/repos/{REPO}/releases"
@@ -22,6 +24,14 @@ MAX_BYTES = 8_000_000
 
 class CollectionError(Exception):
     """Safe diagnostic code, without raw upstream content or credentials."""
+
+
+class RateLimited(CollectionError):
+    """Operational rate-limit signal; None needs independent review."""
+
+    def __init__(self, retry_not_before):
+        super().__init__("RATE_LIMITED")
+        self.retry_not_before = retry_not_before
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -41,7 +51,7 @@ def _network_code(reason):
     return "NETWORK_ERROR"
 
 
-def _request_json(url):
+def _request_json(url, *, enforce_rate_limit=False):
     if url != RELEASES + "?per_page=3" and not re.fullmatch(
         re.escape(RELEASES) + r"/[1-9][0-9]*", url
     ):
@@ -54,8 +64,20 @@ def _request_json(url):
         with build_opener(_NoRedirect()).open(request, timeout=30) as response:
             if response.status != 200:
                 raise CollectionError(f"HTTP_{response.status}")
+            if (
+                enforce_rate_limit
+                and response.headers.get("X-RateLimit-Remaining") == "0"
+            ):
+                raise RateLimited(retry_deadline(response.headers, time.time()))
             data = response.read(MAX_BYTES + 1)
     except HTTPError as exc:
+        headers = exc.headers or {}
+        if enforce_rate_limit and (
+            exc.code in {403, 429}
+            or headers.get("Retry-After") is not None
+            or headers.get("X-RateLimit-Remaining") == "0"
+        ):
+            raise RateLimited(retry_deadline(headers, time.time())) from None
         raise CollectionError(f"HTTP_{exc.code}") from None
     except URLError as exc:
         raise CollectionError(_network_code(exc.reason)) from None

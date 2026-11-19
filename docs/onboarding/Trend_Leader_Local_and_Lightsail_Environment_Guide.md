@@ -72,6 +72,8 @@ Lightsail 방화벽(IPv4/IPv6 각각), 호스트 방화벽 및 Docker 포트 공
 | frontend/.env | Expo 개발 API 주소 관련 값 |
 | 배포 빌드용 환경변수 | 명시적인 HTTPS API Base URL, 서버 측 Secret은 포함 금지 |
 
+DB 통합 회귀 전 `backend/.env.test`의 `TEST_DATABASE_URL` 및 독립 승인값 `TEST_MIGRATION_ALLOWED_{HOST,PORT,DATABASE,USER}`, `DEMO_SEED_ALLOWED_{HOST,PORT,DATABASE,CURRENT_USER}`를 확인한다. Migration USER는 URL 사용자명, Seed CURRENT_USER는 실제 MariaDB 인증 계정(`user@host`)이다. 승인값은 URL에서 자동 추출하지 않고 관리자가 확인한 격리 대상만 입력한다. 3307/3308의 `trend_leader_test`만 Migration 대상이며 3309 일반 DB 및 별도 Writer 시험 DB를 사용하지 않는다. 기존 데이터 보존 및 동시 사용 여부를 먼저 확인한다. 일반 회귀는 backend에서 `python -m pytest -q --ignore=tests/responses_web_search --ignore=tests/responses_web_search_s1`로 실행하고 S0/S1은 Current Work의 독립 프로세스 명령을 따른다. 실제 환경값/비밀번호는 커밋하지 않는다.
+
 개인 Windows 예시(기존 파일에서 해당 항목만 확인, 나머지 값은 유지):
 
 ~~~dotenv

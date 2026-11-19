@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from app.trend_collection.godot_release_collector import RELEASES, REPO, _parse
+from app.trend_collection.godot_release_collector import (
+    RELEASES,
+    REPO,
+    RateLimited,
+    _parse,
+)
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 from app.trend_collection.supply_adapter import (
     GodotAdapter,
@@ -82,6 +87,14 @@ def test_adapter_rechecks_fixed_detail_and_keeps_generic_fields():
 def test_adapter_rejects_tampering(changes):
     with pytest.raises(SupplyBlocked):
         GodotAdapter(lambda _: RAW).verify({**candidate(), **changes}, NOW)
+
+
+def test_independent_detail_preserves_rate_limit():
+    request = Mock(side_effect=RateLimited(123456))
+    with pytest.raises(RateLimited) as error:
+        GodotAdapter(request).verify(candidate(), NOW)
+    assert error.value.retry_not_before == 123456
+    request.assert_called_once_with(f"{RELEASES}/42")
 
 
 def test_independent_detail_change_is_rejected():
