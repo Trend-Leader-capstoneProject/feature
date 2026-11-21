@@ -5,7 +5,7 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from time import sleep
 
-from app.trend_collection.igdb_adapter import IgdbReviewAdapter
+from app.trend_collection.igdb_adapter import SOURCE_URL, IgdbReviewAdapter
 from app.trend_collection.igdb_supply_snapshot import (
     UNBOUND,
     IgdbSnapshotBridge,
@@ -55,6 +55,8 @@ def _card(snapshot: PopularitySnapshot) -> str:
         or snapshot.parent_code != "GAME"
         or snapshot.child_name not in {"PC 게임", "모바일 게임", "콘솔 게임"}
         or snapshot.metric_id != 1
+        or not isinstance(snapshot.source_url, str)
+        or SOURCE_URL.fullmatch(snapshot.source_url) is None
         or type(snapshot.rank) is not int
         or not 1 <= snapshot.rank <= 20
     ):

@@ -1,6 +1,7 @@
 """Ephemeral IGDB review card tests; no credentials, public API or DB."""
 
 import http.client
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from threading import Thread
 from types import SimpleNamespace
@@ -11,12 +12,14 @@ from app.trend_collection.igdb_adapter import (
     IGDB_ID,
     VISITS_ID,
     IgdbBlocked,
+    IgdbReviewAdapter,
 )
 from app.trend_collection.igdb_local_preview import (
     _card,
     build_local_review_html,
     serve_loopback,
 )
+from app.trend_collection.igdb_supply_snapshot import IgdbSnapshotBridge
 
 NOW = datetime(2026, 11, 20, 7, tzinfo=timezone.utc)
 STAMP = int((NOW - timedelta(hours=5)).timestamp())
@@ -127,6 +130,19 @@ def test_renderer_rejects_non_verified_object():
     with pytest.raises(ValueError, match="REVIEW_SNAPSHOT_INVALID"):
         _card({"title": "Forged"})
 
+
+
+@pytest.mark.parametrize("unsafe_url", [
+    "javascript:alert(1)",
+    "https://www.igdb.com.evil.example/games/free-fire",
+    "https://www.igdb.com/games/free-fire?redirect=evil",
+])
+def test_renderer_rechecks_official_source_url(unsafe_url):
+    factory, _ = _factory()
+    preview = IgdbReviewAdapter(factory().query).collect_review(NOW)
+    snapshot = IgdbSnapshotBridge(factory().query).verify(preview, NOW)
+    with pytest.raises(ValueError, match="REVIEW_SNAPSHOT_INVALID"):
+        _card(replace(snapshot, source_url=unsafe_url))
 
 def _http_request(port, *, path="/", host=None):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
