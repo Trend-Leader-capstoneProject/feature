@@ -1,7 +1,8 @@
 """IGDB retention assessment only. No database reads, writes or publication rights.
 
-Thirty days is a proposed *upper bound*, not a granted usage licence.
-Callers must separately verify IGDB/Twitch permissions and any shorter limits.
+The project has approved a maximum of 30 days per collected IGDB record.
+This limit does not grant rights or perform deletion. Source-specific shorter
+limits, termination, and deletion demands take precedence.
 """
 
 import re
@@ -9,7 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 
-MAX_PROPOSED_DAYS = 30
+MAX_POLICY_DAYS = 30
+MAX_PROPOSED_DAYS = MAX_POLICY_DAYS  # Preserve existing callers/tests.
 IGDB_IDENTITY = re.compile(r"igdb-game:([1-9][0-9]{0,19})\Z")
 IGDB_URL = re.compile(r"https://www\.igdb\.com/games/[a-z0-9][a-z0-9-]{0,254}\Z")
 
@@ -49,7 +51,7 @@ def assess_igdb_expiry(
     row: StoredSourceEvidence,
     now: datetime,
     *,
-    retention_days: int = MAX_PROPOSED_DAYS,
+    retention_days: int = MAX_POLICY_DAYS,
 ) -> ExpiryReview:
     """Calculate a proposed purge deadline; never recommend direct parent DELETE."""
     if type(row) is not StoredSourceEvidence:
