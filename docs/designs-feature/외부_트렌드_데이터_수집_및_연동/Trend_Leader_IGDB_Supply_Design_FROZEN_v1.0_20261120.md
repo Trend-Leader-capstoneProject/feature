@@ -96,6 +96,15 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **실제 삭제 설계 미확정**: `trend_sources`는 `trends` 자식, 다른 FK(북마크, 순위, AI 분석 등)가 `ON DELETE CASCADE`를 가질 수 있다. source 단위 제거와 Trend 부모 제거를 동일하게 취급하면 사용자 데이터가 의도치 않게 삭제된다. 전체 연관 출처·북마크·Journal/중복 기록, 백업, API 응답 캐시 및 시연 자료를 확인한 후 관리자 승인과 별도 권한으로 삭제·비노출 정책을 확정한다. 주기적 작업만으로 마감 이후 추가 보관이 생기지 않도록 공개 조회의 만료 가드 또는 선제적인 삭제 일정도 필요하다.
 - **운영 전 Gate**: (1) 자료 저장·표시 권리 확인, (2) 권리 조건에 맞는 보존 상한·출처 표시·즉시 정정/삭제 절차, (3) 최소 권한/삭제 경계 및 의존 FK 검증, (4) 별도 사용자 G6 승인. 확인 전 IGDB 운영 공급은 HOLD. 현재 파일·코드 변경만으로 승인이나 법적 보증을 주장하지 않는다.
 
+### 6.2 IGDB 로컬 전용 TrendCard 검토 연결 (2026-11-21)
+
+- **목적 및 범위**: 이미 승인된 개발·내부 검증 허용 범위에서만 IGDB Visits 수집 → 후보 적격성 → **독립 API 재조회** → 임시 카드 표시를 수직 연결한다. 실제 APK `TrendCard`는 DB 기반 식별자/카테고리 ID를 요구하므로, 가짜 DB ID를 만들거나 공개 FastAPI Router를 추가하지 않는다. 이는 Expo UI 또는 실제 APK E2E 증거가 아닌 별도 **로컬 브라우저 UI 검증**이다.
+- **진입점**: Backend의 `python -m scripts.igdb_local_preview`를 수동 실행한다. Client ID는 입력, Client Secret은 `getpass` 비표시 입력으로 받고 두 개의 독립 `IgdbClient` 인스턴스를 검증 사이클마다 생성한다. 외부 요청은 Client의 고정 allowlist 및 rate limit에 한정한다. 환경변수/파일/DB/Journal/systemd에 자격증명이나 수집한 결과를 저장하지 않는다.
+- **표시**: 표준 라이브러리 HTTPServer를 **127.0.0.1**에만 바인딩하고 임의 포트를 기본으로 쓴다. 루트 경로 `/`만 허용; 브라우저의 로컬 주소를 수동으로 연다. 검증된 `PopularitySnapshot`에서 게임명, 원래 IGDB Visits 관측 순위, 기준시각, 부문, 공식 IGDB 게임 링크 및 고정 출처만 표시한다. 이미지, 원문 소개문, 지표값, 인증정보는 표시하지 않는다. 다른 요청 경로는 404, Host 불일치는 400으로 차단하고 HTML 문자열은 escape한다.
+- **보존/접근**: HTML 파일을 만들지 않고 페이지는 요청 시 메모리에서 생성한다. `no-store`, Referrer-Policy, Content Security Policy, robots noindex를 설정하며 접근 로그를 남기지 않는다. 원천 수집이 비정상적이면 상세 오류/비밀을 반환하지 않는 503 페이지다. IGDB 적격 후보 없음은 별도 빈 카드로 표시한다. 이 화면은 인증된 다중 사용자 서비스가 아니며 로컬 컴퓨터에서만 수동 실행·종료한다.
+- **승인 경계**: 기존 `ADAPTERS` Registry·Approval/G6·MariaDB·Journal·Scheduler·FastAPI Router·React Native 화면은 **변경하지 않는다**. 비상업 API의 로컬 검토 근거와 공개/영구 보존 권리 판단은 구분한다. 30일 삭제 정책은 이번 서버의 저장 권한 또는 운영 승인과 무관하다. 실제 앱 TrendCard에 연결되는 데이터 흐름은 권리·G6 승인 후 기존 API 계약으로 통합한다.
+- **검증**: 두 독립 Query 사이의 원천 응답 변경 거부, HTML escape, 비정상 후보 없음, localhost/Host/path 차단, 브라우저 Cache-Control 및 503 민감값 비노출에 대한 mocked 회귀를 추가한다. 실제 IGDB 인증 및 브라우저 열람은 사용자의 개발 환경에서 별도 확인한다.
+
 ## 7. 테스트 및 종료 기준
 
 1. 실측 입력의 최소 비밀 제거 fixture로 정상 선택/등급 미제공·성인·Erotic·복수 플랫폼·유형·48h 경계·순위 변조·date mismatch·URL 변조·동일 ID·unknown enum 거부. 전체 덤프 재게시 금지.
