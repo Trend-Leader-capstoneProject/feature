@@ -123,6 +123,15 @@ def test_unattributed_legacy_etc_source_stays_visible(db_session: Session):
     assert old.trend_id in _page(_repository(db_session))
 
 
+def test_naive_clock_is_rejected_before_database_query(db_session: Session):
+    repository = TrendRepository(
+        db_session,
+        utc_now=lambda: datetime(2026, 11, 21, 12),
+    )
+    with pytest.raises(ValueError, match="IGDB_VISIBILITY_CLOCK_INVALID"):
+        _page(repository)
+
+
 def test_latest_source_does_not_return_expired_igdb(db_session: Session):
     mixed = _trend(db_session, "expiry-mixed-latest", NOW.replace(tzinfo=None))
     _source(db_session, mixed, "igdb-game:301", CUTOFF)
