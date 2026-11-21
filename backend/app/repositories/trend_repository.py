@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from typing import Callable
 
 from sqlalchemy import (
     and_,
@@ -15,10 +16,11 @@ from sqlalchemy.orm import (
 )
 
 from app.models.category import Category
-from app.models.db_enums import TrendStatus
+from app.models.db_enums import TrendSourcePlatform, TrendStatus
 from app.models.trend import Trend
 from app.models.trend_category_map import TrendCategoryMap
 from app.models.trend_source import TrendSource
+from app.trend_collection.igdb_retention_policy import MAX_POLICY_DAYS
 
 
 class TrendRepository:
@@ -27,8 +29,29 @@ class TrendRepository:
     def __init__(
         self,
         db: Session,
+        *,
+        utc_now: Callable[[], datetime] | None = None,
     ) -> None:
         self.db = db
+        self._utc_now = utc_now or (lambda: datetime.now(UTC))
+
+    def _igdb_expiry_cutoff(self) -> datetime:
+        """The storage contract uses UTC timestamps without tzinfo in MariaDB."""
+        return (
+            self._utc_now().astimezone(UTC).replace(tzinfo=None)
+            - timedelta(days=MAX_POLICY_DAYS)
+        )
+
+    @staticmethod
+    def _expired_igdb_source(cutoff: datetime):
+        # ETC also contains non-IGDB sources: only the fixed ID namespace
+        # identifies IGDB. Fail closed for expired mixed-source trends.
+        return and_(
+            TrendSource.platform == TrendSourcePlatform.ETC,
+            TrendSource.external_id.is_not(None),
+            TrendSource.external_id.startswith("igdb-game:"),
+            TrendSource.collected_at <= cutoff,
+        )
 
     def find_page(
         self,
@@ -40,11 +63,17 @@ class TrendRepository:
     ) -> list[Trend]:
         """정렬·Category·Cursor 조건을 적용한 Trend Page를 조회한다."""
 
+        expired_igdb = exists(
+            select(1).select_from(TrendSource).where(
+                TrendSource.trend_id == Trend.trend_id,
+                self._expired_igdb_source(self._igdb_expiry_cutoff()),
+            )
+        )
         statement = select(
             Trend,
         ).where(
-            Trend.status
-            == TrendStatus.ACTIVE,
+            Trend.status == TrendStatus.ACTIVE,
+            ~expired_igdb,
         )
 
         if category_ids is not None:
@@ -134,9 +163,8 @@ class TrendRepository:
                     "row_number",
                 ),
             ).where(
-                TrendSource.trend_id.in_(
-                    trend_ids,
-                )
+                TrendSource.trend_id.in_(trend_ids),
+                ~self._expired_igdb_source(self._igdb_expiry_cutoff()),
             )
             .subquery()
         )
