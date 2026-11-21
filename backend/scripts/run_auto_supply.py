@@ -22,8 +22,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.pool import NullPool
 
-from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
+from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.publication_policy import (
     PersistableSnapshot,
     PopularitySnapshot,

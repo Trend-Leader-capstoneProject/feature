@@ -7,11 +7,10 @@ from hashlib import sha256
 from app.trend_collection.godot_release_collector import REPO
 from app.trend_collection.igdb_adapter import (
     SCOPE as IGDB_SCOPE,
-)
-from app.trend_collection.igdb_adapter import (
     SOURCE_ID as IGDB_SOURCE_ID,
+    SOURCE_URL,
+    VISITS_ID,
 )
-from app.trend_collection.igdb_adapter import SOURCE_URL, VISITS_ID
 from app.trend_collection.publication_policy import (
     ContentSnapshot,
     PopularitySnapshot,

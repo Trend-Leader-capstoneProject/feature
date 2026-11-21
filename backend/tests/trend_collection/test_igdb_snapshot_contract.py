@@ -90,8 +90,8 @@ def test_popularity_snapshot_projection_and_digest():
 
 def test_godot_snapshot_schema_and_digest_remain_unchanged():
     from app.trend_collection.godot_release_collector import _parse
-    from app.trend_collection.rule_first_preview import build_rule_first_preview
     from app.trend_collection.publication_policy import evaluate_release
+    from app.trend_collection.rule_first_preview import build_rule_first_preview
 
     raw = {"id": 42, "tag_name": "4.8-beta4", "draft": False,
            "prerelease": True,
