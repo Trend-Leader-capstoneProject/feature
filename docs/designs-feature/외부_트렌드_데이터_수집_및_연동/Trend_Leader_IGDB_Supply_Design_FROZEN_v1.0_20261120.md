@@ -49,7 +49,7 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - SNAP-01~03: 기존 `ContentSnapshot`의 필드 순서·직렬화·해시는 변경하지 않는다. 새로운 `PopularitySnapshot`은 `calculated_at_utc`, 관측 순위와 Visits 지표 ID를 별도로 가진다. `PersistableSnapshot`은 타입 계약이지 새로운 DB 테이블이 아니다.
 - SNAP-04~05: 고정된 소스 ID와 Concrete Snapshot Type 및 보호된 운영 프로필 Scope가 정확히 일치해야 한다. Godot은 7일, IGDB는 48시간; 공통 Preview 10분. 후보의 임의 파라미터나 Snapshot이 자체 권한을 지정하지 않는다. Commit 직전에도 같은 검사 적용.
 - SNAP-06~09: 공통 Writer/Journal 및 `AUTO_V1` 유지. IGDB의 동일 Game ID는 SKIP하며 저장 URL이 달라지면 UPDATE 대신 HOLD. 기존 DB/API/Schema/권한 변경 없음. 이벤트 타임스탬프와 관측 타임스탬프의 의미 혼동 금지.
-- SNAP-10: 독립 검증 후 Snapshot으로 투영하는 Bridge는 기술 구현 가능하나 IGDB가 허용된 운영 Registry에 들어가거나 실제 DB DML을 수행하는 것은 별도 권리 검토 및 G6 승인 이후에만 가능.
+- SNAP-10 (Phase 4-F 보완): IGDB Bridge의 **실행 불가능한 기본 Registry Descriptor**만 코드로 등록해 기존 운영 진입점의 통합 회귀를 허용한다. 이 Descriptor는 Query/자격증명이 없어 자체 수집·검증을 거부한다. 실제 Collector/Writer 연결은 보호 프로필에서 승인된 정확한 source_id/scope와 각 역할 전용 보호 자격증명이 있을 때만 생성된다. 이는 권리 판단·G6 발행이나 실제 DB DML의 허가가 아니다.
 - 과도한 제약은 목적·근거·부작용을 개별 검증한 뒤 완화할 수 있으나, 기존 운영 Journal 무결성 및 실제 운영 승인 경계를 구현 편의만으로 축소하지 않는다.
 - 이번 범위는 Snapshot/Source/Freshness/Writer 계약 및 테스트다. Scheduler 복수 소스 실행, OAuth 영속 Cache, 운영 배포는 포함하지 않는다.
 
@@ -67,7 +67,7 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - scheduler-state.json의 기존 세 필드 `pending/not_before/rate_failures`는 유지. 복수 공급원 성공 이후에만 `last_completed_source_id`가 선택적으로 기록된다. 이전 세 필드 상태를 읽을 수 있어야 하며, 단일 소스 기존 상태는 세 필드를 그대로 기록한다. 보호된 경로의 기존 파일을 초기화·삭제하지 않는다.
 - `COMMITTED`·`SKIP_EXISTING_RELEASE`처럼 Writer의 종료가 확정되거나, IGDB Collector가 정규 `NO_ELIGIBLE_CANDIDATE`를 반환한 경우에만 마지막 완료 소스를 갱신한다. 후자의 경우 Writer는 실행하지 않는다. RATE_LIMITED 및 HOLD는 이전 순환 위치를 유지한다. 결과 불일치·프로세스 예외·미확정 Writer 결과는 `pending=true`를 남겨 무단 재시도를 차단한다.
 - 승인 목록이 변경되어 이전 source_id가 사라진 경우 새 목록의 첫 번째 소스로 시작한다. 빈 목록 또는 중복 source_id는 오류 처리한다. 요청 건수는 그대로 단회/Cycle이다. 2개 소스일 때 각각의 실제 재선택 간격은 정상적으로 약 12시간이나, 이는 제공량에 따른 추정이며 가용 시간을 보장하지 않는다.
-- IGDB는 운영 Adapter Registry에 등록하지 않는다. 권리 및 G6 승인과 실제 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음은 별도 정상 SKIP 결과로 구분하며 가짜 COMMITTED로 처리하지 않는다. 게임별 Cursor는 검증된 Writer 완료 이후에만 전진한다.
+- IGDB는 Phase 4-F에서 **비실행 기본 Descriptor**로 코드 Registry에 등록된다. 미승인 프로필 및 미설치 역할별 자격증명에서는 실제 호출이 차단된다. 권리 및 G6 승인과 실제 보호 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음은 별도 정상 SKIP 결과로 구분하며 가짜 COMMITTED로 처리하지 않는다. 게임별 Cursor는 검증된 Writer 완료 이후에만 전진한다.
 - 회귀 게이트: 단일 Godot 자식 프로세스, 성공·중복·RATE_LIMITED·HOLD, legacy/extended 상태 엄격 검증, source mismatch의 pending 보존, Writer exit code 상충 검증, 기존 systemd ExecCondition 호환 확인. Linux 특화 원자적 파일 작업은 Windows skipped와 구분하여 Linux에서 재검증한다.
 
 ### 5.2 Phase 4-D 후보 없음 및 IGDB 게임 Cursor 계약 (2026-11-21)
@@ -77,7 +77,14 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **게임별 Cursor**: `scheduler-state.json`에 선택적 양의 정수 `igdb_last_game_id`를 추가한다. 기존 상태는 그대로 파싱하며 알 수 없는 필드, bool/0/음수/상한 초과 Game ID는 거부한다. IGDB Collector 요청에 한하여 `--after-game-id <integer>`를 전달하며, `IgdbSnapshotBridge.collect_preview(after_game_id=...)`가 해당 값을 ReviewAdapter에 넘긴다. 순위는 IGDB 실측 원래 순위를 유지한다.
 - **Cursor 변경의 증거**: Writer가 `COMMITTED` 또는 `SKIP_EXISTING_RELEASE`로 정상 종료했을 때, Controller가 Collector Preview의 `candidate_identity`와 Writer 독립 검증의 `candidate_identity`가 정확히 일치하는지 검사한다. `igdb-game:<positive integer>`만 상태에 반영한다. 응답 불일치·Writer 불명확 종료에서는 `pending=true`가 남고 Cursor는 전진하지 않는다.
 - **원자성 및 보존**: Source Cursor 및 Game Cursor는 기존 `pending/not_before/rate_failures`와 동일 원자적 상태 파일 갱신으로 기록한다. Writer가 DB에 반영됐으나 상태 기록 전 장애가 나면 기존 pending 조사 HOLD를 유지한다. 기존 Journal·DB·systemd Timer·보호된 승인 프로필은 이 작업에서 변경하지 않는다.
-- **운영 범위**: 새로운 프로세스 간 Cache, 별도 DB 테이블, 새로운 API, 디스크 초기화는 도입하지 않는다. IGDB 운영 Registry 미등록 및 권리·G6 운영 승인 HOLD는 유지한다. 향후 실제 등록 전에는 권리/보존 요건과 운영 Linux 회귀 및 실제 자격증명 배포 경계를 별도로 검증한다.
+- **운영 범위**: 새로운 프로세스 간 Cache, 별도 DB 테이블, 새로운 API, 디스크 초기화는 도입하지 않는다. Phase 4-F의 비실행 Registry Descriptor는 **실제 운영 프로필 승인·배포와 구별**한다. 권리·G6 운영 승인 HOLD는 유지하며, 실제 활성화 전 권리/보존 요건과 운영 Linux 회귀 및 역할별 자격증명 배포 경계를 별도로 검증한다.
+
+### 5.3 Phase 4-F 비실행 운영 Adapter 연결 (2026-11-21)
+
+- **코드와 승인 분리**: `supply_adapter.ADAPTERS["igdb:visits"]`는 Query가 없는 `IgdbOperationalAdapter` Descriptor이며 직접 호출은 `IGDB_CREDENTIALS_UNAVAILABLE`로 차단된다. 운영 `parse_profile`은 여전히 enabled, 승인 source/scope/rights, 실제 대상, G5/G6 근거와 시간 경계를 검증한다. **운영 approval.json에 IGDB 추가 또는 자동 활성화는 이번 코드 작업에 포함하지 않는다.**
+- **Collector / Writer 보안**: 기존 Linux `CONTROL` 경로에 관리자가 별도 발행할 `igdb-collect-credentials.json`, `igdb-write-credentials.json`을 각각 root 소유, 해당 역할 전용 그룹, `0640`으로 제한한다. JSON은 정확히 `client_id`와 `client_secret`만 포함한다. 운영 코드는 파일을 생성/수정하거나 내용·토큰을 출력/Journal/DB/환경변수로 전달하지 않는다. 그룹·모드·스키마 검증 실패 시 HOLD. 기존 Writer DB Secret은 Collector 접근 불가를 유지한다.
+- **독립 검증**: Collector는 한 Cycle의 독립 `IgdbClient`로 후보 Preview를 생성하고, Writer는 자기 역할의 별도 Client로 IGDB 원천을 다시 조회·검증한 `PopularitySnapshot`만 공통 Writer에 전달한다. 후보 없음은 기존 `SKIP_NO_CANDIDATE` 경로, 변조·상태 불일치·오류는 HOLD. 기존 단일 Godot Adapter의 호출·공통 6시간 주기·Journal·DB/API 계약은 그대로 유지한다.
+- **남은 운영 Gate**: 이번 통합 코드와 모의 검증은 실데이터 저장 권한을 부여하지 않는다. IGDB 최소 필드 권리·30일 만료 집행·Linux 역할별 파일 접근 및 systemd 회귀·G6 기간 한정 최초 승인이 확보되기 전에는 실제 DB 쓰기/스케줄러 활성화 금지. 승인 유효기간 중 개별 6시간 Cycle마다 사용자 재승인은 요구하지 않는다.
 
 ## 6. 권리 및 운영 Gate
 
