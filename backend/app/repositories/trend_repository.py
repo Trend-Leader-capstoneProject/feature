@@ -37,8 +37,11 @@ class TrendRepository:
 
     def _igdb_expiry_cutoff(self) -> datetime:
         """The storage contract uses UTC timestamps without tzinfo in MariaDB."""
+        now = self._utc_now()
+        if not isinstance(now, datetime) or now.utcoffset() is None:
+            raise ValueError("IGDB_VISIBILITY_CLOCK_INVALID")
         return (
-            self._utc_now().astimezone(UTC).replace(tzinfo=None)
+            now.astimezone(UTC).replace(tzinfo=None)
             - timedelta(days=MAX_POLICY_DAYS)
         )
 
