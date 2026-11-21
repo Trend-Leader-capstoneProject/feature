@@ -11,10 +11,10 @@ import pytest
 
 from app.trend_collection.igdb_adapter import (
     IGDB_ID,
-    IgdbBlocked,
     SCOPE,
     SOURCE_ID,
     VISITS_ID,
+    IgdbBlocked,
 )
 from app.trend_collection.supply_adapter import ADAPTERS, SupplyBlocked
 from scripts import run_auto_supply as supply
