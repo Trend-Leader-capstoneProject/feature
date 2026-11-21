@@ -39,7 +39,8 @@
 
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
-- **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다. 별도 신규 PR 없음.
+- **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
+- **PR #139 진행 중(Draft)**: `feat/igdb-operational-supply` → `dev`, 실측 검증 HEAD `cd1b29afbb82efe3d456e72593e156ccb197f2d6`. 사용자 보고(2026-11-21): G6 단독 `1 passed`, Backend 지정 회귀 `55 passed in 0.26s`, Ruff/py_compile `All checks passed!`, Git 변경 파일 4개, Backend 일반 회귀 PASS(정확한 명령·건수 미보고). 이 증거는 **정책·테스트 변경에 한정**하며 실제 6시간 Scheduler/IGDB 운영 Adapter·Writer/만료 집행/DB·모바일 E2E가 통과했다는 의미가 아니다. 증거 기록만 갱신하는 후속 문서 Commit은 재시험이 필요한 코드 변경으로 합산하지 않는다.
 - **사용자 검증(2026-11-21)**: feature HEAD 일치; 변경 영향 테스트 `221 passed, 13 skipped`, Ruff PASS; Backend 일반 회귀 `1697 passed, 16 skipped, 2 SAWarning`(기존 Demo Seed close/transaction 비정상 경로, 해당 테스트 PASS). 실제 IGDB 루프백 HTTP 200, Free Fire/Visits 관측 5위/게임·모바일 게임/IGDB 원문 버튼 표시 확인. 원문 버튼 실제 이동은 미확인. S0/S1 별도 미실행은 기존 증거 보존, 이번 PASS에 포함하지 않음.
 - **완료된 기술 범위**: IGDB OAuth Client/Visits 적격성 검증/독립 Snapshot 검증, Godot과 공통 Writer·Scheduler의 소스별 계약, Game Cursor와 NO_ELIGIBLE_CANDIDATE, IGDB 30일 *확정 정책 상한*의 읽기 전용 만료 평가, `127.0.0.1` 임시 HTML TrendCard. IGDB 운영 Adapter Registry에는 미등록이며 Writer/DB/API/Expo 연결 활성화 없음.
 - **운영 전 미완료 Gate**: Windows에서 SKIP한 Linux 전용 Scheduler의 상태 원자성·재시작·child UID/소스 ID 검증(실제 배포 이전 WSL/Linux에서 실행), IGDB 최소 사용 필드의 이용 조건 검증, 확정된 30일 상한의 만료 비노출·삭제 및 FK/백업 영향 설계, G6 최초 기간 한정 운영 승인. **승인된 기간의 6시간 Cycle마다 사람의 재승인은 불필요하다.** 30일은 자동 이용 허가가 아니며 기존 Godot systemd/Journal/DB/프로필을 보존한다. PR Merge와 운영 승인은 구분한다.
