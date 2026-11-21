@@ -62,11 +62,12 @@ def test_per_role_credential_files_are_separate_and_never_echoed(monkeypatch):
         return CredentialStream(json.dumps(credentials).encode())
 
     monkeypatch.setattr(supply, "_root_file", reader)
-    monkeypatch.setattr(
-        supply.os, "fstat",
-        lambda _: SimpleNamespace(st_gid=1000, st_mode=stat.S_IFREG | 0o640),
-    )
-    monkeypatch.setattr(supply.os, "getegid", lambda: 1000)
+    monkeypatch.setattr(supply, "os", SimpleNamespace(
+        fstat=lambda _: SimpleNamespace(
+            st_gid=1000, st_mode=stat.S_IFREG | 0o640,
+        ),
+        getegid=lambda: 1000,
+    ))
     client = Mock()
     factory = Mock(return_value=client)
     monkeypatch.setattr(supply, "IgdbClient", factory)
@@ -95,11 +96,12 @@ def test_igdb_credentials_require_exact_principal_group_and_mode(
             b'{"client_id":"fixture","client_secret":"fixture"}'
         ),
     )
-    monkeypatch.setattr(
-        supply.os, "fstat",
-        lambda _: SimpleNamespace(st_gid=gid, st_mode=stat.S_IFREG | mode),
-    )
-    monkeypatch.setattr(supply.os, "getegid", lambda: 1000)
+    monkeypatch.setattr(supply, "os", SimpleNamespace(
+        fstat=lambda _: SimpleNamespace(
+            st_gid=gid, st_mode=stat.S_IFREG | mode,
+        ),
+        getegid=lambda: 1000,
+    ))
     client = Mock()
     monkeypatch.setattr(supply, "IgdbClient", client)
     with pytest.raises(SupplyBlocked, match="IGDB_CREDENTIAL_SCOPE_INVALID"):
