@@ -61,7 +61,7 @@ def test_unknown_writer_halts():
 def test_cycle_orders_children_and_blocks_reentry(tmp_path):
     path = tmp_path / 'state.json'
     profile = _profile('godotengine/godot-builds')
-    envelope = {'source_id': 'example', 'preview': {}}
+    envelope = {'source_id': 'godotengine/godot-builds', 'preview': {}}
     child = Mock(side_effect=[(0, envelope), (0, {'status': 'COMMITTED'})])
     assert cycle(profile, path, READY, child=child, clock=lambda: NOW) == {
         'status': 'COMMITTED',
