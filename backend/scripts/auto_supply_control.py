@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -36,49 +37,95 @@ def atomic_json(path, value, mode=0o600):
             os.unlink(name)
 
 
-def next_state(result, now, previous, *, writer=False):
-    """Ordinary cycle >=6h apart; rate limit delays are never shortened."""
+def _preserve_rotation(updated, previous, *, source_id=None, completed=False):
+    """Maintain cursor without changing legacy three-field state."""
+    if 'last_completed_source_id' in previous:
+        updated['last_completed_source_id'] = previous['last_completed_source_id']
+    if source_id is not None and completed:
+        updated['last_completed_source_id'] = source_id
+    return updated
+
+
+def next_state(result, now, previous, *, writer=False, source_id=None):
+    """Global >=6h cooldown; cursor advances only after confirmed Writer finish."""
     status = result.get('status')
     reason = result.get('reason')
+    completed = writer and status in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
     if status == 'HOLD' and reason == 'RATE_LIMITED':
         failures = previous['rate_failures'] + 1
         deadline = result.get('retry_not_before')
         if type(deadline) is not int or deadline < 0 or failures >= 3:
-            return {'pending': True, 'not_before': max(now + INTERVAL,
-                                      deadline if type(deadline) is int else 0),
-                    'rate_failures': failures}
-        return {'pending': False,
-                'not_before': max(deadline, now + INTERVAL * 2 ** (failures - 1)),
-                'rate_failures': failures}
-    if writer and status not in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}:
-        # Unknown writer outcomes require investigation, not automatic retries.
-        return {'pending': True, 'not_before': now + INTERVAL, 'rate_failures': 0}
-    return {'pending': False, 'not_before': now + INTERVAL,
-            'rate_failures': previous['rate_failures'] if status == 'HOLD' else 0}
+            updated = {'pending': True, 'not_before': max(
+                now + INTERVAL, deadline if type(deadline) is int else 0,
+            ), 'rate_failures': failures}
+        else:
+            updated = {'pending': False, 'not_before': max(
+                deadline, now + INTERVAL * 2 ** (failures - 1),
+            ), 'rate_failures': failures}
+    elif writer and not completed:
+        # Unknown Writer outcomes require investigation, not automatic replay.
+        updated = {'pending': True, 'not_before': now + INTERVAL,
+                   'rate_failures': 0}
+    else:
+        updated = {
+            'pending': False, 'not_before': now + INTERVAL,
+            'rate_failures': previous['rate_failures'] if status == 'HOLD' else 0,
+        }
+    return _preserve_rotation(updated, previous, source_id=source_id,
+                              completed=completed)
+
+
+def choose_source(profile, state):
+    """Rotate only within the protected, already-approved source list."""
+    sources = profile.sources
+    if not sources:
+        raise RuntimeError('SOURCE_NOT_APPROVED')
+    ids = tuple(source.source_id for source in sources)
+    if len(ids) != len(set(ids)):
+        raise RuntimeError('SOURCE_DUPLICATED')
+    previous = state.get('last_completed_source_id')
+    index = (ids.index(previous) + 1) % len(ids) if previous in ids else 0
+    return profile.source(ids[index])
 
 
 def load_state(path, read_record):
     data = read_record(path)
-    if (type(data) is not dict or set(data) != {
+    if (type(data) is not dict or not {
         'pending', 'not_before', 'rate_failures',
+    } <= set(data) or set(data) - {
+        'pending', 'not_before', 'rate_failures', 'last_completed_source_id',
     } or type(data['pending']) is not bool
             or type(data['not_before']) is not int or data['not_before'] < 0
             or type(data['rate_failures']) is not int
-            or not 0 <= data['rate_failures'] <= 3):
+            or not 0 <= data['rate_failures'] <= 3
+            or ('last_completed_source_id' in data
+                and (not isinstance(data['last_completed_source_id'], str)
+                     or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}',
+                                     data['last_completed_source_id']) is None))):
         raise RuntimeError('SCHEDULER_STATE_INVALID')
     return data
 
 
-def run_child(uid, role, envelope=None):
+def run_child(uid, role, envelope=None, *, source_id=None):
     import pwd
 
     account = pwd.getpwuid(uid)
+    if role not in {'collect', 'write'}:
+        raise RuntimeError('EXECUTION_ROLE_INVALID')
+    if source_id is not None and (
+        role != 'collect' or not isinstance(source_id, str)
+        or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}', source_id) is None
+    ):
+        raise RuntimeError('SOURCE_ID_INVALID')
     expected = 'trend-collector' if role == 'collect' else 'trend-writer'
     if account.pw_name != expected:
         raise RuntimeError('EXECUTION_PRINCIPAL_MISMATCH')
+    command = [str(RUNTIME / 'venv/bin/python'), '-E', '-s', '-B', '-m',
+               'scripts.run_auto_supply', role]
+    if source_id is not None:
+        command.extend(('--source-id', source_id))
     result = subprocess.run(
-        [str(RUNTIME / 'venv/bin/python'), '-E', '-s', '-B', '-m',
-         'scripts.run_auto_supply', role],
+        command,
         cwd=RUNTIME / 'backend',
         user=uid, group=account.pw_gid, extra_groups=[],
         env={'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent', 'LANG': 'C.UTF-8'},
@@ -92,9 +139,10 @@ def run_child(uid, role, envelope=None):
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     if result.returncode == 2 and payload.get('status') != 'HOLD':
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
-    if result.returncode == 0 and role == 'collect' and set(payload) != {
-        'source_id', 'preview',
-    }:
+    if result.returncode == 0 and role == 'collect' and (
+        set(payload) != {'source_id', 'preview'}
+        or (source_id is not None and payload['source_id'] != source_id)
+    ):
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     if result.returncode == 0 and role == 'write' and payload.get('status') not in {
         'COMMITTED', 'SKIP_EXISTING_RELEASE',
@@ -109,13 +157,31 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     now = int(clock())
     if now < state['not_before']:
         return {'status': 'HOLD', 'reason': 'SCHEDULER_COOLDOWN'}
-    # Persist the uncertain state BEFORE either child can make a request.
+    source = choose_source(profile, state)
+    # Persist uncertain state BEFORE either child can make a request.
     atomic_json(path, {**state, 'pending': True})
-    code, result = child(profile.collector_uid, 'collect')
+    code, result = child(
+        profile.collector_uid, 'collect', source_id=source.source_id,
+    )
     writer = code == 0
     if writer:
-        _, result = child(profile.writer_uid, 'write', result)
-    atomic_json(path, next_state(result, int(clock()), state, writer=writer))
+        if (type(result) is not dict
+                or result.get('source_id') != source.source_id
+                or set(result) != {'source_id', 'preview'}):
+            raise RuntimeError('COLLECTOR_SOURCE_MISMATCH')
+        write_code, result = child(profile.writer_uid, 'write', result)
+        success = result.get('status') in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
+        if (write_code == 0) != success or write_code not in {0, 2}:
+            raise RuntimeError('WRITER_OUTCOME_MISMATCH')
+    elif code != 2 or result.get('status') != 'HOLD':
+        raise RuntimeError('COLLECTOR_OUTCOME_MISMATCH')
+    # A single-source legacy state keeps its original exact three fields.
+    rotate = len(profile.sources) > 1 or 'last_completed_source_id' in state
+    updated = next_state(
+        result, int(clock()), state, writer=writer,
+        source_id=source.source_id if rotate else None,
+    )
+    atomic_json(path, updated)
     return result
 
 
@@ -154,7 +220,7 @@ def main():
                 print(json.dumps({'status': 'REVOKED'}))
                 return 0
             profile = _read_profile()
-            profile.source(None)  # Exactly one approved source in this MVP.
+
 
         scheduler_lock = CONTROL / 'scheduler.lock'
         state_path = CONTROL / 'scheduler-state.json'

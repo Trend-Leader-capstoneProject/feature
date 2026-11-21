@@ -60,6 +60,16 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - 동일 상위 후보 반복은 IGDB 공급 기아를 만들 수 있다. 후보 1건 계약을 바꾸지 않고 마지막 성공/SKIP 후보 ID 이후 적격 후보를 순환 선택하는 보호 cursor를 권장; 순위는 원본 유지. 없어진 ID는 첫 적격부터 시작. cursor는 승인/적격 판단이 아닌 선택 힌트에 한정, writer는 선택 후보의 공식 순위 및 적격 재검증. 에러/불명확 결과에서 임의 진전 금지. 구체적 순환 상태와 no-eligible 정상 SKIP 계약은 구현 전 확인할 세부 설계 항목이며 기존 상태 의미를 완화하지 않는다.
 - 운영 중 프로필 변경은 관리자만 기존 control.lock 아래 발행/철회. Godot 활성 승인(2026-11-20 13:50 KST ~ 11-27 13:50 KST)은 이번 설계 범위 변경 없음. IGDB G6 신규 승인 및 권리 심사 전 registry를 통한 실제 실행 차단. 변경 배포 시 Timer 중지/Service 완료 확인 후 기존 권한/Journal/state 보존, 교체 및 재개는 별도 승인. 새로운 unit/계정 불필요.
 
+### 5.1 Phase 4-D 공통 Scheduler 복수 공급원 연결 계약 (2026-11-21)
+
+- 사용자 확정 IGDB-12 및 §5 순환 선택 설계를 최소 변경으로 구현한다. 하나의 systemd Timer, 기존 6시간 **전역** Cooldown, 전체 Batch 1, root control/scheduler locks, 기존 Journal inode 및 `AUTO_V1` 그대로 유지한다.
+- 승인된 `ApprovedProfile.sources` 목록 순서로 순환한다. 선택은 오직 보호 프로필의 고정 source_id로 수행한다. 재조회 결과 또는 Preview가 임의 공급원을 지정할 수 없고 Collector envelope의 source_id가 선택값과 다르면 실행 결과를 불명확 상태로 유지한다.
+- scheduler-state.json의 기존 세 필드 `pending/not_before/rate_failures`는 유지. 복수 공급원 성공 이후에만 `last_completed_source_id`가 선택적으로 기록된다. 이전 세 필드 상태를 읽을 수 있어야 하며, 단일 소스 기존 상태는 세 필드를 그대로 기록한다. 보호된 경로의 기존 파일을 초기화·삭제하지 않는다.
+- `COMMITTED` 또는 `SKIP_EXISTING_RELEASE`처럼 **Writer의 종료와 결과가 확정**됐을 때에만 마지막 완료 소스를 갱신한다. RATE_LIMITED 및 HOLD는 이전 순환 위치를 유지한다. 결과 불일치·프로세스 예외·미확정 Writer 결과는 `pending=true`를 남겨 무단 재시도를 차단한다.
+- 승인 목록이 변경되어 이전 source_id가 사라진 경우 새 목록의 첫 번째 소스로 시작한다. 빈 목록 또는 중복 source_id는 오류 처리한다. 요청 건수는 그대로 단회/Cycle이다. 2개 소스일 때 각각의 실제 재선택 간격은 정상적으로 약 12시간이나, 이는 제공량에 따른 추정이며 가용 시간을 보장하지 않는다.
+- 이 단계의 구현은 제어기와 테스트에 한한다. IGDB는 운영 Adapter Registry에 등록하지 않는다. 권리 및 G6 승인과 실제 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음의 정상 SKIP 코드 및 게임별 영속 커서는 후속 연결 시 결정하며 여기서 가짜 COMMITTED로 처리하지 않는다.
+- 회귀 게이트: 단일 Godot 자식 프로세스, 성공·중복·RATE_LIMITED·HOLD, legacy/extended 상태 엄격 검증, source mismatch의 pending 보존, Writer exit code 상충 검증, 기존 systemd ExecCondition 호환 확인. Linux 특화 원자적 파일 작업은 Windows skipped와 구분하여 Linux에서 재검증한다.
+
 ## 6. 권리 및 운영 Gate
 
 근거 확인 2026-11-20: https://api-docs.igdb.com/ (Getting Started, PopScore, FAQ) 비상업적 API 이용 지원 및 로컬 저장/최종 이용자 제공에 긍정적; FAQ의 보존/귀속 일부는 상업 파트너십 맥락. https://legal.twitch.com/en/legal/developer-agreement/ 원문 접근 시 본문 미확보. https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/ 및 https://dev.twitch.tv/docs/authentication/validate-tokens/ 인증 계약.
