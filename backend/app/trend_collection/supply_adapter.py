@@ -16,6 +16,7 @@ from app.trend_collection.godot_release_collector import (
 )
 from app.trend_collection.publication_policy import (
     ContentSnapshot,
+    PersistableSnapshot,
     evaluate_release,
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
@@ -28,9 +29,9 @@ class SupplyBlocked(RuntimeError):
 class SourceAdapter(Protocol):
     scope: str
 
-    def collect_preview(self) -> dict: ...
+    def collect_preview(self) -> dict | None: ...
 
-    def verify(self, preview: dict, now: datetime) -> ContentSnapshot: ...
+    def verify(self, preview: dict, now: datetime) -> PersistableSnapshot: ...
 
 
 def utc(value: str) -> datetime:
@@ -91,6 +92,6 @@ class GodotAdapter:
 ADAPTERS: dict[str, SourceAdapter] = {REPO: GodotAdapter()}
 
 
-def bind_snapshot(snapshot: ContentSnapshot, *, policy: str, target: str):
+def bind_snapshot(snapshot: PersistableSnapshot, *, policy: str, target: str):
     """Bind a verified snapshot to a target, not an authorization token."""
     return replace(snapshot, policy_version=policy, target=target)

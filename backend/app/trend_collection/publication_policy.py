@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-from typing import Literal
+from typing import Literal, Protocol
 
 from app.trend_collection.godot_release_collector import (
     REPO,
@@ -61,6 +61,96 @@ class ContentSnapshot:
     child_name: str
     observed_at_utc: str
     source_published_at: str
+    proposed_status: str
+    is_primary: bool = True
+    thumbnail_url: None = None
+    source_title: None = None
+
+    @property
+    def content_digest(self) -> str:
+        return _digest(asdict(self))
+
+
+class PersistableSnapshot(Protocol):
+    """Read-only structural contract for common Writer input."""
+
+    @property
+    def profile_id(self) -> str: ...
+
+    @property
+    def policy_version(self) -> str: ...
+
+    @property
+    def target(self) -> str: ...
+
+    @property
+    def candidate_identity(self) -> str: ...
+
+    @property
+    def evidence_ref(self) -> str: ...
+
+    @property
+    def title(self) -> str: ...
+
+    @property
+    def normalized_title(self) -> str: ...
+
+    @property
+    def summary(self) -> str: ...
+
+    @property
+    def source_url(self) -> str: ...
+
+    @property
+    def external_id(self) -> str: ...
+
+    @property
+    def source_key(self) -> str: ...
+
+    @property
+    def platform(self) -> str: ...
+
+    @property
+    def parent_code(self) -> str: ...
+
+    @property
+    def child_name(self) -> str: ...
+
+    @property
+    def observed_at_utc(self) -> str: ...
+
+    @property
+    def proposed_status(self) -> str: ...
+
+    @property
+    def is_primary(self) -> bool: ...
+
+    @property
+    def content_digest(self) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PopularitySnapshot:
+    """IGDB observation; independent of legacy release-event digest."""
+
+    profile_id: str
+    policy_version: str
+    target: str
+    candidate_identity: str
+    evidence_ref: str
+    title: str
+    normalized_title: str
+    summary: str
+    source_url: str
+    external_id: str
+    source_key: str
+    platform: str
+    parent_code: str
+    child_name: str
+    observed_at_utc: str
+    calculated_at_utc: str
+    rank: int
+    metric_id: int
     proposed_status: str
     is_primary: bool = True
     thumbnail_url: None = None

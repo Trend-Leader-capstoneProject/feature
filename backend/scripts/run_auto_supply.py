@@ -13,7 +13,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -22,8 +22,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Connection
 from sqlalchemy.pool import NullPool
 
+from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
-from app.trend_collection.publication_policy import ContentSnapshot
+from app.trend_collection.igdb_adapter import SOURCE_ID as IGDB_SOURCE_ID
+from app.trend_collection.publication_policy import (
+    PersistableSnapshot,
+    PopularitySnapshot,
+)
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
     SupplyBlocked,
@@ -215,16 +220,13 @@ def _read_profile():
         return parse_profile(_json(_bounded(stream)), now_utc())
 
 
-def _assert_current(profile: ApprovedProfile, snapshot: ContentSnapshot):
+def _assert_current(profile: ApprovedProfile, snapshot: PersistableSnapshot):
     # Defense in depth; the shared control lock, not this read, orders revocation.
     if _read_profile() != profile:
         raise SupplyBlocked("APPROVAL_CHANGED")
     now = now_utc()
     profile.validate_time(now)
-    if (not timedelta(0) <= now - utc(snapshot.observed_at_utc) <= timedelta(minutes=10)
-            or not timedelta(0) <= now - utc(snapshot.source_published_at)
-            <= timedelta(days=7)):
-        raise SupplyBlocked("SNAPSHOT_EXPIRED")
+    validate_snapshot_freshness(profile, snapshot, now)
 
 
 class OperationalJournal(SyntheticJournal):
@@ -299,7 +301,7 @@ def _verify_session(conn: Connection, profile: ApprovedProfile):
         raise SupplyBlocked("WRITER_STORAGE_MISMATCH")
 
 
-def inspect_snapshot(conn: Connection, snapshot: ContentSnapshot) -> str:
+def inspect_snapshot(conn: Connection, snapshot: PersistableSnapshot) -> str:
     """Source-independent identity and key collision handling, including HIDDEN."""
     rows = conn.execute(text(
         "SELECT external_id, source_key FROM trend_sources WHERE platform = :platform "
@@ -309,6 +311,16 @@ def inspect_snapshot(conn: Connection, snapshot: ContentSnapshot) -> str:
     if rows:
         expected = [(snapshot.external_id, snapshot.source_key)]
         if [tuple(row) for row in rows] == expected:
+            if type(snapshot) is PopularitySnapshot:
+                urls = conn.execute(text(
+                    "SELECT source_url FROM trend_sources WHERE platform = :platform "
+                    "AND external_id = :external_id AND source_key = :source_key "
+                    "LIMIT 2"
+                ), {"platform": snapshot.platform,
+                    "external_id": snapshot.external_id,
+                    "source_key": snapshot.source_key}).all()
+                if len(urls) != 1 or urls[0][0] != snapshot.source_url:
+                    raise SupplyBlocked("SOURCE_URL_CHANGED")
             return "SKIP_EXISTING_RELEASE"
         raise SupplyBlocked("SOURCE_IDENTITY_COLLISION")
     if conn.execute(text(
@@ -318,7 +330,7 @@ def inspect_snapshot(conn: Connection, snapshot: ContentSnapshot) -> str:
     return "NEW"
 
 
-def _write(profile: ApprovedProfile, snapshot: ContentSnapshot, journal) -> str:
+def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> str:
     """Caller holds control lock and has independently verified source scope."""
     if (snapshot.profile_id != PROFILE or snapshot.policy_version != VERSION
             or snapshot.target != profile.target or snapshot.proposed_status != "ACTIVE"
@@ -387,20 +399,46 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
     return {"status": result, "candidate_identity": snapshot.candidate_identity}
 
 
+def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
+    """Collector-only output; no candidate is not a publication authorization."""
+    if after_game_id is not None and (
+        source.source_id != IGDB_SOURCE_ID
+        or type(after_game_id) is not int
+        or not 1 <= after_game_id < 10**20
+    ):
+        raise SupplyBlocked("GAME_CURSOR_INVALID")
+    adapter = ADAPTERS[source.source_id]
+    if source.source_id == IGDB_SOURCE_ID:
+        preview = adapter.collect_preview(after_game_id=after_game_id)
+    else:
+        preview = adapter.collect_preview()
+    if preview is None:
+        if source.source_id != IGDB_SOURCE_ID:
+            raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
+        return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
+    if type(preview) is not dict:
+        raise SupplyBlocked("SOURCE_PREVIEW_INVALID")
+    return {"source_id": source.source_id, "preview": preview}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("role", choices=("collect", "write"))
     parser.add_argument("--source-id")
+    parser.add_argument("--after-game-id", type=int)
     args = parser.parse_args()
-    if args.role == "write" and args.source_id is not None:
-        parser.error("--source-id is for collect only")
+    if args.role == "write" and (
+        args.source_id is not None or args.after_game_id is not None
+    ):
+        parser.error("--source-id and --after-game-id are for collect only")
     try:
         envelope = _json(_bounded(sys.stdin.buffer)) if args.role == "write" else None
         with approved_cycle(args.role) as profile:
             if args.role == "collect":
                 source = profile.source(args.source_id)
-                result = {"source_id": source.source_id,
-                          "preview": ADAPTERS[source.source_id].collect_preview()}
+                result = collect_envelope(
+                    source, after_game_id=args.after_game_id,
+                )
                 profile.validate_time(now_utc())
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
