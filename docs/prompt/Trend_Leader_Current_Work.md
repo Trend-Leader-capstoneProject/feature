@@ -1,8 +1,8 @@
 # Trend Leader — 현재 작업 인수인계 (단일 갱신 문서)
 
-> 2026-11-19 KST | AI-Led Delivery Mode | 재평가 핵심 기능: 실제 자동 데이터 공급.
-> 기준 dev: 0d264f1a528e3ed4b50e983b06ec5b21c54fea5d (PR #135 Stage 1 병합).
-> 현재 작업: Stage 2 운영 제어 / 최초 로컬 실제 데이터 공급 준비, feat/auto-supply-stage2-control. 실제 HEAD/PR 상태는 재개 시 GitHub에서 조회한다.
+> 2026-11-21 KST | AI-Led Delivery Mode | 재평가 핵심 기능: 실제 자동 데이터 공급.
+> 최근 통합 기준: PR #137 merge commit de08d2f3f7e0586deebd0683cab935e15b7c572a. 최신 dev HEAD는 재개 시 조회한다.
+> 현재 작업: PR #137 IGDB 코드 통합 완료, 다음 작업은 기존 TrendCard 최소 앱 연결 설계. IGDB 운영 등록·DB 저장·공개는 미승인.
 > 역할: 진행 상태 및 다음 작업의 인덱스. 승인 증거/설계 계약 자체를 대체하지 않음.
 
 ## 새 채팅 재개 규칙
@@ -35,14 +35,23 @@
 | AP-3C-2 합성 연결 | PR #134 병합. 사용자 pytest 112 PASS, Ruff PASS, 실제 MariaDB policy 실행 POLICY_FIXTURE_COMMITTED (synthetic_only=true, publication_authorized=false). 기존 trend_id 3/4 HIDDEN, is_primary=0 유지; 신규 trend_id 5 Synthetic AP3 policy fixture HIDDEN, is_primary=1 확인. 추가 policy 재실행 HOLD 및 최종 Journal 대조 결과는 미보고(기존 AP-3B 실증과 구분). 신규 합성 PoC 반복 불필요. |
 | 재평가 | 기존 APK/배포/조회 기반 보존. 실제 자동 외부 데이터 게시 및 무인 Scheduler/다양성은 아직 입증되지 않음. |
 
-## 진행 중 / 바로 다음 작업
+## 최신 통합 상태 및 다음 작업 (2026-11-21)
+
+- **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다. 별도 신규 PR 없음.
+- **사용자 검증(2026-11-21)**: feature HEAD 일치; 변경 영향 테스트 `221 passed, 13 skipped`, Ruff PASS; Backend 일반 회귀 `1697 passed, 16 skipped, 2 SAWarning`(기존 Demo Seed close/transaction 비정상 경로, 해당 테스트 PASS). 실제 IGDB 루프백 HTTP 200, Free Fire/Visits 관측 5위/게임·모바일 게임/IGDB 원문 버튼 표시 확인. 원문 버튼 실제 이동은 미확인. S0/S1 별도 미실행은 기존 증거 보존, 이번 PASS에 포함하지 않음.
+- **완료된 기술 범위**: IGDB OAuth Client/Visits 적격성 검증/독립 Snapshot 검증, Godot과 공통 Writer·Scheduler의 소스별 계약, Game Cursor와 NO_ELIGIBLE_CANDIDATE, IGDB 30일 *상한 제안*의 읽기 전용 만료 평가, `127.0.0.1` 임시 HTML TrendCard. IGDB 운영 Adapter Registry에는 미등록이며 Writer/DB/API/Expo 연결 활성화 없음.
+- **운영 전 미완료 Gate**: Windows에서 SKIP한 Linux 전용 Scheduler의 상태 원자성·재시작·child UID/소스 ID 검증(실제 배포 이전 WSL/Linux에서 실행), IGDB 데이터 저장·공개·보존·삭제 권리 적용 범위 확정, G6 별도 운영 승인, 권리 허용 기간 내 비노출·삭제·중복 처리. 30일 삭제는 자동 이용 허가가 아니며 기존 Godot systemd/Journal/DB/프로필 보존. PR Merge와 운영 승인을 혼동하지 않는다.
+- **다음 P0 — 기존 앱 최소 연결 설계**: 별도 인프라·새 공개 API·DB Schema·Migration 없이 기존 `TrendListItem`·`TrendCard`·`GET /api/trends`·`/api/trends/personalized`·Source 버튼을 재사용한다. A안(우선 검증 후보)은 개발 전용 무저장/비공개 Snapshot→카드 데이터 변환 및 실제 Expo 카드 테스트, B안(운영 후속)은 권리·G6·Linux 검증 완료 후 기존 독립 Writer→MariaDB→FastAPI→APK 연결. 기존 API에 없는 실제 trend_id/category_id는 검증 없이 위조하지 않는다. AI/이미지/원문 본문 복제/새 계정·Timer/운영 공개는 범위 제외.
+- **관련 확정안**: `docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_IGDB_Supply_Design_FROZEN_v1.0_20261120.md`; 앱 연결 방식은 다음 설계에서 확정한다.
+
+## 이전 단계 진행 기록 (2026-11-19 기준, 현재 우선순위는 위 최신 블록 참조)
 
 - Stage 1: 공급원 Adapter registry 및 복수 승인 목록, collect/write 단회 CLI, 실제 독립 상세 검증, 보호 프로필/잠금, 공통 SQL·Journal·중복 확인 경로 구현. 기존 112 + 신규 31 = 143 PASS(격리 사본, conftest 제외), compileall/CLI help 및 미승인 root 실행 HOLD. 실제 MariaDB/OS/G6/운영 승인·배포·정기 실행 미검증, 사용자 Windows 범위 지정 회귀 700 PASS / 1 FAIL / 2 SKIP(16.71s): test_new_adapter_does_not_change_writer에서 Linux 고정 Journal 경로 생성 오류. 해당 테스트의 OperationalJournal 생성만 Mock으로 격리, 생성 호출 및 Writer 전달 검증 추가. 수정본 격리 회귀 143 PASS(0.81s), CLI help/compileall 성공. 사용자 수정본 이전 범위 지정 pytest 701 PASS 및 신규 CLI --help 정상 출력 확인(정확한 실행 문자열 및 수정본 skip 수 미보고; 전체 무제한 pytest로 간주하지 않음). 수정 후 사용자 Ruff PASS 보고 및 PR #135 병합 확인. S0/S1 격리 실행 원칙 유지. 기존 3307 DB 및 Journal 보존(초기화/삭제/컨테이너 재시작 금지). Linux 운영 진입점은 Windows native에서 HOLD하며 로컬 WSL/Linux 활용 가능 여부 확인 필요. 상세 계약은 기존 AP-3C FROZEN §7.
 - Source 권리 검토 (2026-11-19 공식 원문): GitHub 공개 API 비인증 접근 가능(60/hour/IP; https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api). 약관 H는 과도한 요청/제한 우회/스팸 목적 수집 제한(https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). Godot 공식 builds https://github.com/godotengine/godot-builds/blob/main/README.md, 엔진 MIT는 모든 재게시 권한이 아님(https://godotengine.org/license/). 한국 판례 https://www.law.go.kr/LSW/precInfoP.do?evtNo=2004%EB%8F%845350 는 사실과 표현 구분. 사실 메타데이터·자체 작성 제목/설명·원문 링크 한정 검토 권장; 운영 저장/공개 권리 아직 승인되지 않음. 원문 Release Note/이미지/개인정보/AI 전달 제외.
 - Wikimedia Analytics 공식 Access Policy https://doc.wikimedia.org/generated-data-platform/aqs/analytics-api/documentation/access-policy.html : API 제공 데이터 CC0 1.0, 식별 가능한 User-Agent, 요청 순차화/제한 준수. https://doc.wikimedia.org/generated-data-platform/aqs/analytics-api/reference/page-views.html : most-viewed pages 제공. 권리 근거가 명확한 대체/확장 공급원 권장; 통계 데이터 한정, 본문/이미지 별도 라이선스. 언어판 조회수는 한국 전체 검색 인기도와 다름. 신규 공급원 채택, 필드/분류/위험 제외 및 운영 프로필은 별도 확정. 이번에는 호출/코드 도입하지 않음.
 - Stage 2 실제 로컬 준비(사용자 실측): Ubuntu WSL2, Python 3.14.4, SQLAlchemy 2.0.58/PyMySQL 1.2.4, 3309/trend_leader MariaDB 12.3.2 인증 성공. Collector UID/GID 997/986, Writer 994/985 별도 그룹. trend_auto_writer@172.20.0.1 직접 최소 GRANT 및 Writer Session Verification PASS; Collector secret access DENIED; 보호 /opt/trend-leader-auto-supply 코드·venv, /etc/trend-leader/auto-supply 비활성 프로필, /var/lib/trend-leader/auto-supply 운영 Journal READY 초기 등록(attempts=0). dev 0d264f1의 git archive로 추출, 기존 사용자 로컬 변경 보존. OS 관리자 control.lock 보유 시 양쪽 HOLD, 해제 시 OPERATION_DISABLED PASS. 실제 MariaDB 공유 잠금 부모 2/자식 42 경쟁 SELECT FOR UPDATE 1205 및 rollback 후 해제 PASS. 기존 local demo trend_id=1 ACTIVE→HIDDEN→ACTIVE 및 앱 Refresh 사용자 PASS 보고. 기존 3307/3308·합성 Journal 보존. 재실행 불필요. 앱 재조회 전까지 캐시 잔존 가능; 즉시 원격 캐시 제거 입증 아님.
 - Stage 2 운영 제어: scripts/auto_supply_control.py 관리자 단회 run/revoke, 별도 보호 scheduler.lock 및 상태 파일, Collector/Writer 분리 UID/GID 하위 프로세스, 6시간 최소 간격, GitHub Retry-After/remaining=0/reset 준수(https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), 반복 제한 3회 또는 불명확한 Writer 종료/시각 오류 시 조사 HOLD. 실제 operational Adapter만 적용하고 기존 AP1 비게시 경로 유지. revoke는 기존 control.lock 아래 approval.json enabled=false 원자 교체, 기존 잠금/Journal 유지. 공개중단 상태 변경은 별도 기존 관리자 권한. 독립 신규 승인 발행/실제 게시 자동 활성화 없음. 신규 순수 상태/시각 함수 격리 사본 10 PASS(실제 운영 환경 시험 아님); 사용자 일반 회귀 1554 PASS / 5 SKIP / 2 WARN (34.81s), Ruff PASS 보고(검증 당시 feature 5cf8b16, 사용자가 실행한 정확한 명령 및 로컬 HEAD는 미보고). 두 SAWarning은 기존 Demo Seed 연결 close/rollback 강제 시험에서 발생하며 해당 시험 PASS; 별도 개선 후순위. 초기 Migration 102 ERROR 및 Demo Seed 15 ERROR는 독립 테스트 승인 설정 누락으로, 사용자 설정 보완 후 해소. 사용자 실제 WSL 갱신 스크립트(aa4c4e0 고정) 실행: 5/5 runtime blobs MATCH, Revoke lock contention PASS, Revoke on disabled profile PASS, Disabled scheduler entrypoint PASS, 기존 control.lock/secret/journal PRESERVED, NO TREND DML. 비활성 상태에서의 철회/실행 차단만 입증(활성 Writer 실행 중 철회와 실제 공급은 미실증). OS Scheduler 등록 미완료.
-- 다음 P0: Stage 2 PR 최종 통합 승인 대기(사용자 일반 회귀/Ruff 및 비활성 경로 배치·철회 PASS 확보; 운영 활성화와 구분). 실제 운영 전 다른 Trend 쓰기 경로 배제 확인, 기존 권리 근거/G5 증거 정리 및 G6 별도 승인, 단회 실제 데이터 등록 → API → APK 원문 링크 → 6시간 정기 실행. 기존 시험·환경 재준비 불필요; 신규 합성 PoC·새 Schema/API/인프라/Worktree 추가 지양. 실제 운영 활성화 전 HOLD 유지.
+- [과거 2026-11-19 시점 계획 — 대체됨] 다음 P0: Stage 2 PR 최종 통합 승인 대기(사용자 일반 회귀/Ruff 및 비활성 경로 배치·철회 PASS 확보; 운영 활성화와 구분). 실제 운영 전 다른 Trend 쓰기 경로 배제 확인, 기존 권리 근거/G5 증거 정리 및 G6 별도 승인, 단회 실제 데이터 등록 → API → APK 원문 링크 → 6시간 정기 실행. 기존 시험·환경 재준비 불필요; 신규 합성 PoC·새 Schema/API/인프라/Worktree 추가 지양. 실제 운영 활성화 전 HOLD 유지.
 - E2E 완료 기준: (1) Scheduler 무인 실행, (2) 실제 외부 신규 정보 자동 수집, (3) 허용된 정보 자동 DB 저장, (4) 기존 FastAPI 조회, (5) 실제 APK TrendCard 표시, (6) 원문 보기 버튼에서 실제 공식 원출처 이동, (7) 반복 실행에도 중복 카드 없음. 최초 수직 통합 이후 6시간 정기 실행 실증, 독립 실행 3회 이상 및 최소 3개 대분류·관심도 신호 확보(프로젝트 제안 목표, 공식 평가 합격 기준 아님). 크롤링/API 비교 근거 유지. 실제 E2E 증거 전 완료 선언 금지.
 
 ## 설계 원본
