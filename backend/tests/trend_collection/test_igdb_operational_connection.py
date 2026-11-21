@@ -11,15 +11,12 @@ import pytest
 
 from app.trend_collection.igdb_adapter import (
     IGDB_ID,
+    IgdbBlocked,
     SCOPE,
     SOURCE_ID,
     VISITS_ID,
 )
-from app.trend_collection.supply_adapter import (
-    ADAPTERS,
-    IgdbOperationalAdapter,
-    SupplyBlocked,
-)
+from app.trend_collection.supply_adapter import ADAPTERS, SupplyBlocked
 from scripts import run_auto_supply as supply
 
 
@@ -91,7 +88,7 @@ def test_igdb_credentials_require_exact_principal_group_and_mode(
     client.assert_not_called()
 
 
-def test_igdb_requires_profile_source_scope(monkeypatch):
+def test_igdb_requires_profile_source_scope():
     raw = {
         "enabled": True, "profile_id": supply.PROFILE,
         "policy_version": supply.VERSION,
@@ -188,3 +185,37 @@ def test_igdb_collect_and_independent_writer_bind_verified_snapshot(monkeypatch)
     assert snapshot.source_url == "https://www.igdb.com/games/fixture-1"
     profile.source.assert_called_once_with(SOURCE_ID)
     writer.assert_called_once()
+
+
+
+def test_independent_igdb_verification_rejects_tampered_preview(monkeypatch):
+    query, _ = _fixture_query()
+    monkeypatch.setattr(supply, "_igdb_query", lambda role: query)
+    source = supply.ApprovedSource(SOURCE_ID, SCOPE, "igdb-rights-evidence")
+    envelope = supply.collect_envelope(source)
+    envelope["preview"] = {**envelope["preview"], "rank": 99}
+
+    profile = Mock()
+    profile.source.return_value = source
+    writer = Mock()
+    monkeypatch.setattr(supply, "_write", writer)
+    with pytest.raises(IgdbBlocked, match="PREVIEW_MISMATCH"):
+        supply.run_writer(profile, envelope)
+    writer.assert_not_called()
+
+
+def test_igdb_without_eligible_games_skips_before_writer(monkeypatch):
+    query, calls = _fixture_query()
+
+    def no_candidates(endpoint, body):
+        if endpoint == "popularity_primitives":
+            calls.append(endpoint)
+            return []
+        return query(endpoint, body)
+
+    monkeypatch.setattr(supply, "_igdb_query", lambda role: no_candidates)
+    source = supply.ApprovedSource(SOURCE_ID, SCOPE, "igdb-rights-evidence")
+    assert supply.collect_envelope(source) == {
+        "source_id": SOURCE_ID, "status": "NO_ELIGIBLE_CANDIDATE",
+    }
+    assert calls == ["popularity_types", "popularity_primitives"]
