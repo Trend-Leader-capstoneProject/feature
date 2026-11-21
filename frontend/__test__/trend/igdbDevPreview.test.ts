@@ -70,12 +70,12 @@ describe("IGDB local dev preview", () => {
   });
 
   test("로컬 서버의 JSON만 조회하며 게시 API를 호출하지 않는다", async () => {
-    const originalFetch = global.fetch;
+    const originalFetch = globalThis.fetch;
     const mockFetch = jest.fn(async () => ({
       ok: true,
       json: async () => VALID,
     }));
-    global.fetch = mockFetch as typeof global.fetch;
+    globalThis.fetch = mockFetch as typeof globalThis.fetch;
     try {
       const result = await fetchIgdbDevPreview();
       expect(result.kind).toBe("ready");
@@ -84,22 +84,22 @@ describe("IGDB local dev preview", () => {
         IGDB_DEV_PREVIEW_URL, { headers: { Accept: "application/json" } },
       );
     } finally {
-      global.fetch = originalFetch;
+      globalThis.fetch = originalFetch;
     }
   });
 
   test("503과 기타 HTTP 오류는 적격 후보 없음으로 위장하지 않는다", async () => {
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn(async () => ({
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async () => ({
       ok: false,
       status: 503,
-    })) as typeof global.fetch;
+    })) as typeof globalThis.fetch;
     try {
       await expect(fetchIgdbDevPreview()).rejects.toThrow(
         "PREVIEW_UNAVAILABLE",
       );
     } finally {
-      global.fetch = originalFetch;
+      globalThis.fetch = originalFetch;
     }
   });
 });
