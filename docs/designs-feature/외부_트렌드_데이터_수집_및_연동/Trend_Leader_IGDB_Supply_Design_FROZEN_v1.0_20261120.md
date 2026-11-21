@@ -65,10 +65,19 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - 사용자 확정 IGDB-12 및 §5 순환 선택 설계를 최소 변경으로 구현한다. 하나의 systemd Timer, 기존 6시간 **전역** Cooldown, 전체 Batch 1, root control/scheduler locks, 기존 Journal inode 및 `AUTO_V1` 그대로 유지한다.
 - 승인된 `ApprovedProfile.sources` 목록 순서로 순환한다. 선택은 오직 보호 프로필의 고정 source_id로 수행한다. 재조회 결과 또는 Preview가 임의 공급원을 지정할 수 없고 Collector envelope의 source_id가 선택값과 다르면 실행 결과를 불명확 상태로 유지한다.
 - scheduler-state.json의 기존 세 필드 `pending/not_before/rate_failures`는 유지. 복수 공급원 성공 이후에만 `last_completed_source_id`가 선택적으로 기록된다. 이전 세 필드 상태를 읽을 수 있어야 하며, 단일 소스 기존 상태는 세 필드를 그대로 기록한다. 보호된 경로의 기존 파일을 초기화·삭제하지 않는다.
-- `COMMITTED` 또는 `SKIP_EXISTING_RELEASE`처럼 **Writer의 종료와 결과가 확정**됐을 때에만 마지막 완료 소스를 갱신한다. RATE_LIMITED 및 HOLD는 이전 순환 위치를 유지한다. 결과 불일치·프로세스 예외·미확정 Writer 결과는 `pending=true`를 남겨 무단 재시도를 차단한다.
+- `COMMITTED`·`SKIP_EXISTING_RELEASE`처럼 Writer의 종료가 확정되거나, IGDB Collector가 정규 `NO_ELIGIBLE_CANDIDATE`를 반환한 경우에만 마지막 완료 소스를 갱신한다. 후자의 경우 Writer는 실행하지 않는다. RATE_LIMITED 및 HOLD는 이전 순환 위치를 유지한다. 결과 불일치·프로세스 예외·미확정 Writer 결과는 `pending=true`를 남겨 무단 재시도를 차단한다.
 - 승인 목록이 변경되어 이전 source_id가 사라진 경우 새 목록의 첫 번째 소스로 시작한다. 빈 목록 또는 중복 source_id는 오류 처리한다. 요청 건수는 그대로 단회/Cycle이다. 2개 소스일 때 각각의 실제 재선택 간격은 정상적으로 약 12시간이나, 이는 제공량에 따른 추정이며 가용 시간을 보장하지 않는다.
-- 이 단계의 구현은 제어기와 테스트에 한한다. IGDB는 운영 Adapter Registry에 등록하지 않는다. 권리 및 G6 승인과 실제 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음의 정상 SKIP 코드 및 게임별 영속 커서는 후속 연결 시 결정하며 여기서 가짜 COMMITTED로 처리하지 않는다.
+- IGDB는 운영 Adapter Registry에 등록하지 않는다. 권리 및 G6 승인과 실제 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음은 별도 정상 SKIP 결과로 구분하며 가짜 COMMITTED로 처리하지 않는다. 게임별 Cursor는 검증된 Writer 완료 이후에만 전진한다.
 - 회귀 게이트: 단일 Godot 자식 프로세스, 성공·중복·RATE_LIMITED·HOLD, legacy/extended 상태 엄격 검증, source mismatch의 pending 보존, Writer exit code 상충 검증, 기존 systemd ExecCondition 호환 확인. Linux 특화 원자적 파일 작업은 Windows skipped와 구분하여 Linux에서 재검증한다.
+
+### 5.2 Phase 4-D 후보 없음 및 IGDB 게임 Cursor 계약 (2026-11-21)
+
+- **후보 없음**: IGDB ReviewAdapter가 Top20 실측·정책 검증 후 반환한 `None`만 Collector의 `{source_id: "igdb:visits", status: "NO_ELIGIBLE_CANDIDATE"}`로 투영한다. 실행 컨트롤러는 정확히 일치한 수집 결과를 `SKIP_NO_CANDIDATE`로 기록하고 Writer/DB/Journal 접근 없이 정상 종료한다. 원천 API 오류·인증 실패·응답 변조·비인가 공급원 또는 Godot의 `None`은 이 경로로 승격하지 않는다.
+- **전역 회전**: 후보 없음은 해당 공급원에 처리할 새 후보가 없다는 정상적인 관측 결과이므로, 전역 6시간 Cooldown을 적용하고 `last_completed_source_id`를 갱신해 다음 승인 공급원으로 넘어간다. 단일 Godot의 기존 상태 세 필드는 그대로 유지한다. 후보 없음일 때 IGDB Game Cursor는 변하지 않는다.
+- **게임별 Cursor**: `scheduler-state.json`에 선택적 양의 정수 `igdb_last_game_id`를 추가한다. 기존 상태는 그대로 파싱하며 알 수 없는 필드, bool/0/음수/상한 초과 Game ID는 거부한다. IGDB Collector 요청에 한하여 `--after-game-id <integer>`를 전달하며, `IgdbSnapshotBridge.collect_preview(after_game_id=...)`가 해당 값을 ReviewAdapter에 넘긴다. 순위는 IGDB 실측 원래 순위를 유지한다.
+- **Cursor 변경의 증거**: Writer가 `COMMITTED` 또는 `SKIP_EXISTING_RELEASE`로 정상 종료했을 때, Controller가 Collector Preview의 `candidate_identity`와 Writer 독립 검증의 `candidate_identity`가 정확히 일치하는지 검사한다. `igdb-game:<positive integer>`만 상태에 반영한다. 응답 불일치·Writer 불명확 종료에서는 `pending=true`가 남고 Cursor는 전진하지 않는다.
+- **원자성 및 보존**: Source Cursor 및 Game Cursor는 기존 `pending/not_before/rate_failures`와 동일 원자적 상태 파일 갱신으로 기록한다. Writer가 DB에 반영됐으나 상태 기록 전 장애가 나면 기존 pending 조사 HOLD를 유지한다. 기존 Journal·DB·systemd Timer·보호된 승인 프로필은 이 작업에서 변경하지 않는다.
+- **운영 범위**: 새로운 프로세스 간 Cache, 별도 DB 테이블, 새로운 API, 디스크 초기화는 도입하지 않는다. IGDB 운영 Registry 미등록 및 권리·G6 운영 승인 HOLD는 유지한다. 향후 실제 등록 전에는 권리/보존 요건과 운영 Linux 회귀 및 실제 자격증명 배포 경계를 별도로 검증한다.
 
 ## 6. 권리 및 운영 Gate
 

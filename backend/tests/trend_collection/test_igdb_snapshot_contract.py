@@ -224,3 +224,75 @@ def test_writer_preconnector_approval_guard(monkeypatch):
 def test_profile_constant_is_compatible():
     assert PROFILE == supply.PROFILE
     assert POLICY_VERSION != supply.VERSION
+
+
+def test_igdb_bridge_passes_cursor_without_storing_state():
+    bridge = IgdbSnapshotBridge(_query)
+    bridge._review.collect_review = Mock(return_value=None)
+    assert bridge.collect_preview(after_game_id=87622) is None
+    args, kwargs = bridge._review.collect_review.call_args
+    assert args[0].tzinfo is not None
+    assert kwargs == {'after_game_id': 87622}
+
+
+def test_collector_empty_response_is_explicit_and_does_not_authorize_write(
+    monkeypatch,
+):
+    adapter = Mock()
+    adapter.collect_preview.return_value = None
+    monkeypatch.setitem(supply.ADAPTERS, SOURCE_ID, adapter)
+    source = supply.ApprovedSource(
+        source_id=SOURCE_ID, scope="IGDB_VISITS_FACTS_LINK_V1",
+        rights_ref="test-only",
+    )
+    assert supply.collect_envelope(source, after_game_id=87622) == {
+        'source_id': SOURCE_ID, 'status': 'NO_ELIGIBLE_CANDIDATE',
+    }
+    adapter.collect_preview.assert_called_once_with(after_game_id=87622)
+    for invalid in (0, True, 10**20, -2):
+        with pytest.raises(SupplyBlocked, match="GAME_CURSOR_INVALID"):
+            supply.collect_envelope(source, after_game_id=invalid)
+    assert adapter.collect_preview.call_count == 1
+
+
+def test_godot_cannot_report_igdb_no_candidate(monkeypatch):
+    adapter = Mock()
+    adapter.collect_preview.return_value = None
+    monkeypatch.setitem(supply.ADAPTERS, REPO, adapter)
+    source = supply.ApprovedSource(
+        source_id=REPO, scope="GODOT_FACTS_LINK_V1",
+        rights_ref="test-only",
+    )
+    with pytest.raises(SupplyBlocked, match="SOURCE_PREVIEW_MISSING"):
+        supply.collect_envelope(source)
+    adapter.collect_preview.assert_called_once_with()
+
+
+def test_collect_cli_emits_no_candidate_without_db(monkeypatch, capsys):
+    import json
+    import sys
+    from contextlib import nullcontext
+
+    source = supply.ApprovedSource(
+        source_id=SOURCE_ID, scope="IGDB_VISITS_FACTS_LINK_V1",
+        rights_ref="test-only",
+    )
+    profile = Mock()
+    profile.source.return_value = source
+    monkeypatch.setattr(
+        supply, "approved_cycle", lambda role: nullcontext(profile),
+    )
+    collector = Mock(return_value={
+        'source_id': SOURCE_ID, 'status': 'NO_ELIGIBLE_CANDIDATE',
+    })
+    monkeypatch.setattr(supply, "collect_envelope", collector)
+    monkeypatch.setattr(sys, "argv", [
+        "run_auto_supply", "collect", "--source-id", SOURCE_ID,
+        "--after-game-id", "87622",
+    ])
+    assert supply.main() == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "source_id": SOURCE_ID, "status": "NO_ELIGIBLE_CANDIDATE",
+    }
+    collector.assert_called_once_with(source, after_game_id=87622)
+    profile.validate_time.assert_called_once()

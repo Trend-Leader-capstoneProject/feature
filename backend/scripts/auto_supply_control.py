@@ -15,6 +15,8 @@ CONTROL = Path('/etc/trend-leader/auto-supply')
 RUNTIME = Path('/opt/trend-leader-auto-supply')
 INTERVAL = 6 * 3600
 MAX_OUTPUT = 65536
+IGDB_SOURCE_ID = 'igdb:visits'
+IGDB_GAME = re.compile(r'igdb-game:([1-9][0-9]{0,19})\Z')
 
 
 def atomic_json(path, value, mode=0o600):
@@ -37,20 +39,27 @@ def atomic_json(path, value, mode=0o600):
             os.unlink(name)
 
 
-def _preserve_rotation(updated, previous, *, source_id=None, completed=False):
-    """Maintain cursor without changing legacy three-field state."""
-    if 'last_completed_source_id' in previous:
-        updated['last_completed_source_id'] = previous['last_completed_source_id']
+def _preserve_rotation(updated, previous, *, source_id=None,
+                       completed=False, game_id=None):
+    """Keep cursor state coupled to the durable scheduler record."""
+    for key in ('last_completed_source_id', 'igdb_last_game_id'):
+        if key in previous:
+            updated[key] = previous[key]
     if source_id is not None and completed:
         updated['last_completed_source_id'] = source_id
+    if game_id is not None and completed and source_id == IGDB_SOURCE_ID:
+        updated['igdb_last_game_id'] = game_id
     return updated
 
 
-def next_state(result, now, previous, *, writer=False, source_id=None):
-    """Global >=6h cooldown; cursor advances only after confirmed Writer finish."""
+def next_state(result, now, previous, *, writer=False, source_id=None,
+               no_candidate=False, game_id=None):
+    """Global >=6h cooldown; rotate only on a confirmed terminal outcome."""
     status = result.get('status')
     reason = result.get('reason')
-    completed = writer and status in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
+    writer_done = writer and status in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
+    empty_done = not writer and no_candidate and status == 'SKIP_NO_CANDIDATE'
+    completed = writer_done or empty_done
     if status == 'HOLD' and reason == 'RATE_LIMITED':
         failures = previous['rate_failures'] + 1
         deadline = result.get('retry_not_before')
@@ -72,7 +81,7 @@ def next_state(result, now, previous, *, writer=False, source_id=None):
             'rate_failures': previous['rate_failures'] if status == 'HOLD' else 0,
         }
     return _preserve_rotation(updated, previous, source_id=source_id,
-                              completed=completed)
+                              completed=completed, game_id=game_id)
 
 
 def choose_source(profile, state):
@@ -94,6 +103,7 @@ def load_state(path, read_record):
         'pending', 'not_before', 'rate_failures',
     } <= set(data) or set(data) - {
         'pending', 'not_before', 'rate_failures', 'last_completed_source_id',
+        'igdb_last_game_id',
     } or type(data['pending']) is not bool
             or type(data['not_before']) is not int or data['not_before'] < 0
             or type(data['rate_failures']) is not int
@@ -101,12 +111,16 @@ def load_state(path, read_record):
             or ('last_completed_source_id' in data
                 and (not isinstance(data['last_completed_source_id'], str)
                      or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}',
-                                     data['last_completed_source_id']) is None))):
+                                     data['last_completed_source_id']) is None))
+            or ('igdb_last_game_id' in data
+                and (type(data['igdb_last_game_id']) is not int
+                     or not 1 <= data['igdb_last_game_id'] < 10**20))):
         raise RuntimeError('SCHEDULER_STATE_INVALID')
     return data
 
 
-def run_child(uid, role, envelope=None, *, source_id=None):
+def run_child(uid, role, envelope=None, *, source_id=None,
+              after_game_id=None):
     import pwd
 
     account = pwd.getpwuid(uid)
@@ -117,6 +131,12 @@ def run_child(uid, role, envelope=None, *, source_id=None):
         or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}', source_id) is None
     ):
         raise RuntimeError('SOURCE_ID_INVALID')
+    if after_game_id is not None and (
+        role != 'collect' or source_id != IGDB_SOURCE_ID
+        or type(after_game_id) is not int
+        or not 1 <= after_game_id < 10**20
+    ):
+        raise RuntimeError('GAME_CURSOR_INVALID')
     expected = 'trend-collector' if role == 'collect' else 'trend-writer'
     if account.pw_name != expected:
         raise RuntimeError('EXECUTION_PRINCIPAL_MISMATCH')
@@ -124,6 +144,8 @@ def run_child(uid, role, envelope=None, *, source_id=None):
                'scripts.run_auto_supply', role]
     if source_id is not None:
         command.extend(('--source-id', source_id))
+    if after_game_id is not None:
+        command.extend(('--after-game-id', str(after_game_id)))
     result = subprocess.run(
         command,
         cwd=RUNTIME / 'backend',
@@ -139,16 +161,33 @@ def run_child(uid, role, envelope=None, *, source_id=None):
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     if result.returncode == 2 and payload.get('status') != 'HOLD':
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
-    if result.returncode == 0 and role == 'collect' and (
-        set(payload) != {'source_id', 'preview'}
-        or (source_id is not None and payload['source_id'] != source_id)
-    ):
-        raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
+    if result.returncode == 0 and role == 'collect':
+        preview = (set(payload) == {'source_id', 'preview'}
+                   and type(payload['preview']) is dict)
+        empty = (set(payload) == {'source_id', 'status'}
+                 and source_id == IGDB_SOURCE_ID
+                 and payload['status'] == 'NO_ELIGIBLE_CANDIDATE')
+        if (not (preview or empty)
+                or (source_id is not None and payload['source_id'] != source_id)):
+            raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     if result.returncode == 0 and role == 'write' and payload.get('status') not in {
         'COMMITTED', 'SKIP_EXISTING_RELEASE',
     }:
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     return result.returncode, payload
+
+
+def _confirmed_igdb_game(preview, result):
+    """Only a matching independently verified Writer result may move cursor."""
+    if type(preview) is not dict or type(result) is not dict:
+        raise RuntimeError('GAME_CURSOR_UNCONFIRMED')
+    identity = preview.get('candidate_identity')
+    if identity != result.get('candidate_identity') or type(identity) is not str:
+        raise RuntimeError('GAME_CURSOR_UNCONFIRMED')
+    match = IGDB_GAME.fullmatch(identity)
+    if match is None:
+        raise RuntimeError('GAME_CURSOR_UNCONFIRMED')
+    return int(match[1])
 
 
 def cycle(profile, path, state, *, child=run_child, clock=time.time):
@@ -160,30 +199,54 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     source = choose_source(profile, state)
     # Persist uncertain state BEFORE either child can make a request.
     atomic_json(path, {**state, 'pending': True})
-    code, result = child(
-        profile.collector_uid, 'collect', source_id=source.source_id,
-    )
-    writer = code == 0
-    if writer:
-        if (type(result) is not dict
-                or result.get('source_id') != source.source_id
-                or set(result) != {'source_id', 'preview'}):
-            raise RuntimeError('COLLECTOR_SOURCE_MISMATCH')
-        write_code, result = child(profile.writer_uid, 'write', result)
-        success = result.get('status') in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
-        if (write_code == 0) != success or write_code not in {0, 2}:
-            raise RuntimeError('WRITER_OUTCOME_MISMATCH')
-    elif code != 2 or result.get('status') != 'HOLD':
+    kwargs = {'source_id': source.source_id}
+    if source.source_id == IGDB_SOURCE_ID and 'igdb_last_game_id' in state:
+        kwargs['after_game_id'] = state['igdb_last_game_id']
+    code, envelope = child(profile.collector_uid, 'collect', **kwargs)
+    writer = False
+    no_candidate = False
+    game_id = None
+    if code == 0:
+        if (type(envelope) is dict
+                and set(envelope) == {'source_id', 'status'}
+                and source.source_id == IGDB_SOURCE_ID
+                and envelope['source_id'] == source.source_id
+                and envelope['status'] == 'NO_ELIGIBLE_CANDIDATE'):
+            no_candidate = True
+            result = {'status': 'SKIP_NO_CANDIDATE'}
+        else:
+            if (type(envelope) is not dict
+                    or envelope.get('source_id') != source.source_id
+                    or set(envelope) != {'source_id', 'preview'}
+                    or type(envelope['preview']) is not dict):
+                raise RuntimeError('COLLECTOR_SOURCE_MISMATCH')
+            writer = True
+            write_code, result = child(profile.writer_uid, 'write', envelope)
+            if type(result) is not dict:
+                raise RuntimeError('WRITER_OUTCOME_MISMATCH')
+            success = result.get('status') in {
+                'COMMITTED', 'SKIP_EXISTING_RELEASE',
+            }
+            if (write_code == 0) != success or write_code not in {0, 2}:
+                raise RuntimeError('WRITER_OUTCOME_MISMATCH')
+            if source.source_id == IGDB_SOURCE_ID and success:
+                game_id = _confirmed_igdb_game(envelope['preview'], result)
+    elif (code == 2 and type(envelope) is dict
+          and envelope.get('status') == 'HOLD'):
+        result = envelope
+    else:
         raise RuntimeError('COLLECTOR_OUTCOME_MISMATCH')
-    # A single-source legacy state keeps its original exact three fields.
-    rotate = len(profile.sources) > 1 or 'last_completed_source_id' in state
+    # Single-source Godot retains its three-field legacy state.
+    rotate = (len(profile.sources) > 1
+              or 'last_completed_source_id' in state
+              or source.source_id == IGDB_SOURCE_ID)
     updated = next_state(
         result, int(clock()), state, writer=writer,
+        no_candidate=no_candidate, game_id=game_id,
         source_id=source.source_id if rotate else None,
     )
     atomic_json(path, updated)
     return result
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -245,7 +308,9 @@ def main():
         print(json.dumps({key: result[key] for key in (
             'status', 'reason', 'candidate_identity', 'retry_not_before',
         ) if key in result}))
-        success = result.get('status') in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
+        success = result.get('status') in {
+            'COMMITTED', 'SKIP_EXISTING_RELEASE', 'SKIP_NO_CANDIDATE',
+        }
         return 0 if success else 2
     except Exception:
         print(json.dumps({'status': 'HOLD', 'reason': 'CONTROL_FAILED'}))

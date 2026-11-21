@@ -76,8 +76,10 @@ class IgdbSnapshotBridge:
     def __init__(self, query: Query):
         self._review = IgdbReviewAdapter(query)
 
-    def collect_preview(self):
-        return self._review.collect_review(datetime.now(timezone.utc))
+    def collect_preview(self, *, after_game_id=None):
+        return self._review.collect_review(
+            datetime.now(timezone.utc), after_game_id=after_game_id,
+        )
 
     def verify(self, preview, now: datetime) -> PopularitySnapshot:
         verified = self._review.verify_review(preview, now)

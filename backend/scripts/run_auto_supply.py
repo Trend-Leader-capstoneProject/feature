@@ -24,6 +24,7 @@ from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
+from app.trend_collection.igdb_adapter import SOURCE_ID as IGDB_SOURCE_ID
 from app.trend_collection.publication_policy import (
     PersistableSnapshot,
     PopularitySnapshot,
@@ -398,20 +399,46 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
     return {"status": result, "candidate_identity": snapshot.candidate_identity}
 
 
+def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
+    """Collector-only output; no candidate is not a publication authorization."""
+    if after_game_id is not None and (
+        source.source_id != IGDB_SOURCE_ID
+        or type(after_game_id) is not int
+        or not 1 <= after_game_id < 10**20
+    ):
+        raise SupplyBlocked("GAME_CURSOR_INVALID")
+    adapter = ADAPTERS[source.source_id]
+    if source.source_id == IGDB_SOURCE_ID:
+        preview = adapter.collect_preview(after_game_id=after_game_id)
+    else:
+        preview = adapter.collect_preview()
+    if preview is None:
+        if source.source_id != IGDB_SOURCE_ID:
+            raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
+        return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
+    if type(preview) is not dict:
+        raise SupplyBlocked("SOURCE_PREVIEW_INVALID")
+    return {"source_id": source.source_id, "preview": preview}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("role", choices=("collect", "write"))
     parser.add_argument("--source-id")
+    parser.add_argument("--after-game-id", type=int)
     args = parser.parse_args()
-    if args.role == "write" and args.source_id is not None:
-        parser.error("--source-id is for collect only")
+    if args.role == "write" and (
+        args.source_id is not None or args.after_game_id is not None
+    ):
+        parser.error("--source-id and --after-game-id are for collect only")
     try:
         envelope = _json(_bounded(sys.stdin.buffer)) if args.role == "write" else None
         with approved_cycle(args.role) as profile:
             if args.role == "collect":
                 source = profile.source(args.source_id)
-                result = {"source_id": source.source_id,
-                          "preview": ADAPTERS[source.source_id].collect_preview()}
+                result = collect_envelope(
+                    source, after_game_id=args.after_game_id,
+                )
                 profile.validate_time(now_utc())
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
