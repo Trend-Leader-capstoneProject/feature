@@ -84,6 +84,18 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 근거 확인 2026-11-20: https://api-docs.igdb.com/ (Getting Started, PopScore, FAQ) 비상업적 API 이용 지원 및 로컬 저장/최종 이용자 제공에 긍정적; FAQ의 보존/귀속 일부는 상업 파트너십 맥락. https://legal.twitch.com/en/legal/developer-agreement/ 원문 접근 시 본문 미확보. https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/ 및 https://dev.twitch.tv/docs/authentication/validate-tokens/ 인증 계약.
 확정 필요: 비상업적 캡스톤의 IGDB 자체 Visits 순위/기준일·게임명·링크 장기 DB 저장/공개, refresh/delete/termination 요구, 표시 귀속. 공식 근거로 해소 가능하면 별도 문의 필수 아님; 불명확 시 IGDB에 이 제한 범위만 확인. 요구되는 갱신/삭제가 있다면 INSERT/SKIP 영구 보존은 채택 금지; 별도 보존 설계 결정 필요. 운영 G6 승인과 권리 판단은 독립. 이미지/제3자 지표/AI 전송 범위 확대 금지.
 
+### 6.1 IGDB 데이터 이용 권리 및 최대 30일 보유 정책 사전검토 (2026-11-21)
+
+**상태: 설계 및 읽기 전용 검토 도구만 구현 가능. 운영 저장·노출·삭제 승인 아님.**
+
+- 공식 IGDB API FAQ(https://api-docs.igdb.com/): 비상업적 이용은 Twitch Developer Services Agreement 적용 대상. FAQ Business 섹션은 로컬 저장 및 최종 사용자 제공을 긍정하고, 제휴 종료 후 보유도 언급한다. 이 안내가 비상업 캡스톤의 Visits 지표, 순위·기준일·게임명·URL의 장기 공개·보존까지 포괄하는지는 확인이 필요하다.
+- Twitch Developer Services Agreement(https://legal.twitch.com/en/legal/developer-agreement/, 2024-12-04 게시판 기준): Program Materials/Twitch Content의 무허가 저장은 최대 24시간 캐싱 예외, 원천 자료 재배포 제한, 삭제·변경 반영 요구가 있다. IGDB FAQ의 구체적 저장 안내와 어떤 조항이 우선하거나 범위가 다른지 확정할 수 없다. **30일 자체 삭제 정책을 라이선스로 간주하지 않는다.**
+- 사용자 의사: 영구 보존 의도 없음. 설계에 최대 30일 이내 보유 상한을 *잠정* 반영하되, 공식 근거로 확인된 허용 기간이 이보다 짧거나 즉시 삭제 요청이 있으면 더 짧은 조건을 따른다. 별도 24시간 규정이 적용된다면 그 규정보다 30일 정책을 우선할 수 없다.
+- 별도 메일 문의 전제는 최소화하지만, 위 상충을 해소하지 못하면 partner@igdb.com(공식 안내 주소)에 다음 사실을 좁혀 확인한다: 비상업적 한국 대학 캡스톤, 자체 작성 게임명/관측 순위·날짜·공식 링크만 표시, 이미지/원문 설명/외부 인기 소스 사용 안 함, 최대 30일 보유 후 비노출·삭제, 앱에서 IGDB 출처 고정 표시. *24시간 캐싱 제한 및 재배포 조항과의 관계*, 변경/삭제 통지 시 조치, 보존/종료 조건을 질의한다.
+- **구현된 격리 사전검토**: `igdb_retention_policy.py`는 `platform=ETC`, `external_id=igdb-game:<ID>`, 출처 해시 및 공식 IGDB URL의 일치를 확인하고 UTC `collected_at` 기준 마감 시각만 계산한다. 테스트용 상한은 1~30일이며 30일 경계, 24시간 제한 설정, 위조 출처/시간 이상을 검증한다. 운영 Registry·DB 조회·DELETE·UPDATE·systemd 연결은 없다.
+- **실제 삭제 설계 미확정**: `trend_sources`는 `trends` 자식, 다른 FK(북마크, 순위, AI 분석 등)가 `ON DELETE CASCADE`를 가질 수 있다. source 단위 제거와 Trend 부모 제거를 동일하게 취급하면 사용자 데이터가 의도치 않게 삭제된다. 전체 연관 출처·북마크·Journal/중복 기록, 백업, API 응답 캐시 및 시연 자료를 확인한 후 관리자 승인과 별도 권한으로 삭제·비노출 정책을 확정한다. 주기적 작업만으로 마감 이후 추가 보관이 생기지 않도록 공개 조회의 만료 가드 또는 선제적인 삭제 일정도 필요하다.
+- **운영 전 Gate**: (1) 자료 저장·표시 권리 확인, (2) 권리 조건에 맞는 보존 상한·출처 표시·즉시 정정/삭제 절차, (3) 최소 권한/삭제 경계 및 의존 FK 검증, (4) 별도 사용자 G6 승인. 확인 전 IGDB 운영 공급은 HOLD. 현재 파일·코드 변경만으로 승인이나 법적 보증을 주장하지 않는다.
+
 ## 7. 테스트 및 종료 기준
 
 1. 실측 입력의 최소 비밀 제거 fixture로 정상 선택/등급 미제공·성인·Erotic·복수 플랫폼·유형·48h 경계·순위 변조·date mismatch·URL 변조·동일 ID·unknown enum 거부. 전체 덤프 재게시 금지.
