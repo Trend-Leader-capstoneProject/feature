@@ -16,6 +16,7 @@ from app.trend_collection.godot_release_collector import (
 )
 from app.trend_collection.publication_policy import (
     ContentSnapshot,
+    PersistableSnapshot,
     evaluate_release,
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
@@ -91,6 +92,6 @@ class GodotAdapter:
 ADAPTERS: dict[str, SourceAdapter] = {REPO: GodotAdapter()}
 
 
-def bind_snapshot(snapshot: ContentSnapshot, *, policy: str, target: str):
+def bind_snapshot(snapshot: PersistableSnapshot, *, policy: str, target: str):
     """Bind a verified snapshot to a target, not an authorization token."""
     return replace(snapshot, policy_version=policy, target=target)

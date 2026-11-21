@@ -44,6 +44,15 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - ContentSnapshot은 공개 이벤트와 관심도 관측을 구분해야 한다. Godot source_published_at을 인위적으로 calculated_at으로 대체하지 않는다. 신규 관측 필드/타입 또는 별도 source-specific freshness contract 도입 후보; 기존 Godot 7일/Preview 10분 및 기존 digest/Journal 식별자를 그대로 유지하는 하위호환 테스트 필수. IGDB 48시간은 독립 verify 및 commit 직전 적용; 항상 승인된 adapter/source에 바인딩하고 caller 임의 freshness 지정 금지.
 - 현재 Writer의 SKIP_EXISTING_RELEASE 결과는 기존 계약/상태 전이를 위해 보존하고 IGDB에서도 동일 ID 무변경으로 해석 가능. 새 명칭 확대는 후순위. 현재 순위 갱신/재노출은 승인하지 않음.
 
+### 4.1 SNAP-01~10 공통 저장 계약 확정 (2026-11-21 승인)
+
+- SNAP-01~03: 기존 `ContentSnapshot`의 필드 순서·직렬화·해시는 변경하지 않는다. 새로운 `PopularitySnapshot`은 `calculated_at_utc`, 관측 순위와 Visits 지표 ID를 별도로 가진다. `PersistableSnapshot`은 타입 계약이지 새로운 DB 테이블이 아니다.
+- SNAP-04~05: 고정된 소스 ID와 Concrete Snapshot Type 및 보호된 운영 프로필 Scope가 정확히 일치해야 한다. Godot은 7일, IGDB는 48시간; 공통 Preview 10분. 후보의 임의 파라미터나 Snapshot이 자체 권한을 지정하지 않는다. Commit 직전에도 같은 검사 적용.
+- SNAP-06~09: 공통 Writer/Journal 및 `AUTO_V1` 유지. IGDB의 동일 Game ID는 SKIP하며 저장 URL이 달라지면 UPDATE 대신 HOLD. 기존 DB/API/Schema/권한 변경 없음. 이벤트 타임스탬프와 관측 타임스탬프의 의미 혼동 금지.
+- SNAP-10: 독립 검증 후 Snapshot으로 투영하는 Bridge는 기술 구현 가능하나 IGDB가 허용된 운영 Registry에 들어가거나 실제 DB DML을 수행하는 것은 별도 권리 검토 및 G6 승인 이후에만 가능.
+- 과도한 제약은 목적·근거·부작용을 개별 검증한 뒤 완화할 수 있으나, 기존 운영 Journal 무결성 및 실제 운영 승인 경계를 구현 편의만으로 축소하지 않는다.
+- 이번 범위는 Snapshot/Source/Freshness/Writer 계약 및 테스트다. Scheduler 복수 소스 실행, OAuth 영속 Cache, 운영 배포는 포함하지 않는다.
+
 ## 5. 인증·복수 공급 실행 세부 권장안(추가 구현 결정)
 
 - 기존 분리 UID를 유지. OAuth Client Credential을 보호된 관리자 발행 파일로 관리, Collector가 Writer DB secret을 절대 읽지 못하도록 한다. 역할별 root 소유 읽기 전용 자격증명과 각 역할의 0700 보호된 token-cache를 고려한다(별도 계정/DB/컨테이너 없음). 토큰은 expires_in과 안전 여유로 재사용, 운영 세션 유효성은 공식 validate 가이드 준수, 401 bounded refresh, token/secret을 envelope/Journal/DB/GitHub/로그에 포함 금지. 캐시 공유/권한/재발행 방식의 실제 운영 설계는 구현 시 검증하고, 사용자 Client Secret은 로컬 관리자만 입력. 활성 프로필 자동 발행 금지.
