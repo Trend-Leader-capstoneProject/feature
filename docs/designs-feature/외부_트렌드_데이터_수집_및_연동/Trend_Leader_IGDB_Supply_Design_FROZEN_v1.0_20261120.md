@@ -104,6 +104,13 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **운영 전 Gate**: (1) 자료 저장·표시 권리 확인, (2) 권리 조건에 맞는 보존 상한·출처 표시·즉시 정정/삭제 절차, (3) 최소 권한/삭제 경계 및 의존 FK 검증, (4) 별도 사용자 G6 최초 활성화 승인. 확인 전 IGDB 운영 공급은 HOLD. 현재 파일·코드 변경만으로 승인이나 법적 보증을 주장하지 않는다.
 - **G6 비병목 원칙(2026-11-21)**: 설계·구현·자동 테스트·기능 브랜치/PR 준비는 G6 승인과 독립적으로 진행한다. 기존 `ApprovedProfile`의 소스·대상·승인 참조 및 `approved_at <= now < valid_until`을 만족한 **기간 한정 최초 승인 1회**로 해당 기간의 6시간 Scheduler Cycle을 무인 실행한다. 매 Cycle의 시간/권한 재검증은 유지하지만 **매 Cycle 사용자 재승인은 요구하지 않는다**. 만료·철회·승인되지 않은 소스 추가·운영 대상 변경·원자성 미확정 등에서는 기존 HOLD 후 변경 승인한다. G6 승인 자동 발행/연장이나 미승인 DB 쓰기는 금지한다.
 
+### 6.1.1 Phase 4-F IGDB 조회 단계 만료 방어 (2026-11-21)
+
+- **기존 API만 사용**: `TrendRepository.find_page()` 공통 조회에서 `platform=ETC` 및 `external_id`의 `igdb-game:` 접두사로 식별된 IGDB 출처가 **UTC `collected_at <= now - 30일`**이면 연결된 Trend를 공개·맞춤 목록에서 제외한다. 제외 조건은 Cursor/limit보다 먼저 적용한다. `find_latest_sources_by_trend_ids()`도 만료된 IGDB Source를 반환하지 않는다. 조회 시각은 UTC로 평가하며 기존 DB의 UTC-naive DATETIME 계약을 사용한다.
+- **Godot/Legacy 보존**: 일반 `ETC` 또는 `external_id=NULL` 출처, IGDB와 무관한 Trend, 출처가 없는 기존 Demo 데이터는 이 정책만으로 숨기지 않는다. **혼합 Source**(동일 Trend의 만료 IGDB + 다른 유효 Source)는 현재 부모 `trends.title/summary`의 원천을 식별할 수 없으므로 조회만 fail-closed 처리한다. 유효한 다른 Source 및 북마크를 **삭제하지 않는다**. 향후 출처별 제목 원천이 확정되면 혼합 데이터 노출 정책을 별도 검토한다.
+- **실제 삭제와의 경계**: 조회 방어는 데이터 수명 종료 및 캐시 무효화를 뜻하지 않는다. 운영 DB·백업·모바일 캐시의 만료 데이터는 여전히 남을 수 있다. FK/중복·Journal/복수 Source/북마크를 검증하기 전 부모 Trend `DELETE` 또는 `HIDDEN` 자동 변경은 금지한다. 종료 시 삭제·캐시 정책과 별도 관리자 정리 권한을 후속 구현한다.
+- **검증**: 승인된 격리 테스트 DB에서 정확한 30일 경계/직전 유효/비IGDB 구형 출처/혼합 Source fail-closed/부모·출처 보존/최신 Source 배제/limit 선적용을 테스트한다. 이 검증은 실제 운영 게시·G6 승인 및 30일 보유 데이터의 물리 삭제 완료를 의미하지 않는다.
+
 ### 6.2 IGDB 로컬 전용 TrendCard 검토 연결 (2026-11-21)
 
 - **목적 및 범위**: 이미 승인된 개발·내부 검증 허용 범위에서만 IGDB Visits 수집 → 후보 적격성 → **독립 API 재조회** → 임시 카드 표시를 수직 연결한다. 실제 APK `TrendCard`는 DB 기반 식별자/카테고리 ID를 요구하므로, 가짜 DB ID를 만들거나 공개 FastAPI Router를 추가하지 않는다. 이는 Expo UI 또는 실제 APK E2E 증거가 아닌 별도 **로컬 브라우저 UI 검증**이다.
