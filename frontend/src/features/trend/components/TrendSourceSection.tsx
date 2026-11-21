@@ -7,13 +7,13 @@ import {
 
 import { borders, radius, sizes, spacing, typography } from "../../../shared/constants";
 import type {
-    TrendLatestSource,
+    TrendCardData,
     TrendSourcePlatform,
 } from "../types/trend";
 
 
 export interface TrendSourceSectionProps {
-  source: TrendLatestSource | null;
+  source: TrendCardData["latest_source"];
   onOpenSource: (url: string) => void;
 }
 

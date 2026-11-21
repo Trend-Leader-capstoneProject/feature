@@ -6,13 +6,11 @@ import {
 } from "react-native";
 
 import { borders, radius, spacing, typography } from "../../../shared/constants";
-import type {
-  TrendCategoryItem,
-} from "../types/trend";
+import type { TrendCardData } from "../types/trend";
 
 
 export interface TrendCategoryChipsProps {
-  categories: TrendCategoryItem[];
+  categories: TrendCardData["categories"];
 }
 
 export function TrendCategoryChips({
@@ -36,7 +34,9 @@ export function TrendCategoryChips({
       {categories.map(
         (category) => (
           <View
-            key={category.category_id}
+            key={category.category_id ??
+              `${category.parent.category_name}:${category.category_name}`
+            }
             style={styles.chip}
           >
             <Text

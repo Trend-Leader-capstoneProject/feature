@@ -105,6 +105,15 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **승인 경계**: 기존 `ADAPTERS` Registry·Approval/G6·MariaDB·Journal·Scheduler·FastAPI Router·React Native 화면은 **변경하지 않는다**. 비상업 API의 로컬 검토 근거와 공개/영구 보존 권리 판단은 구분한다. 30일 삭제 정책은 이번 서버의 저장 권한 또는 운영 승인과 무관하다. 실제 앱 TrendCard에 연결되는 데이터 흐름은 권리·G6 승인 후 기존 API 계약으로 통합한다.
 - **검증**: 두 독립 Query 사이의 원천 응답 변경 거부, HTML escape, 비정상 후보 없음, localhost/Host/path 차단, 브라우저 Cache-Control 및 503 민감값 비노출에 대한 mocked 회귀를 추가한다. 실제 IGDB 인증 및 브라우저 열람은 사용자의 개발 환경에서 별도 확인한다.
 
+### 6.3 Phase 4-E Expo 개발 전용 TrendCard 연결 (2026-11-21 후속 승인)
+
+- **기존 §6.2와의 범위 차이**: §6.2는 당시 HTML 루트 경로만 허용하고 React Native 연결을 제외한 완료 범위이다. 이번 후속 사용자 승인으로 개발 전용 `/preview.json`과 Expo 검증 화면을 **추가 허용**한다. 루트 `/` 동작·localhost 바인딩 및 실제 운영 미승인 경계는 유지한다. 새로운 공개 FastAPI API는 만들지 않는다.
+- **읽기 경로**: `python -m scripts.igdb_local_preview --port 58186` → `127.0.0.1:58186/preview.json` → Expo 개발 빌드 `IgdbDevPreviewScreen`. 각각의 GET은 기존 두 독립 IGDB Client로 Live collect/verify를 수행하며, 스냅샷·토큰·API 응답을 디스크/DB/운영 Journal에 보관하지 않는다. 결과는 `Cache-Control: no-store`, UTF-8 JSON; 출처·Host·Path 검증 및 안전한 503 응답을 유지한다. 요청 시 검증이 반복되므로 공식 Rate Limit 보호는 기존 IGDB Client에 위임한다.
+- **JSON 계약**: `VERIFIED_PREVIEW`와 `NO_ELIGIBLE_CANDIDATE`를 구분하고 둘 다 `NOT_FOR_PUBLICATION`을 반환한다. 정상 응답은 게임명·자체 Summary·Visits 원래 Rank·관측/수집시각·GAME 하위 분류·정확히 허용된 IGDB 원문 URL에 한정한다. `trend_id`, `category_id`, `source_id`, API 비밀, Raw Response 및 이미지/소개 전문은 반환하지 않는다. 오류는 503 `REVIEW_UNAVAILABLE`로 축약한다.
+- **프론트엔드 경계**: 운영 `TrendListItem`의 식별자는 유지하면서 `TrendCardData` 표시 전용 타입을 통해 DB 식별자 없는 임시 카드를 지원한다. 기존 TrendCard/CategoryChips/SourceSection 컴포넌트를 재사용하며, 임시 결과를 React Query 운영 목록 캐시 또는 개인화/전체 조회에 혼합하지 않는다. 개발 전용 화면과 메뉴는 `__DEV__` 경계에서만 등록·조회되며 로그인 전/후 LatestTrend 화면에서 접근한다. Release 빌드에서는 비활성화한다.
+- **실기기 연결**: 모바일의 127.0.0.1은 PC가 아니므로 USB Android 디버깅 `adb reverse tcp:58186 tcp:58186`를 이용한다. 공개 바인딩(`0.0.0.0`), 임시 외부 터널, 임의 포트/비밀값 노출은 하지 않는다. 개발 빌드의 Android 로컬 HTTP(cleartext) 허용 여부는 실기기에서 별도 확인한다. 개발용 서버는 종료와 동시에 응답을 소멸하며 본 단계는 운영 서비스 보존/게시 허가를 부여하지 않는다.
+- **검증 및 통합 경계**: 기존 HTML/IGDB 재검증 회귀 + JSON 200/503/404/400/No-Store/비밀 비노출, 프론트 파서 변조 차단·후보 없음·실패, 기존 TrendCard 및 개발 화면 렌더링, 출처 버튼, 개발 네비게이션. Backend/Frontend 테스트·Typecheck 및 ADB 실제 UI 검증을 구분하며 운영 DB/Writer/G6/Linux 권리 검증은 별도 Gate다. 신규 브랜치는 PR 통합 전 `dev`에 병합하지 않는다.
+
 ## 7. 테스트 및 종료 기준
 
 1. 실측 입력의 최소 비밀 제거 fixture로 정상 선택/등급 미제공·성인·Erotic·복수 플랫폼·유형·48h 경계·순위 변조·date mismatch·URL 변조·동일 ID·unknown enum 거부. 전체 덤프 재게시 금지.

@@ -47,6 +47,25 @@ export interface TrendListItem {
   latest_source: TrendLatestSource | null;
 }
 
+/**
+ * Presentation contract: no DB identity is required for preview-only cards.
+ * Persisted TrendListItem is structurally assignable to this view type.
+ */
+export type TrendCardData = Pick<
+  TrendListItem,
+  "title" | "summary" | "thumbnail_url" | "last_collected_at"
+> & {
+  categories: ReadonlyArray<{
+    category_id?: number;
+    category_name: string;
+    parent: { category_name: string };
+  }>;
+  latest_source: (
+    Pick<TrendLatestSource, "platform" | "source_title" | "source_url">
+    | null
+  );
+};
+
 export interface TrendListData {
   items: TrendListItem[];
   next_cursor: string | null;

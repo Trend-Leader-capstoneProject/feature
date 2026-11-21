@@ -41,6 +41,35 @@ function createTrend(overrides: Partial<TrendListItem> = {}): TrendListItem {
 }
 
 describe("TrendCard", () => {
+  test("DB 식별자 없는 임시 IGDB 카드를 기존 UI로 표시한다", async () => {
+    const onOpenSource = jest.fn();
+    await render(<TrendCard
+      onOpenSource={onOpenSource}
+      trend={{
+        title: "Free Fire",
+        summary: "IGDB Visits 관측 5위",
+        thumbnail_url: null,
+        last_collected_at: "2026-11-21T00:25:00+00:00",
+        categories: [{
+          category_name: "모바일 게임",
+          parent: { category_name: "게임" },
+        }],
+        latest_source: {
+          platform: "ETC",
+          source_title: "IGDB Visits",
+          source_url: "https://www.igdb.com/games/free-fire",
+        },
+      }}
+    />);
+    expect(screen.getByText("게임 · 모바일 게임")).toBeTruthy();
+    expect(screen.getByText("Free Fire")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "원문 보기" }));
+    expect(onOpenSource).toHaveBeenCalledWith(
+      "https://www.igdb.com/games/free-fire",
+    );
+  });
+
+
   test("화면 순번과 제목, 요약, Category 문맥을 표시한다", async () => {
     await render(
       <TrendCard

@@ -2,7 +2,7 @@
 
 > 2026-11-21 KST | AI-Led Delivery Mode | 재평가 핵심 기능: 실제 자동 데이터 공급.
 > 최근 통합 기준: PR #137 merge commit de08d2f3f7e0586deebd0683cab935e15b7c572a. 최신 dev HEAD는 재개 시 조회한다.
-> 현재 작업: PR #137 IGDB 코드 통합 완료, 다음 작업은 기존 TrendCard 최소 앱 연결 설계. IGDB 운영 등록·DB 저장·공개는 미승인.
+> 현재 작업: PR #137 IGDB 코드 통합 완료, Phase 4-E 개발 전용 Expo TrendCard 최소 연결 구현 중. IGDB 운영 등록·DB 저장·공개는 미승인.
 > 역할: 진행 상태 및 다음 작업의 인덱스. 승인 증거/설계 계약 자체를 대체하지 않음.
 
 ## 새 채팅 재개 규칙
@@ -42,7 +42,8 @@
 - **완료된 기술 범위**: IGDB OAuth Client/Visits 적격성 검증/독립 Snapshot 검증, Godot과 공통 Writer·Scheduler의 소스별 계약, Game Cursor와 NO_ELIGIBLE_CANDIDATE, IGDB 30일 *상한 제안*의 읽기 전용 만료 평가, `127.0.0.1` 임시 HTML TrendCard. IGDB 운영 Adapter Registry에는 미등록이며 Writer/DB/API/Expo 연결 활성화 없음.
 - **운영 전 미완료 Gate**: Windows에서 SKIP한 Linux 전용 Scheduler의 상태 원자성·재시작·child UID/소스 ID 검증(실제 배포 이전 WSL/Linux에서 실행), IGDB 데이터 저장·공개·보존·삭제 권리 적용 범위 확정, G6 별도 운영 승인, 권리 허용 기간 내 비노출·삭제·중복 처리. 30일 삭제는 자동 이용 허가가 아니며 기존 Godot systemd/Journal/DB/프로필 보존. PR Merge와 운영 승인을 혼동하지 않는다.
 - **다음 P0 — 기존 앱 최소 연결 설계**: 별도 인프라·새 공개 API·DB Schema·Migration 없이 기존 `TrendListItem`·`TrendCard`·`GET /api/trends`·`/api/trends/personalized`·Source 버튼을 재사용한다. A안(우선 검증 후보)은 개발 전용 무저장/비공개 Snapshot→카드 데이터 변환 및 실제 Expo 카드 테스트, B안(운영 후속)은 권리·G6·Linux 검증 완료 후 기존 독립 Writer→MariaDB→FastAPI→APK 연결. 기존 API에 없는 실제 trend_id/category_id는 검증 없이 위조하지 않는다. AI/이미지/원문 본문 복제/새 계정·Timer/운영 공개는 범위 제외.
-- **관련 확정안**: `docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_IGDB_Supply_Design_FROZEN_v1.0_20261120.md`; 앱 연결 방식은 다음 설계에서 확정한다.
+- **Phase 4-E 후속 작업(2026-11-21, 별도 feature 작업 PR)**: `feat/igdb-expo-dev-preview`에서 개발 전용 IGDB `/preview.json`과 React Native `IgdbDevPreviewScreen`을 구현하고, `TrendCardData` 표시 계약을 도입한다. 로그인 전/후 `LatestTrendScreen`에서 개발 빌드에만 진입하도록 한다. 기존 운영 API/React Query 목록 캐시/DB/Writer/Scheduler/G6는 변경하지 않는다. Backend 기능 테스트/Ruff, Frontend Jest/Typecheck 및 Android `adb reverse tcp:58186 tcp:58186` 실기기 원문 이동은 **아직 미검증**이며 완료 증거로 간주하지 않는다. 실제 UI 검증 시 `python -m scripts.igdb_local_preview --port 58186` 사용; 비밀정보는 로컬 Python 입력만 허용한다. 배포·dev 병합은 별도 승인 이후.
+- **관련 확정안**: `docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_IGDB_Supply_Design_FROZEN_v1.0_20261120.md` §6.3에 후속 개발 전용 확장을 기록. 기존 §6.2의 HTML-only 계약은 이전 범위의 이력이며, 운영 Gate·DB 미저장 경계는 유지한다.
 
 ## 이전 단계 진행 기록 (2026-11-19 기준, 현재 우선순위는 위 최신 블록 참조)
 

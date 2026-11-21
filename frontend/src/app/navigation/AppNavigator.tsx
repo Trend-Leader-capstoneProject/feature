@@ -10,6 +10,7 @@ import {
   InterestEditScreen,
 } from "../../features/interest/screens/InterestEditScreen";
 import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
+import { IgdbDevPreviewScreen } from "../../features/trend/screens/IgdbDevPreviewScreen";
 
 import { MyInfoScreen } from "../../features/account/screens/MyInfoScreen";
 import { PasswordChangeScreen } from "../../features/account/screens/PasswordChangeScreen";
@@ -27,6 +28,7 @@ export type AppStackParamList = {
   Main: undefined;
   InterestEdit: undefined;
   LatestTrend: undefined;
+  IgdbPreview: undefined;
 };
 
 const Stack =
@@ -53,6 +55,10 @@ export function AppNavigator() {
         name="LatestTrend"
         component={LatestTrendScreen}
       />
+
+      {__DEV__ && (
+        <Stack.Screen name="IgdbPreview" component={IgdbDevPreviewScreen} />
+      )}
 
       <Stack.Screen name="MyInfo" component={MyInfoScreen} />
       <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />

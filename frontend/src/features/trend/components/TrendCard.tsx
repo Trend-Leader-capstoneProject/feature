@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Image, Text, View } from "react-native";
 
 import { borders, radius, spacing, textLineLimits, typography } from "../../../shared/constants";
-import type { TrendListItem } from "../types/trend";
+import type { TrendCardData } from "../types/trend";
 import { TrendCategoryChips } from "./TrendCategoryChips";
 import { TrendSourceSection } from "./TrendSourceSection";
 
@@ -11,7 +11,7 @@ const THUMBNAIL_SIZE = 96;
 
 export interface TrendCardProps {
   displayNumber?: number;
-  trend: TrendListItem;
+  trend: TrendCardData;
   onOpenSource: (uri: string) => void;
 }
 

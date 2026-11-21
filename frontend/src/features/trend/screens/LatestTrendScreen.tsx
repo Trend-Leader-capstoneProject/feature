@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import {
   FlatList,
   Image,
+  Pressable,
   Text,
   View,
   type ListRenderItemInfo,
@@ -29,7 +30,11 @@ import { useTrends } from "../hooks/useTrends";
 import type { TrendListItem } from "../types/trend";
 import { openTrendSourceUrl } from "../utils/openTrendSourceUrl";
 
-export function LatestTrendScreen() {
+interface LatestTrendScreenProps {
+  navigation?: { navigate: (route: "IgdbPreview") => void };
+}
+
+export function LatestTrendScreen({ navigation }: LatestTrendScreenProps = {}) {
   const { styles } = useStyles();
   const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<
     number | null
@@ -244,6 +249,15 @@ export function LatestTrendScreen() {
         <Text style={styles.description}>
           최근 업데이트된 다양한 트렌드를 확인해 보세요.
         </Text>
+        {__DEV__ && navigation && (
+          <Pressable
+            accessibilityLabel="IGDB 개발 미리보기"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("IgdbPreview")}
+          >
+            <Text style={styles.description}>IGDB 개발 미리보기</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.filterRegion}>

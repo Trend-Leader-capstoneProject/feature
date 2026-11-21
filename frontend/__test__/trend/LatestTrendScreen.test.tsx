@@ -168,6 +168,22 @@ function createDeferred<T>() {
 }
 
 describe("LatestTrendScreen", () => {
+  test("개발용 진입점은 기존 목록과 분리된 화면으로 이동한다", async () => {
+    const navigate = jest.fn();
+    mockedUseTrends.mockReturnValue(createTrendQueryResult({
+      pages: [createPage([createTrend(101)])],
+    }));
+
+    await render(<LatestTrendScreen navigation={{ navigate }} />);
+    await fireEvent.press(screen.getByRole("button", {
+      name: "IGDB 개발 미리보기",
+    }));
+
+    expect(navigate).toHaveBeenCalledWith("IgdbPreview");
+    expect(screen.getByText("Trend 101")).toBeTruthy();
+  });
+
+
   beforeEach(() => {
     jest.clearAllMocks();
 

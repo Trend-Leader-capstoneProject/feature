@@ -1,6 +1,7 @@
 """Ephemeral IGDB review card tests; no credentials, public API or DB."""
 
 import http.client
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from threading import Thread
@@ -17,6 +18,7 @@ from app.trend_collection.igdb_adapter import (
 from app.trend_collection.igdb_local_preview import (
     _card,
     build_local_review_html,
+    build_local_review_json,
     serve_loopback,
 )
 from app.trend_collection.igdb_supply_snapshot import IgdbSnapshotBridge
@@ -208,3 +210,109 @@ def test_error_page_never_leaks_upstream_exception():
 def test_only_valid_loopback_port_supported(port):
     with pytest.raises(ValueError, match="INVALID_PREVIEW_PORT"):
         serve_loopback(lambda: "", port=port)
+
+
+
+def test_local_json_is_verified_and_has_no_database_identifiers():
+    factory, calls = _factory()
+    payload = build_local_review_json(
+        factory, clock=lambda: NOW, between_clients=lambda _: None,
+    )
+    assert len(calls) == 2
+    assert payload == {
+        "status": "VERIFIED_PREVIEW",
+        "publication_status": "NOT_FOR_PUBLICATION",
+        "title": "Free Fire",
+        "summary": payload["summary"],
+        "rank": 1,
+        "observed_at_utc": NOW.isoformat(),
+        "calculated_at_utc": datetime.fromtimestamp(
+            STAMP, timezone.utc,
+        ).isoformat(),
+        "parent_code": "GAME",
+        "child_name": "모바일 게임",
+        "source_url": "https://www.igdb.com/games/free-fire",
+    }
+    assert "IGDB Visits" in payload["summary"]
+    for secret_or_db_key in (
+        "trend_id", "source_id", "category_id", "access_token",
+        "client_secret", "game_id", "thumbnail_url",
+    ):
+        assert secret_or_db_key not in payload
+
+
+def test_local_json_no_candidate_does_not_verify():
+    factory, calls = _factory(empty=True)
+    assert build_local_review_json(
+        factory, clock=lambda: NOW, between_clients=lambda _: None,
+    ) == {
+        "status": "NO_ELIGIBLE_CANDIDATE",
+        "publication_status": "NOT_FOR_PUBLICATION",
+    }
+    assert len(calls) == 1
+
+
+def test_local_json_independent_source_mismatch_is_not_accepted():
+    factory, calls = _factory(changed_second=True)
+    with pytest.raises(IgdbBlocked, match="PREVIEW_MISMATCH"):
+        build_local_review_json(
+            factory, clock=lambda: NOW, between_clients=lambda _: None,
+        )
+    assert len(calls) == 2
+
+
+def test_json_route_is_loopback_only_and_no_store():
+    generated = []
+
+    def render_json():
+        generated.append(1)
+        return {"status": "NO_ELIGIBLE_CANDIDATE"}
+
+    with serve_loopback(lambda: "<html>OK</html>",
+                        render_json=render_json) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, headers, raw = _http_request(
+                server.server_port, path="/preview.json",
+            )
+            assert status == 200
+            assert json.loads(raw) == {
+                "status": "NO_ELIGIBLE_CANDIDATE",
+            }
+            assert headers["Content-Type"] == "application/json; charset=utf-8"
+            assert headers["Cache-Control"].startswith("no-store")
+            assert headers["Referrer-Policy"] == "no-referrer"
+            assert _http_request(
+                server.server_port, path="/preview.json?debug=true",
+            )[0] == 404
+            assert _http_request(
+                server.server_port, path="/preview.json",
+                host="evil.example",
+            )[0] == 400
+            assert generated == [1]
+        finally:
+            server.shutdown()
+            thread.join(timeout=3)
+
+
+def test_json_503_never_contains_upstream_errors():
+    secret = "my-igdb-client-secret"
+
+    def fail():
+        raise RuntimeError(secret)
+
+    with serve_loopback(lambda: "", render_json=fail) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, headers, raw = _http_request(
+                server.server_port, path="/preview.json",
+            )
+            assert status == 503
+            assert headers["Content-Type"] == "application/json; charset=utf-8"
+            assert json.loads(raw) == {"status": "REVIEW_UNAVAILABLE"}
+            assert secret.encode("utf-8") not in raw
+        finally:
+            server.shutdown()
+            thread.join(timeout=3)

@@ -1,5 +1,6 @@
 """Local, ephemeral IGDB review card. No API route, DB or publication rights."""
 
+import json
 from datetime import datetime, timezone
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -47,7 +48,7 @@ def _page(body: str) -> str:
     )
 
 
-def _card(snapshot: PopularitySnapshot) -> str:
+def _validate_snapshot(snapshot: PopularitySnapshot) -> None:
     if (
         type(snapshot) is not PopularitySnapshot
         or snapshot.target != UNBOUND
@@ -61,6 +62,10 @@ def _card(snapshot: PopularitySnapshot) -> str:
         or not 1 <= snapshot.rank <= 20
     ):
         raise ValueError("REVIEW_SNAPSHOT_INVALID")
+
+
+def _card(snapshot: PopularitySnapshot) -> str:
+    _validate_snapshot(snapshot)
     title = escape(snapshot.title, quote=True)
     summary = escape(snapshot.summary, quote=True)
     child = escape(snapshot.child_name, quote=True)
@@ -82,26 +87,60 @@ def _card(snapshot: PopularitySnapshot) -> str:
     )
 
 
-def build_local_review_html(client_factory, *, clock=None, after_game_id=None,
-                            between_clients=sleep):
-    """Two isolated API clients: collect -> independent verify -> memory-only UI."""
+def collect_verified_snapshot(client_factory, *, clock=None, after_game_id=None,
+                              between_clients=sleep):
+    """Collect once, verify using a separate client; never save source data."""
     now = clock if clock is not None else lambda: datetime.now(timezone.utc)
     first = IgdbReviewAdapter(client_factory().query)
     preview = first.collect_review(now(), after_game_id=after_game_id)
     if preview is None:
+        return None
+    between_clients(0.5)
+    return IgdbSnapshotBridge(client_factory().query).verify(preview, now())
+
+
+def build_local_review_html(client_factory, *, clock=None, after_game_id=None,
+                            between_clients=sleep):
+    snapshot = collect_verified_snapshot(
+        client_factory, clock=clock, after_game_id=after_game_id,
+        between_clients=between_clients,
+    )
+    if snapshot is None:
         return _page(
             '<article class="card"><p>현재 정책에서 적격 후보가 없습니다.'
             '</p><p class="meta">DB 저장이나 Writer 실행은 없습니다.</p>'
             '</article>'
         )
-    between_clients(0.5)
-    independently_verified = IgdbSnapshotBridge(
-        client_factory().query,
-    ).verify(preview, now())
-    return _card(independently_verified)
+    return _card(snapshot)
 
 
-def local_handler(render_page):
+def build_local_review_json(client_factory, *, clock=None, after_game_id=None,
+                            between_clients=sleep):
+    """Minimal non-persistent JSON for a local Expo development card only."""
+    snapshot = collect_verified_snapshot(
+        client_factory, clock=clock, after_game_id=after_game_id,
+        between_clients=between_clients,
+    )
+    if snapshot is None:
+        return {
+            "status": "NO_ELIGIBLE_CANDIDATE",
+            "publication_status": "NOT_FOR_PUBLICATION",
+        }
+    _validate_snapshot(snapshot)
+    return {
+        "status": "VERIFIED_PREVIEW",
+        "publication_status": "NOT_FOR_PUBLICATION",
+        "title": snapshot.title,
+        "summary": snapshot.summary,
+        "rank": snapshot.rank,
+        "observed_at_utc": snapshot.observed_at_utc,
+        "calculated_at_utc": snapshot.calculated_at_utc,
+        "parent_code": snapshot.parent_code,
+        "child_name": snapshot.child_name,
+        "source_url": snapshot.source_url,
+    }
+
+def local_handler(render_page, render_json=None):
     """Factory for a loopback-only HTTP handler with no persistent cache."""
 
     class LocalPreviewHandler(BaseHTTPRequestHandler):
@@ -113,23 +152,33 @@ def local_handler(render_page):
             }:
                 self.send_error(400, "Invalid Host")
                 return
-            if self.path != "/":
+            is_json = self.path == "/preview.json" and render_json is not None
+            if self.path != "/" and not is_json:
                 self.send_error(404, "Not Found")
                 return
             try:
-                html = render_page().encode("utf-8")
+                if is_json:
+                    body = json.dumps(
+                        render_json(), ensure_ascii=False, allow_nan=False,
+                    ).encode("utf-8")
+                else:
+                    body = render_page().encode("utf-8")
                 status = 200
             except Exception:
-                # No raw IGDB response, exception text or credentials in HTML.
-                html = _page(
-                    '<article class="card"><p>IGDB 내부 검토를 완료하지 '
-                    '못했습니다.</p><p>외부 API 상태와 정책을 확인해 주세요.'
-                    '</p></article>'
-                ).encode("utf-8")
+                # No raw response, upstream exception or credentials in output.
+                if is_json:
+                    body = b'{"status":"REVIEW_UNAVAILABLE"}'
+                else:
+                    body = _page(
+                        '<article class="card"><p>IGDB 내부 검토를 완료하지 '
+                        '못했습니다.</p><p>외부 API 상태와 정책을 확인해 주세요.'
+                        '</p></article>'
+                    ).encode("utf-8")
                 status = 503
             self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(html)))
+            mime = ("application/json" if is_json else "text/html")
+            self.send_header("Content-Type", f"{mime}; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -141,7 +190,7 @@ def local_handler(render_page):
                 "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
             )
             self.end_headers()
-            self.wfile.write(html)
+            self.wfile.write(body)
 
         def log_message(self, format, *args):
             # Do not record user-agent, query, source payload or credentials.
@@ -150,8 +199,10 @@ def local_handler(render_page):
     return LocalPreviewHandler
 
 
-def serve_loopback(render_page, *, port=0):
+def serve_loopback(render_page, *, port=0, render_json=None):
     """Caller owns server lifetime; accepts no non-loopback bind argument."""
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("INVALID_PREVIEW_PORT")
-    return HTTPServer(("127.0.0.1", port), local_handler(render_page))
+    return HTTPServer(
+        ("127.0.0.1", port), local_handler(render_page, render_json),
+    )

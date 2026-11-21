@@ -6,6 +6,7 @@ from getpass import getpass
 from app.trend_collection.igdb_client import IgdbClient
 from app.trend_collection.igdb_local_preview import (
     build_local_review_html,
+    build_local_review_json,
     serve_loopback,
 )
 
@@ -26,7 +27,12 @@ def main() -> int:
         def render():
             return build_local_review_html(make_client)
 
-        with serve_loopback(render, port=args.port) as server:
+        def render_json():
+            return build_local_review_json(make_client)
+
+        with serve_loopback(
+            render, port=args.port, render_json=render_json,
+        ) as server:
             port = server.server_port
             print(
                 f"개발 전용 IGDB TrendCard: http://127.0.0.1:{port}/"
