@@ -1,7 +1,7 @@
 # Trend Leader — IGDB 자동 공급 설계 확정안 v1.0
 
 > 2026-11-20 KST | Phase 4-C | 기준 dev: 52fe4a851a53c3d91654f859a6934df2c315c6a6
-> 사용자 결정: IGDB-01~12 설계 제안 승인(현재 채팅). 기술 설계의 승인 범위만 확정한다. IGDB 실제 운영 승인(G6), 보존/갱신 정책, 배포와 DB 쓰기는 미승인/HOLD.
+> 사용자 결정: IGDB-01~12 설계 승인. 2026-11-21 추가 결정으로 데이터 1건당 최대 30일 보존 상한과 1개월 이내 시연 서버 운영 계획을 채택한다. 보존 상한은 이용 허가가 아니며, 실제 운영 승인(G6), 갱신·만료·삭제 실행 경로, 배포와 DB 쓰기는 아직 미승인/HOLD.
 > 상위 계약: Trend_Leader_AP3C_Automatic_Publication_Design_FROZEN_v1.0_20261119.md §7. 기존 Godot 운영·Journal·DB/API 계약을 보존한다. 새로운 인증 및 복수 공급원 상태 세부안은 아래 제안과 검증 조건에 따라 구현 전 위험을 해소한다.
 
 ## 1. 문제 및 실측
@@ -49,7 +49,7 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - SNAP-01~03: 기존 `ContentSnapshot`의 필드 순서·직렬화·해시는 변경하지 않는다. 새로운 `PopularitySnapshot`은 `calculated_at_utc`, 관측 순위와 Visits 지표 ID를 별도로 가진다. `PersistableSnapshot`은 타입 계약이지 새로운 DB 테이블이 아니다.
 - SNAP-04~05: 고정된 소스 ID와 Concrete Snapshot Type 및 보호된 운영 프로필 Scope가 정확히 일치해야 한다. Godot은 7일, IGDB는 48시간; 공통 Preview 10분. 후보의 임의 파라미터나 Snapshot이 자체 권한을 지정하지 않는다. Commit 직전에도 같은 검사 적용.
 - SNAP-06~09: 공통 Writer/Journal 및 `AUTO_V1` 유지. IGDB의 동일 Game ID는 SKIP하며 저장 URL이 달라지면 UPDATE 대신 HOLD. 기존 DB/API/Schema/권한 변경 없음. 이벤트 타임스탬프와 관측 타임스탬프의 의미 혼동 금지.
-- SNAP-10: 독립 검증 후 Snapshot으로 투영하는 Bridge는 기술 구현 가능하나 IGDB가 허용된 운영 Registry에 들어가거나 실제 DB DML을 수행하는 것은 별도 권리 검토 및 G6 승인 이후에만 가능.
+- SNAP-10 (Phase 4-F 보완): IGDB Bridge의 **실행 불가능한 기본 Registry Descriptor**만 코드로 등록해 기존 운영 진입점의 통합 회귀를 허용한다. 이 Descriptor는 Query/자격증명이 없어 자체 수집·검증을 거부한다. 실제 Collector/Writer 연결은 보호 프로필에서 승인된 정확한 source_id/scope와 각 역할 전용 보호 자격증명이 있을 때만 생성된다. 이는 권리 판단·G6 발행이나 실제 DB DML의 허가가 아니다.
 - 과도한 제약은 목적·근거·부작용을 개별 검증한 뒤 완화할 수 있으나, 기존 운영 Journal 무결성 및 실제 운영 승인 경계를 구현 편의만으로 축소하지 않는다.
 - 이번 범위는 Snapshot/Source/Freshness/Writer 계약 및 테스트다. Scheduler 복수 소스 실행, OAuth 영속 Cache, 운영 배포는 포함하지 않는다.
 
@@ -67,7 +67,7 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - scheduler-state.json의 기존 세 필드 `pending/not_before/rate_failures`는 유지. 복수 공급원 성공 이후에만 `last_completed_source_id`가 선택적으로 기록된다. 이전 세 필드 상태를 읽을 수 있어야 하며, 단일 소스 기존 상태는 세 필드를 그대로 기록한다. 보호된 경로의 기존 파일을 초기화·삭제하지 않는다.
 - `COMMITTED`·`SKIP_EXISTING_RELEASE`처럼 Writer의 종료가 확정되거나, IGDB Collector가 정규 `NO_ELIGIBLE_CANDIDATE`를 반환한 경우에만 마지막 완료 소스를 갱신한다. 후자의 경우 Writer는 실행하지 않는다. RATE_LIMITED 및 HOLD는 이전 순환 위치를 유지한다. 결과 불일치·프로세스 예외·미확정 Writer 결과는 `pending=true`를 남겨 무단 재시도를 차단한다.
 - 승인 목록이 변경되어 이전 source_id가 사라진 경우 새 목록의 첫 번째 소스로 시작한다. 빈 목록 또는 중복 source_id는 오류 처리한다. 요청 건수는 그대로 단회/Cycle이다. 2개 소스일 때 각각의 실제 재선택 간격은 정상적으로 약 12시간이나, 이는 제공량에 따른 추정이며 가용 시간을 보장하지 않는다.
-- IGDB는 운영 Adapter Registry에 등록하지 않는다. 권리 및 G6 승인과 실제 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음은 별도 정상 SKIP 결과로 구분하며 가짜 COMMITTED로 처리하지 않는다. 게임별 Cursor는 검증된 Writer 완료 이후에만 전진한다.
+- IGDB는 Phase 4-F에서 **비실행 기본 Descriptor**로 코드 Registry에 등록된다. 미승인 프로필 및 미설치 역할별 자격증명에서는 실제 호출이 차단된다. 권리 및 G6 승인과 실제 보호 프로필 갱신, 운영 배포·데이터 쓰기는 별도 승인 범위이다. IGDB 후보 없음은 별도 정상 SKIP 결과로 구분하며 가짜 COMMITTED로 처리하지 않는다. 게임별 Cursor는 검증된 Writer 완료 이후에만 전진한다.
 - 회귀 게이트: 단일 Godot 자식 프로세스, 성공·중복·RATE_LIMITED·HOLD, legacy/extended 상태 엄격 검증, source mismatch의 pending 보존, Writer exit code 상충 검증, 기존 systemd ExecCondition 호환 확인. Linux 특화 원자적 파일 작업은 Windows skipped와 구분하여 Linux에서 재검증한다.
 
 ### 5.2 Phase 4-D 후보 없음 및 IGDB 게임 Cursor 계약 (2026-11-21)
@@ -77,7 +77,14 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **게임별 Cursor**: `scheduler-state.json`에 선택적 양의 정수 `igdb_last_game_id`를 추가한다. 기존 상태는 그대로 파싱하며 알 수 없는 필드, bool/0/음수/상한 초과 Game ID는 거부한다. IGDB Collector 요청에 한하여 `--after-game-id <integer>`를 전달하며, `IgdbSnapshotBridge.collect_preview(after_game_id=...)`가 해당 값을 ReviewAdapter에 넘긴다. 순위는 IGDB 실측 원래 순위를 유지한다.
 - **Cursor 변경의 증거**: Writer가 `COMMITTED` 또는 `SKIP_EXISTING_RELEASE`로 정상 종료했을 때, Controller가 Collector Preview의 `candidate_identity`와 Writer 독립 검증의 `candidate_identity`가 정확히 일치하는지 검사한다. `igdb-game:<positive integer>`만 상태에 반영한다. 응답 불일치·Writer 불명확 종료에서는 `pending=true`가 남고 Cursor는 전진하지 않는다.
 - **원자성 및 보존**: Source Cursor 및 Game Cursor는 기존 `pending/not_before/rate_failures`와 동일 원자적 상태 파일 갱신으로 기록한다. Writer가 DB에 반영됐으나 상태 기록 전 장애가 나면 기존 pending 조사 HOLD를 유지한다. 기존 Journal·DB·systemd Timer·보호된 승인 프로필은 이 작업에서 변경하지 않는다.
-- **운영 범위**: 새로운 프로세스 간 Cache, 별도 DB 테이블, 새로운 API, 디스크 초기화는 도입하지 않는다. IGDB 운영 Registry 미등록 및 권리·G6 운영 승인 HOLD는 유지한다. 향후 실제 등록 전에는 권리/보존 요건과 운영 Linux 회귀 및 실제 자격증명 배포 경계를 별도로 검증한다.
+- **운영 범위**: 새로운 프로세스 간 Cache, 별도 DB 테이블, 새로운 API, 디스크 초기화는 도입하지 않는다. Phase 4-F의 비실행 Registry Descriptor는 **실제 운영 프로필 승인·배포와 구별**한다. 권리·G6 운영 승인 HOLD는 유지하며, 실제 활성화 전 권리/보존 요건과 운영 Linux 회귀 및 역할별 자격증명 배포 경계를 별도로 검증한다.
+
+### 5.3 Phase 4-F 비실행 운영 Adapter 연결 (2026-11-21)
+
+- **코드와 승인 분리**: `supply_adapter.ADAPTERS["igdb:visits"]`는 Query가 없는 `IgdbOperationalAdapter` Descriptor이며 직접 호출은 `IGDB_CREDENTIALS_UNAVAILABLE`로 차단된다. 운영 `parse_profile`은 여전히 enabled, 승인 source/scope/rights, 실제 대상, G5/G6 근거와 시간 경계를 검증한다. **운영 approval.json에 IGDB 추가 또는 자동 활성화는 이번 코드 작업에 포함하지 않는다.**
+- **Collector / Writer 보안**: 기존 Linux `CONTROL` 경로에 관리자가 별도 발행할 `igdb-collect-credentials.json`, `igdb-write-credentials.json`을 각각 root 소유, 해당 역할 전용 그룹, `0640`으로 제한한다. JSON은 정확히 `client_id`와 `client_secret`만 포함한다. 운영 코드는 파일을 생성/수정하거나 내용·토큰을 출력/Journal/DB/환경변수로 전달하지 않는다. 그룹·모드·스키마 검증 실패 시 HOLD. 기존 Writer DB Secret은 Collector 접근 불가를 유지한다.
+- **독립 검증**: Collector는 한 Cycle의 독립 `IgdbClient`로 후보 Preview를 생성하고, Writer는 자기 역할의 별도 Client로 IGDB 원천을 다시 조회·검증한 `PopularitySnapshot`만 공통 Writer에 전달한다. 후보 없음은 기존 `SKIP_NO_CANDIDATE` 경로, 변조·상태 불일치·오류는 HOLD. 기존 단일 Godot Adapter의 호출·공통 6시간 주기·Journal·DB/API 계약은 그대로 유지한다.
+- **남은 운영 Gate**: 이번 통합 코드와 모의 검증은 실데이터 저장 권한을 부여하지 않는다. IGDB 최소 필드 권리·30일 만료 집행·Linux 역할별 파일 접근 및 systemd 회귀·G6 기간 한정 최초 승인이 확보되기 전에는 실제 DB 쓰기/스케줄러 활성화 금지. 승인 유효기간 중 개별 6시간 Cycle마다 사용자 재승인은 요구하지 않는다.
 
 ## 6. 권리 및 운영 Gate
 
@@ -86,15 +93,23 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 
 ### 6.1 IGDB 데이터 이용 권리 및 최대 30일 보유 정책 사전검토 (2026-11-21)
 
-**상태: 설계 및 읽기 전용 검토 도구만 구현 가능. 운영 저장·노출·삭제 승인 아님.**
+**상태: 프로젝트 보존 상한은 최대 30일로 확정. 외부 이용 권리·만료 집행·G6 승인과 실제 운영 저장·노출·삭제는 별개로 미완료.**
 
 - 공식 IGDB API FAQ(https://api-docs.igdb.com/): 비상업적 이용은 Twitch Developer Services Agreement 적용 대상. FAQ Business 섹션은 로컬 저장 및 최종 사용자 제공을 긍정하고, 제휴 종료 후 보유도 언급한다. 이 안내가 비상업 캡스톤의 Visits 지표, 순위·기준일·게임명·URL의 장기 공개·보존까지 포괄하는지는 확인이 필요하다.
 - Twitch Developer Services Agreement(https://legal.twitch.com/en/legal/developer-agreement/, 2024-12-04 게시판 기준): Program Materials/Twitch Content의 무허가 저장은 최대 24시간 캐싱 예외, 원천 자료 재배포 제한, 삭제·변경 반영 요구가 있다. IGDB FAQ의 구체적 저장 안내와 어떤 조항이 우선하거나 범위가 다른지 확정할 수 없다. **30일 자체 삭제 정책을 라이선스로 간주하지 않는다.**
-- 사용자 의사: 영구 보존 의도 없음. 설계에 최대 30일 이내 보유 상한을 *잠정* 반영하되, 공식 근거로 확인된 허용 기간이 이보다 짧거나 즉시 삭제 요청이 있으면 더 짧은 조건을 따른다. 별도 24시간 규정이 적용된다면 그 규정보다 30일 정책을 우선할 수 없다.
+- 사용자 결정(2026-11-21): 앱은 실제 출시 목적이 아니며 서버 운영은 1개월을 넘기지 않을 계획이다. IGDB 원천 데이터는 **개별 수집 시점부터 최대 30일**을 프로젝트 보존 상한으로 확정하고, 시연 종료·이용 종료·정정/삭제 요구 또는 공식 조건의 더 짧은 기간이 있으면 그 조건을 우선한다. 서버 중단만으로 DB·백업·캐시 데이터가 삭제되는 것은 아니다. 별도 24시간 규정이 실제 IGDB 자료에 적용되면 30일을 우선할 수 없다.
 - 별도 메일 문의 전제는 최소화하지만, 위 상충을 해소하지 못하면 partner@igdb.com(공식 안내 주소)에 다음 사실을 좁혀 확인한다: 비상업적 한국 대학 캡스톤, 자체 작성 게임명/관측 순위·날짜·공식 링크만 표시, 이미지/원문 설명/외부 인기 소스 사용 안 함, 최대 30일 보유 후 비노출·삭제, 앱에서 IGDB 출처 고정 표시. *24시간 캐싱 제한 및 재배포 조항과의 관계*, 변경/삭제 통지 시 조치, 보존/종료 조건을 질의한다.
-- **구현된 격리 사전검토**: `igdb_retention_policy.py`는 `platform=ETC`, `external_id=igdb-game:<ID>`, 출처 해시 및 공식 IGDB URL의 일치를 확인하고 UTC `collected_at` 기준 마감 시각만 계산한다. 테스트용 상한은 1~30일이며 30일 경계, 24시간 제한 설정, 위조 출처/시간 이상을 검증한다. 운영 Registry·DB 조회·DELETE·UPDATE·systemd 연결은 없다.
+- **구현된 격리 사전검토**: `igdb_retention_policy.py`는 `platform=ETC`, `external_id=igdb-game:<ID>`, 출처 해시 및 공식 IGDB URL의 일치를 확인하고 UTC `collected_at` 기준 마감 시각만 계산한다. 프로젝트 상한은 30일이며 입력된 더 짧은 제한(예: 24시간), 위조 출처/시간 이상을 검증한다. **실제 만료 비노출·삭제 집행은 아직 없음**. 운영 Registry·DB 조회·DELETE·UPDATE·systemd 연결은 없다.
 - **실제 삭제 설계 미확정**: `trend_sources`는 `trends` 자식, 다른 FK(북마크, 순위, AI 분석 등)가 `ON DELETE CASCADE`를 가질 수 있다. source 단위 제거와 Trend 부모 제거를 동일하게 취급하면 사용자 데이터가 의도치 않게 삭제된다. 전체 연관 출처·북마크·Journal/중복 기록, 백업, API 응답 캐시 및 시연 자료를 확인한 후 관리자 승인과 별도 권한으로 삭제·비노출 정책을 확정한다. 주기적 작업만으로 마감 이후 추가 보관이 생기지 않도록 공개 조회의 만료 가드 또는 선제적인 삭제 일정도 필요하다.
-- **운영 전 Gate**: (1) 자료 저장·표시 권리 확인, (2) 권리 조건에 맞는 보존 상한·출처 표시·즉시 정정/삭제 절차, (3) 최소 권한/삭제 경계 및 의존 FK 검증, (4) 별도 사용자 G6 승인. 확인 전 IGDB 운영 공급은 HOLD. 현재 파일·코드 변경만으로 승인이나 법적 보증을 주장하지 않는다.
+- **운영 전 Gate**: (1) 자료 저장·표시 권리 확인, (2) 권리 조건에 맞는 보존 상한·출처 표시·즉시 정정/삭제 절차, (3) 최소 권한/삭제 경계 및 의존 FK 검증, (4) 별도 사용자 G6 최초 활성화 승인. 확인 전 IGDB 운영 공급은 HOLD. 현재 파일·코드 변경만으로 승인이나 법적 보증을 주장하지 않는다.
+- **G6 비병목 원칙(2026-11-21)**: 설계·구현·자동 테스트·기능 브랜치/PR 준비는 G6 승인과 독립적으로 진행한다. 기존 `ApprovedProfile`의 소스·대상·승인 참조 및 `approved_at <= now < valid_until`을 만족한 **기간 한정 최초 승인 1회**로 해당 기간의 6시간 Scheduler Cycle을 무인 실행한다. 매 Cycle의 시간/권한 재검증은 유지하지만 **매 Cycle 사용자 재승인은 요구하지 않는다**. 만료·철회·승인되지 않은 소스 추가·운영 대상 변경·원자성 미확정 등에서는 기존 HOLD 후 변경 승인한다. G6 승인 자동 발행/연장이나 미승인 DB 쓰기는 금지한다.
+
+### 6.1.1 Phase 4-F IGDB 조회 단계 만료 방어 (2026-11-21)
+
+- **기존 API만 사용**: `TrendRepository.find_page()` 공통 조회에서 `platform=ETC` 및 `external_id`의 `igdb-game:` 접두사로 식별된 IGDB 출처가 **UTC `collected_at <= now - 30일`**이면 연결된 Trend를 공개·맞춤 목록에서 제외한다. 제외 조건은 Cursor/limit보다 먼저 적용한다. `find_latest_sources_by_trend_ids()`도 만료된 IGDB Source를 반환하지 않는다. 조회 시각은 UTC로 평가하며 기존 DB의 UTC-naive DATETIME 계약을 사용한다.
+- **Godot/Legacy 보존**: 일반 `ETC` 또는 `external_id=NULL` 출처, IGDB와 무관한 Trend, 출처가 없는 기존 Demo 데이터는 이 정책만으로 숨기지 않는다. **혼합 Source**(동일 Trend의 만료 IGDB + 다른 유효 Source)는 현재 부모 `trends.title/summary`의 원천을 식별할 수 없으므로 조회만 fail-closed 처리한다. 유효한 다른 Source 및 북마크를 **삭제하지 않는다**. 향후 출처별 제목 원천이 확정되면 혼합 데이터 노출 정책을 별도 검토한다.
+- **실제 삭제와의 경계**: 조회 방어는 데이터 수명 종료 및 캐시 무효화를 뜻하지 않는다. 운영 DB·백업·모바일 캐시의 만료 데이터는 여전히 남을 수 있다. FK/중복·Journal/복수 Source/북마크를 검증하기 전 부모 Trend `DELETE` 또는 `HIDDEN` 자동 변경은 금지한다. 종료 시 삭제·캐시 정책과 별도 관리자 정리 권한을 후속 구현한다.
+- **검증**: 승인된 격리 테스트 DB에서 정확한 30일 경계/직전 유효/비IGDB 구형 출처/혼합 Source fail-closed/부모·출처 보존/최신 Source 배제/limit 선적용을 테스트한다. 이 검증은 실제 운영 게시·G6 승인 및 30일 보유 데이터의 물리 삭제 완료를 의미하지 않는다.
 
 ### 6.2 IGDB 로컬 전용 TrendCard 검토 연결 (2026-11-21)
 
@@ -102,7 +117,7 @@ GRAC 정책은 현재 연령별 노출 제어 없는 서비스의 내부 기준�
 - **진입점**: Backend의 `python -m scripts.igdb_local_preview`를 수동 실행한다. Client ID는 입력, Client Secret은 `getpass` 비표시 입력으로 받고 두 개의 독립 `IgdbClient` 인스턴스를 검증 사이클마다 생성한다. 외부 요청은 Client의 고정 allowlist 및 rate limit에 한정한다. 환경변수/파일/DB/Journal/systemd에 자격증명이나 수집한 결과를 저장하지 않는다.
 - **표시**: 표준 라이브러리 HTTPServer를 **127.0.0.1**에만 바인딩하고 임의 포트를 기본으로 쓴다. 루트 경로 `/`만 허용; 브라우저의 로컬 주소를 수동으로 연다. 검증된 `PopularitySnapshot`에서 게임명, 원래 IGDB Visits 관측 순위, 기준시각, 부문, 공식 IGDB 게임 링크 및 고정 출처만 표시한다. 이미지, 원문 소개문, 지표값, 인증정보는 표시하지 않는다. 다른 요청 경로는 404, Host 불일치는 400으로 차단하고 HTML 문자열은 escape한다.
 - **보존/접근**: HTML 파일을 만들지 않고 페이지는 요청 시 메모리에서 생성한다. `no-store`, Referrer-Policy, Content Security Policy, robots noindex를 설정하며 접근 로그를 남기지 않는다. 원천 수집이 비정상적이면 상세 오류/비밀을 반환하지 않는 503 페이지다. IGDB 적격 후보 없음은 별도 빈 카드로 표시한다. 이 화면은 인증된 다중 사용자 서비스가 아니며 로컬 컴퓨터에서만 수동 실행·종료한다.
-- **승인 경계**: 기존 `ADAPTERS` Registry·Approval/G6·MariaDB·Journal·Scheduler·FastAPI Router·React Native 화면은 **변경하지 않는다**. 비상업 API의 로컬 검토 근거와 공개/영구 보존 권리 판단은 구분한다. 30일 삭제 정책은 이번 서버의 저장 권한 또는 운영 승인과 무관하다. 실제 앱 TrendCard에 연결되는 데이터 흐름은 권리·G6 승인 후 기존 API 계약으로 통합한다.
+- **승인 경계(완료된 과거 검토 범위)**: 기존 `ADAPTERS` Registry·Approval/G6·MariaDB·Journal·Scheduler·FastAPI Router·React Native 화면은 **변경하지 않는다**. 비상업 API의 로컬 검토 근거와 실제 데이터 저장/제공 권리는 구분한다. 30일 보존 상한은 이번 서버의 저장 권한 또는 운영 승인을 부여하지 않는다. **별도 Expo Preview 개발 PR #138은 사용자 결정으로 미병합 종료되었으며 반복하지 않는다.** 다음 우선 작업은 기존 Writer → MariaDB → FastAPI → 실제 TrendCard 통합이다.
 - **검증**: 두 독립 Query 사이의 원천 응답 변경 거부, HTML escape, 비정상 후보 없음, localhost/Host/path 차단, 브라우저 Cache-Control 및 503 민감값 비노출에 대한 mocked 회귀를 추가한다. 실제 IGDB 인증 및 브라우저 열람은 사용자의 개발 환경에서 별도 확인한다.
 
 ## 7. 테스트 및 종료 기준

@@ -2,7 +2,7 @@
 
 > 2026-11-21 KST | AI-Led Delivery Mode | 재평가 핵심 기능: 실제 자동 데이터 공급.
 > 최근 통합 기준: PR #137 merge commit de08d2f3f7e0586deebd0683cab935e15b7c572a. 최신 dev HEAD는 재개 시 조회한다.
-> 현재 작업: PR #137 IGDB 코드 통합 완료, 다음 작업은 기존 TrendCard 최소 앱 연결 설계. IGDB 운영 등록·DB 저장·공개는 미승인.
+> 현재 작업: PR #137 IGDB 공통 수집 코드 통합 완료. PR #138 개발 전용 Expo Preview는 사용자 결정으로 미병합 종료. 후속은 기존 Writer → MariaDB → FastAPI → 기존 TrendCard 실데이터 공급. IGDB 운영 등록·실제 DB 쓰기·배포는 미승인.
 > 역할: 진행 상태 및 다음 작업의 인덱스. 승인 증거/설계 계약 자체를 대체하지 않음.
 
 ## 새 채팅 재개 규칙
@@ -23,6 +23,8 @@
 - 서비스 정의(사용자 채택, 2026-11-19): 외부 원문을 대체하는 재게시 서비스가 아니라 최신 정보·트렌드를 자동 발견하고 Category별로 분류하여 원출처로 연결하는 큐레이션. 기존 TrendCard에서 허용된 사실/메타데이터·제목·Category·공식 링크를 제공한다. 원문 전체 및 이미지/로고 복제는 기본 제외, Summary/Thumbnail/Source title은 필요한 경우 NULL, AI API 기본 0회. 허용된 원본 필드·의미·원출처 URL을 보존하며 금지된 가공은 하지 않는다. 원본 보존이나 링크 제공만으로 저장/자동 선별/공개 제한이 해소되지는 않는다.
 - 권리 확인은 실제 사용 필드·행위·목적에 한정한다. 공식 근거와 조건 준수로 판단 가능한 경우 별도 서면 문의를 필수화하지 않는다. 명시적 금지와 단순 미명시를 구분하고, 제한 필드/행위 제외·허용 방식 적용·대체 소스 검토를 우선한다. 중대한 미확인 권리는 해당 행위/소스만 HOLD하고 다른 공급원 및 연결 개발은 진행한다. 명시적 금지 우회 금지; 실제 권리와 운영 권한을 지어내지 않는다. NCP의 자동 채택·앱 제공 제한에 관한 기존 제외 결정 및 Google RSS HOLD는 유지하되 다른 소스에 일괄 적용하지 않는다. 새 외부 서비스 채택과 G6 운영 승인 별도.
 - 우선순위 판단: Category 적합성·실제 최신 데이터·지속 공급을 권리 조건과 함께 평가한다. 권리만 명확하고 서비스 적합성이 낮은 소스를 강제 채택하지 않는다. 불필요한 자체 승인 단계/문의 대기/검증 전용 도구를 추가하지 않는다. 필수 보안·무결성·권리 검증은 생략하지 않는다.
+- 2026-11-21 사용자 추가 결정: 비상업 대학 캡스톤으로서 시연 서버를 1개월 넘게 운영할 계획이 없으며, IGDB 데이터 개별 수집 후 **최대 30일 보존 상한**을 채택한다. 더 짧은 외부 조건·시연 종료·이용 종료·정정/삭제 요구가 우선한다. 서버 중지 자체가 DB/백업/캐시의 삭제를 보장하지 않으므로 실제 만료 처리 및 종료 절차는 별도 구현·확인한다. 30일은 법적 이용 허가가 아니다.
+- **G6 비병목 결정**: G6는 소스/대상/기한에 대한 최초 운영 프로필 승인 1회로 한정하고, 유효기간 안의 6시간 주기는 무인으로 실행한다. 매 Cycle의 기존 승인·권리·중복·Journal 검증은 유지하되 사람의 매회 재승인을 요구하지 않는다. 구현·테스트·PR 작업은 G6 때문에 보류하지 않는다. 만료·철회·승인 범위 변경 및 불명확 Writer 결과의 HOLD는 유지한다. 자동 승인 발행/연장은 금지한다.
 - DEC-11~16 사용자 승인: Godot 제한된 사실/원문 링크를 첫 실제 공급 범위로 채택, 독립 운영 승인 및 실제/Preview 경로 분리, Writer 독립 상세 단건 추가 확인(전체 최대 3회/Cycle), OS Scheduler 단회, 기존 로컬→Lightsail. Stage 4를 위해 소스별 Adapter와 복수 승인 목록, 공통 Writer 유지. 실제 운영 게시 HOLD 유지; 합성 성공을 운영 완료 또는 인기 트렌드 검증으로 승격 금지.
 
 ## 완료 증거 (재실행 불필요)
@@ -37,11 +39,15 @@
 
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
-- **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다. 별도 신규 PR 없음.
+- **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
+- **PR #139 진행 중(Draft)**: `feat/igdb-operational-supply` → `dev`, 실측 검증 HEAD `cd1b29afbb82efe3d456e72593e156ccb197f2d6`. 사용자 보고(2026-11-21): G6 단독 `1 passed`, Backend 지정 회귀 `55 passed in 0.26s`, Ruff/py_compile `All checks passed!`, Git 변경 파일 4개, Backend 일반 회귀 PASS(정확한 명령·건수 미보고). 이 증거는 **정책·테스트 변경에 한정**하며 실제 6시간 Scheduler/IGDB 운영 Adapter·Writer/만료 집행/DB·모바일 E2E가 통과했다는 의미가 아니다. 증거 기록만 갱신하는 후속 문서 Commit은 재시험이 필요한 코드 변경으로 합산하지 않는다.
+- **PR #139 IGDB 30일 조회 방어(구현, 신규 검증 대기)**: 기존 `TrendRepository.find_page()`에 UTC `collected_at` 만료 IGDB 출처가 연결된 Trend의 `NOT EXISTS` 공개·맞춤 목록 제외 조건을 추가하고, `find_latest_sources_by_trend_ids()`도 만료 IGDB Source를 배제한다. Cursor/limit 이전 적용, Godot/Legacy ETC·출처 없는 Demo 보존, 혼합 출처는 제목 원천 미확정으로 fail-closed(행 삭제 없음). 신규 `tests/repositories/test_igdb_visibility.py` 격리 MariaDB 통합 5건 작성(만료 경계·혼합 출처·최신 출처·naive 시간 거부 등). **이번 새 코드의 pytest/Ruff/DB 실행 증거 미확보**; 실제 DB/캐시/백업 삭제, HIDDEN 변경, G6 운영 활성화 미구현. FROZEN §6.1.1에 근거·혼합 출처·삭제 경계 반영.
+- **PR #139 Phase 4-F 후속 코드 변경 및 사용자 검증(2026-11-21)**: `supply_adapter`의 IGDB 비실행 Registry Descriptor와 기존 `IgdbSnapshotBridge`를 `run_auto_supply.collect_envelope`/독립 `run_writer`에 바인딩. Collector/Writer별 보호 JSON 자격증명(각 root 소유·역할 그룹·0640)만 사용하며, 승인 프로필이 IGDB를 선택하지 않으면 불활성. 미설치·잘못된 권한·변조·후보 없음·Godot 경로 독립성 테스트 추가. 기능 코드 HEAD `5095661245d675bfc5d7ae12a5827de85a0c6ae5` 기준 사용자 지정 회귀 **`157 passed, 13 skipped in 0.72s`**, Ruff **`All checks passed!`**, `py_compile` 오류 없이 종료. 13 skipped의 실행 환경별 원인은 별도 미확인; Linux 권한·실제 DB·운영 스케줄러 시험 완료로 간주하지 않는다. 실제 approval.json·비밀파일 발행/배포·DB/Journal/systemd/API/Frontend 변경은 없음.
 - **사용자 검증(2026-11-21)**: feature HEAD 일치; 변경 영향 테스트 `221 passed, 13 skipped`, Ruff PASS; Backend 일반 회귀 `1697 passed, 16 skipped, 2 SAWarning`(기존 Demo Seed close/transaction 비정상 경로, 해당 테스트 PASS). 실제 IGDB 루프백 HTTP 200, Free Fire/Visits 관측 5위/게임·모바일 게임/IGDB 원문 버튼 표시 확인. 원문 버튼 실제 이동은 미확인. S0/S1 별도 미실행은 기존 증거 보존, 이번 PASS에 포함하지 않음.
-- **완료된 기술 범위**: IGDB OAuth Client/Visits 적격성 검증/독립 Snapshot 검증, Godot과 공통 Writer·Scheduler의 소스별 계약, Game Cursor와 NO_ELIGIBLE_CANDIDATE, IGDB 30일 *상한 제안*의 읽기 전용 만료 평가, `127.0.0.1` 임시 HTML TrendCard. IGDB 운영 Adapter Registry에는 미등록이며 Writer/DB/API/Expo 연결 활성화 없음.
-- **운영 전 미완료 Gate**: Windows에서 SKIP한 Linux 전용 Scheduler의 상태 원자성·재시작·child UID/소스 ID 검증(실제 배포 이전 WSL/Linux에서 실행), IGDB 데이터 저장·공개·보존·삭제 권리 적용 범위 확정, G6 별도 운영 승인, 권리 허용 기간 내 비노출·삭제·중복 처리. 30일 삭제는 자동 이용 허가가 아니며 기존 Godot systemd/Journal/DB/프로필 보존. PR Merge와 운영 승인을 혼동하지 않는다.
-- **다음 P0 — 기존 앱 최소 연결 설계**: 별도 인프라·새 공개 API·DB Schema·Migration 없이 기존 `TrendListItem`·`TrendCard`·`GET /api/trends`·`/api/trends/personalized`·Source 버튼을 재사용한다. A안(우선 검증 후보)은 개발 전용 무저장/비공개 Snapshot→카드 데이터 변환 및 실제 Expo 카드 테스트, B안(운영 후속)은 권리·G6·Linux 검증 완료 후 기존 독립 Writer→MariaDB→FastAPI→APK 연결. 기존 API에 없는 실제 trend_id/category_id는 검증 없이 위조하지 않는다. AI/이미지/원문 본문 복제/새 계정·Timer/운영 공개는 범위 제외.
+- **완료된 기존 dev 기반**: IGDB OAuth Client/Visits 적격성 검증/독립 Snapshot 검증, Godot과 공통 Writer·Scheduler의 소스별 계약, Game Cursor와 NO_ELIGIBLE_CANDIDATE, IGDB 30일 *확정 정책 상한*의 읽기 전용 만료 평가, `127.0.0.1` 임시 HTML TrendCard. `dev`에는 IGDB 운영 Adapter가 미등록이며, **PR #139 기능 브랜치에는 비실행 Descriptor와 보호된 역할별 연결 코드만 추가**했다. Writer/DB/API/Expo 실제 공급은 아직 미활성.
+- **운영 전 미완료 Gate**: Windows에서 SKIP한 Linux 전용 Scheduler의 상태 원자성·재시작·child UID/소스 ID 검증(실제 배포 이전 WSL/Linux에서 실행), IGDB 최소 사용 필드의 이용 조건 검증, 확정된 30일 상한의 만료 비노출·삭제 및 FK/백업 영향 설계, G6 최초 기간 한정 운영 승인. **승인된 기간의 6시간 Cycle마다 사람의 재승인은 불필요하다.** 30일은 자동 이용 허가가 아니며 기존 Godot systemd/Journal/DB/프로필을 보존한다. PR Merge와 운영 승인은 구분한다.
+- **다음 P0 — 실제 공급 수직 통합(기존 경로만)**: IGDB의 검증된 Snapshot과 기존 독립 Writer를 연결해 기존 MariaDB → `GET /api/trends` → `TrendListItem`/`TrendCard`/원문 버튼으로 실제 데이터를 조회한다. 별도 인프라·Preview 서버·새 공개 API·DB Schema·Migration·가짜 ID·AI·원문/이미지 복제는 도입하지 않는다. 기존 Category/Journal/Godot/Scheduler/6시간 전역 주기를 보존한다. 실제 DB 쓰기와 Scheduler 활성화는 권리·만료 처리·최초 G6 및 Linux 검증 후 사용자 별도 승인 대상이다.
+- **중단된 우회 경로**: PR #138 `feat/igdb-expo-dev-preview`는 2026-11-21 사용자 결정으로 **Closed / Not Merged**. 자동 테스트 통과 보고는 보존하되 Expo IGDB 실기기 API 요청·원문 이동은 검증 완료로 계산하지 않는다. 이미 dev에 있는 HTML 내부 검토 코드의 존재는 보존하되 해당 경로를 확장·재개하지 않는다.
 - **관련 확정안**: `docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_IGDB_Supply_Design_FROZEN_v1.0_20261120.md`; 앱 연결 방식은 다음 설계에서 확정한다.
 
 ## 이전 단계 진행 기록 (2026-11-19 기준, 현재 우선순위는 위 최신 블록 참조)

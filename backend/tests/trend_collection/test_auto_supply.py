@@ -69,6 +69,23 @@ def test_invalid_profile_rejected(changes):
         supply.parse_profile({**profile_data(), **changes}, NOW)
 
 
+def test_one_g6_approval_covers_scheduled_cycles_until_expiry():
+    """Approval is time-scoped, not a manual authorization per 6h cycle."""
+    raw = profile_data()
+    raw["approved_at"] = NOW.isoformat()
+    raw["valid_until"] = (NOW + timedelta(days=30)).isoformat()
+    reference = raw["g6_ref"]
+
+    for offset in (timedelta(0), timedelta(hours=6),
+                   timedelta(days=15), timedelta(days=29, hours=18)):
+        accepted = supply.parse_profile(raw, NOW + offset)
+        assert accepted.g6_ref == reference
+        assert accepted.valid_until == raw["valid_until"]
+
+    with pytest.raises(SupplyBlocked, match="APPROVAL_OUTSIDE_VALIDITY"):
+        supply.parse_profile(raw, NOW + timedelta(days=30))
+
+
 def test_adapter_rechecks_fixed_detail_and_keeps_generic_fields():
     request = Mock(return_value=RAW)
     item = GodotAdapter(request).verify(candidate(), NOW)
