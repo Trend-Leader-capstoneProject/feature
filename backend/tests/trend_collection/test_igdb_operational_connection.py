@@ -34,6 +34,25 @@ def test_registry_entry_is_unbound_and_denies_unauthorized_io():
         entry.verify({}, datetime.now(timezone.utc))
 
 
+def test_missing_igdb_credentials_fail_closed(monkeypatch):
+    monkeypatch.setattr(
+        supply, "_root_file", Mock(side_effect=FileNotFoundError),
+    )
+    with pytest.raises(SupplyBlocked, match="IGDB_CREDENTIALS_UNAVAILABLE"):
+        supply._igdb_query("collect")
+
+
+def test_godot_registry_path_does_not_load_igdb_credentials(monkeypatch):
+    from app.trend_collection.godot_release_collector import REPO
+
+    probe = Mock(side_effect=AssertionError("unexpected IGDB credentials"))
+    monkeypatch.setattr(supply, "_igdb_query", probe)
+    source = supply.ApprovedSource(REPO, supply.ADAPTERS[REPO].scope, "godot")
+    assert supply._operational_adapter(source, "collect") is supply.ADAPTERS[REPO]
+    assert supply._operational_adapter(source, "write") is supply.ADAPTERS[REPO]
+    probe.assert_not_called()
+
+
 def test_per_role_credential_files_are_separate_and_never_echoed(monkeypatch):
     reads = []
     credentials = {"client_id": "testclient", "client_secret": "test-secret"}
