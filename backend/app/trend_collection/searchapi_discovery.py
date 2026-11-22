@@ -1,0 +1,148 @@
+"""SearchApi Trending Now discovery values; never grants publication authority."""
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
+from unicodedata import category as unicode_category
+from urllib.parse import urlsplit
+
+MAX_CANDIDATES = 20
+MAX_NEWS = 5
+_ALLOWED_TOPICS = {
+    "beauty_and_fashion": frozenset({"FASHION", "BEAUTY"}),
+    "food_and_drink": frozenset({"FOOD"}),
+    "entertainment": frozenset({"ENTERTAINMENT"}),
+}
+
+
+class SearchApiDiscoveryError(ValueError):
+    """Bounded diagnostic without external content or credentials."""
+
+
+@dataclass(frozen=True, slots=True)
+class TrendingLead:
+    query: str
+    started_at_utc: datetime
+    news_token: str
+    possible_root_codes: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class NewsLead:
+    title: str
+    url: str
+    publisher: str
+    published_at_utc: datetime
+
+
+def _clean_text(value: object, *, limit: int) -> str | None:
+    if not isinstance(value, str) or value != value.strip():
+        return None
+    if not 1 <= len(value) <= limit:
+        return None
+    if any(unicode_category(char).startswith("C") for char in value):
+        return None
+    return value
+
+
+def _timestamp(value: object, now: datetime) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.utcoffset() is None:
+            return None
+        stamp = parsed.astimezone(timezone.utc)
+        return stamp if stamp <= now + timedelta(minutes=5) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead, ...]:
+    """Use category labels only as hints, never as a concrete child category."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise SearchApiDiscoveryError("INVALID_CLOCK")
+    if not isinstance(payload, dict) or not isinstance(payload.get("trends"), list):
+        raise SearchApiDiscoveryError("INVALID_TREND_RESPONSE")
+    params = payload.get("search_parameters")
+    if (not isinstance(params, dict)
+            or params.get("engine") != "google_trends_trending_now"
+            or params.get("geo") != "KR"
+            or params.get("time") != "past_24_hours"):
+        raise SearchApiDiscoveryError("WRONG_TREND_SCOPE")
+    seen: set[str] = set()
+    candidates: list[TrendingLead] = []
+    for item in payload["trends"]:
+        if not isinstance(item, dict) or item.get("is_active") is not True:
+            continue
+        query = _clean_text(item.get("query"), limit=255)
+        token = _clean_text(item.get("news_token"), limit=2048)
+        started = _timestamp(item.get("start_date"), now)
+        categories = item.get("categories")
+        if (query is None or token is None or started is None
+                or not isinstance(categories, list) or not categories
+                or any(not isinstance(value, str) for value in categories)):
+            continue
+        # An unknown / out-of-scope category cannot silently become a safe one.
+        if any(value not in _ALLOWED_TOPICS for value in categories):
+            continue
+        key = query.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
+        candidates.append(TrendingLead(query, started, token, possible))
+        if len(candidates) == MAX_CANDIDATES:
+            break
+    return tuple(candidates)
+
+
+def _safe_public_url(value: object) -> str | None:
+    if not isinstance(value, str) or not 1 <= len(value) <= 2048:
+        return None
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+        if (parts.scheme != "https" or not host or parts.username is not None
+                or parts.password is not None or parts.port not in (None, 443)
+                or parts.fragment or host == "localhost"
+                or host.endswith((".localhost", ".local", ".internal"))
+                or any(unicode_category(ch).startswith("C") for ch in value)):
+            return None
+        try:
+            ip_address(host)
+        except ValueError:
+            pass
+        else:
+            return None
+    except ValueError:
+        return None
+    return value
+
+
+def parse_related_news(payload: object, *, now: datetime) -> tuple[NewsLead, ...]:
+    """Parse news metadata, not the article body or verified publication facts."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise SearchApiDiscoveryError("INVALID_CLOCK")
+    if not isinstance(payload, dict) or not isinstance(payload.get("news"), list):
+        raise SearchApiDiscoveryError("INVALID_NEWS_RESPONSE")
+    params = payload.get("search_parameters")
+    if (not isinstance(params, dict)
+            or params.get("engine") != "google_trends_trending_now_news"):
+        raise SearchApiDiscoveryError("WRONG_NEWS_SCOPE")
+    results: list[NewsLead] = []
+    seen: set[str] = set()
+    for item in payload["news"]:
+        if not isinstance(item, dict):
+            continue
+        title = _clean_text(item.get("title"), limit=255)
+        publisher = _clean_text(item.get("source"), limit=255)
+        url = _safe_public_url(item.get("link"))
+        published = _timestamp(item.get("iso_date"), now)
+        if None in (title, publisher, url, published) or url in seen:
+            continue
+        seen.add(url)
+        results.append(NewsLead(title, url, publisher, published))
+        if len(results) == MAX_NEWS:
+            break
+    return tuple(results)
