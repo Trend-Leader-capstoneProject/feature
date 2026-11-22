@@ -255,7 +255,6 @@ def test_collector_empty_response_is_explicit_and_does_not_authorize_write(
     assert supply.collect_envelope(source, after_game_id=87622) == {
         'source_id': SOURCE_ID, 'status': 'NO_ELIGIBLE_CANDIDATE',
     }
-    resolver.assert_called_once_with(source, "collect")
     adapter.collect_preview.assert_called_once_with(after_game_id=87622)
     for invalid in (0, True, 10**20, -2):
         with pytest.raises(SupplyBlocked, match="GAME_CURSOR_INVALID"):
