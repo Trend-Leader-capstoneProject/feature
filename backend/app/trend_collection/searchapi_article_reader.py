@@ -217,6 +217,20 @@ def review_news_articles(
     """Fetch two exact known articles and screen; never authorizes publication."""
     if type(related_news) is not tuple or len(related_news) != 2:
         return CrossSourceReview("HOLD", "TWO_ARTICLES_REQUIRED")
+    if (
+        type(lead) is not TrendingLead or type(fact) is not ProposedFact
+        or not isinstance(now, datetime) or now.utcoffset() is None
+        or type(reader) is not ArticleReader
+        or any(type(item) is not NewsLead for item in related_news)
+    ):
+        return CrossSourceReview("HOLD", "INVALID_INPUT")
+    # Validate both article destinations before making even the first request.
+    try:
+        urls = tuple(_allow_url(item.url) for item in related_news)
+    except ArticleReadBlocked as exc:
+        return CrossSourceReview("HOLD", str(exc))
+    if len(set(urlsplit(url).hostname for url in urls)) != 2:
+        return CrossSourceReview("HOLD", "SAME_PUBLISHER_ORIGIN")
     try:
         observations = tuple(reader.read(item, now=now) for item in related_news)
     except ArticleReadBlocked as exc:
