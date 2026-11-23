@@ -8,6 +8,13 @@
 - SearchApi Trending Now → news_token으로 관련 News API 조회 → 근거 출처 확인 및 사건 일치 → 기존 활성 Child Category 판정 → 기존 Writer/Journal → MariaDB → 기존 API/TrendCard.
 - 현재 구현 범위는 **읽기 전용 HTTP Client와 Parser**다. 뉴스 메타데이터는 사실 검증 증거가 아니다. 운영 Source Adapter 등록·DB 쓰기·공개·Scheduler 변경/승인은 아직 없다.
 
+## 2026-11-23 읽기 전용 KR 실측 승인 및 실행 경계
+
+- 사용자 명시 승인: SearchApi 실제 KR 데이터 조회 **최대 3회**, 오직 읽기 전용. 1회 Trending Now + 관련 News 최대 2회; 승인한 것은 API 호출이지 자동 게시·운영 프로필 변경·DB 쓰기가 아니다.
+- ChatGPT 연결/실행 환경에는 SearchApi API 키가 제공되지 않아 **실제 조회 0회**. 키를 채팅·GitHub·명령행 옵션·로그에 넣지 않고 로컬 대화형 `getpass` 입력으로 단회 실행한다. 오류 발생 시 추가 재시도는 승인된 총 3회 상한을 초과할 수 있으므로 무단 재실행하지 않는다.
+- 구현: `backend/scripts/probe_searchapi_kr.py --live`는 1+최대2 HTTP GET 후 검색어·Category Root 힌트·미검증 기사 메타데이터만 stdout JSON에 출력한다. `news_token` 일치 검증 필수, 뉴스 내용·본문을 확인한 것으로 처리 금지. DB/Journal/Timer/승인 프로필과 인터페이스 없음.
+- 격리 Python 단위 시험: 기존 30건 + Probe 7건 = **37 PASS**, 사용한 기존 `RateLimited` 및 `rate_limit` 모듈은 테스트 전용 Stub; 저장소 실제 의존성 기반 테스트 및 라이브 API·E2E는 아직 미수행.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
