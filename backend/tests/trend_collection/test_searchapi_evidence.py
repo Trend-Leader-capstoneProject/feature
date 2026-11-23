@@ -1,6 +1,10 @@
 """No network, DB, publication or arbitrary SearchApi calls."""
 
 from dataclasses import replace
+from hashlib import sha256
+from types import SimpleNamespace
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.trend_collection.searchapi_discovery import NewsLead, TrendingLead
@@ -8,6 +12,7 @@ from app.trend_collection.searchapi_evidence import (
     ArticleObservation,
     ProposedFact,
     assess_cross_source_evidence,
+    build_review_event_identity,
 )
 
 NOW = datetime(2026, 11, 23, 10, tzinfo=timezone.utc)
@@ -218,3 +223,49 @@ def test_keyword_corroboration_is_not_semantic_truth_proof():
     assessment = assess(originals=(denying, originals[1]))
     assert assessment.status == "REVIEW_REQUIRED"
     assert assessment.publish_authorization == "NONE"
+
+
+def test_review_event_identity_is_stable_when_article_text_changes():
+    _, _, original_observations, fact = inputs()
+    original = assess()
+    changed = assess(originals=(
+        original_observations[0],
+        replace(original_observations[1], body_text=NEWSIS_BODY + " 추가 내용"),
+    ))
+    first = build_review_event_identity(fact, original)
+    second = build_review_event_identity(fact, changed)
+    assert first is not None and second is not None
+    assert first.candidate_identity == second.candidate_identity
+    assert first.candidate_identity == (
+        "searchapi-event:good-day-2-2027-h1-announcement"
+    )
+    assert first.external_id == first.candidate_identity
+    assert first.source_key == sha256(
+        f"ETC:{first.external_id}".encode("utf-8"),
+    ).hexdigest()
+    assert first.evidence_ref != second.evidence_ref
+    assert first.publish_authorization == second.publish_authorization == "NONE"
+    assert first.proposed_status == second.proposed_status == "HIDDEN"
+
+
+def test_review_only_identity_requires_evidence_and_valid_case_key():
+    _, _, _, fact = inputs()
+    assert build_review_event_identity(fact, assess(originals=())) is None
+    assert build_review_event_identity(
+        replace(fact, review_case_key="invalid case with spaces"), assess(),
+    ) is None
+
+
+def test_review_only_identity_cannot_pass_writer_freshness_guard():
+    from app.trend_collection.freshness_policy import (
+        validate_snapshot_freshness,
+    )
+    from app.trend_collection.supply_adapter import SupplyBlocked
+
+    _, _, _, fact = inputs()
+    candidate = build_review_event_identity(fact, assess())
+    assert candidate is not None
+    with pytest.raises(SupplyBlocked, match="SNAPSHOT_TYPE_NOT_SUPPORTED"):
+        validate_snapshot_freshness(
+            SimpleNamespace(source=lambda _: None), candidate, NOW,
+        )
