@@ -76,6 +76,11 @@ def test_two_leads_make_at_most_three_calls_without_publication():
     result = collect_report(client, now=NOW)
     assert result["requests_executed"] == 3
     assert result["news_queries"] == 2
+    assert result["total_trends_returned"] == 2
+    assert result["active_trends_returned"] == 2
+    assert len(result["eligible_leads"]) == 2
+    assert result["eligible_leads"][0]["query"] == "식품"
+    assert "news_token" not in str(result)
     assert client.related_news.call_count == 2
     assert all(
         "news_metadata_unverified" in item for item in result["candidates"]
@@ -104,3 +109,36 @@ def test_mismatched_news_token_rejected():
     }
     with pytest.raises(SearchApiDiscoveryError, match="NEWS_TOKEN_MISMATCH"):
         collect_report(client, now=NOW)
+
+def test_four_eligible_leads_do_not_collapse_to_two_reported_leads():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now",
+            "geo": "KR", "time": "past_24_hours",
+        },
+        "trends": [
+            {"query": f"연예인{i}", "start_date": "2026-11-22T11:00:00Z",
+             "news_token": f"token{i}", "is_active": True,
+             "categories": ["entertainment"]}
+            for i in range(4)
+        ],
+    }
+    client.related_news.side_effect = lambda token: {
+        "search_parameters": {
+            "engine": "google_trends_trending_now_news",
+            "news_token": token,
+        },
+        "news": [],
+    }
+    result = collect_report(client, now=NOW)
+    assert result["total_trends_returned"] == 4
+    assert result["total_eligible_leads"] == 4
+    assert len(result["eligible_leads"]) == 4
+    assert [lead["query"] for lead in result["eligible_leads"]] == [
+        "연예인0", "연예인1", "연예인2", "연예인3",
+    ]
+    assert len(result["candidates"]) == 2
+    assert result["requests_executed"] == 3
+    assert "token0" not in str(result)
+    assert "token3" not in str(result)
