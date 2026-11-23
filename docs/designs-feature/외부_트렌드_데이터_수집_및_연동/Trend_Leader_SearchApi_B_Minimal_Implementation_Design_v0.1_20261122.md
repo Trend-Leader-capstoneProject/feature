@@ -11,9 +11,12 @@
 ## 2026-11-23 읽기 전용 KR 실측 승인 및 실행 경계
 
 - 사용자 명시 승인: SearchApi 실제 KR 데이터 조회 **최대 3회**, 오직 읽기 전용. 1회 Trending Now + 관련 News 최대 2회; 승인한 것은 API 호출이지 자동 게시·운영 프로필 변경·DB 쓰기가 아니다.
-- ChatGPT 연결/실행 환경에는 SearchApi API 키가 제공되지 않아 **실제 조회 0회**. 키를 채팅·GitHub·명령행 옵션·로그에 넣지 않고 로컬 대화형 `getpass` 입력으로 단회 실행한다. 오류 발생 시 추가 재시도는 승인된 총 3회 상한을 초과할 수 있으므로 무단 재실행하지 않는다.
+- 사용자 WSL 실행 결과 **실제 조회 3회 완료**(Trending 1 + News 2), 추가 승인 없이 실측 재실행 금지. API 키는 채팅·GitHub에 전달되지 않았고, 읽기 전용 출력만 공유됨. 실측용 3회 예산은 전체 서비스의 영구 공급량 제한이 아니다.
 - 구현: `backend/scripts/probe_searchapi_kr.py --live`는 1+최대2 HTTP GET 후 검색어·Category Root 힌트·미검증 기사 메타데이터만 stdout JSON에 출력한다. `news_token` 일치 검증 필수, 뉴스 내용·본문을 확인한 것으로 처리 금지. DB/Journal/Timer/승인 프로필과 인터페이스 없음.
-- 격리 Python 단위 시험: 기존 30건 + Probe 7건 = **37 PASS**, 사용한 기존 `RateLimited` 및 `rate_limit` 모듈은 테스트 전용 Stub; 저장소 실제 의존성 기반 테스트 및 라이브 API·E2E는 아직 미수행.
+- 초기 격리 Python 단위 시험: 기존 30건 + Probe 7건 = **37 PASS**, 테스트용 Stub 사용. 이후 진단 출력 및 회귀 테스트 변경은 GitHub 반영했으나 해당 최신 Commit의 실제 pytest 재실행 결과는 아직 없음. 저장소 실제 의존성 기반 통합 회귀·Writer/E2E는 미수행.
+
+- **WSL KR 실측**: `READ_ONLY_DISCOVERY`, `total_eligible_leads=4`, `news_queries=2`, `requests_executed=3`; News 2개 후보 모두 엔터테인먼트(지드래곤, 심진화). 이는 원본 반환 총 건수가 아니라 `is_active=True` 및 3개 허용 Google 분야의 자체 필터 결과다. 실제 Google 검색어 원본 총량은 출력하지 않았으므로 미확인. 뉴스/검색어가 사실 검증·게시 적격이라는 뜻은 아님.
+- **관측성 최소 개선(같은 PR)**: 비게시 Probe JSON에 `total_trends_returned`, `active_trends_returned`, 전체 `eligible_leads`(토큰 없는 쿼리·Root 힌트) 추가. News API 2개 제한과 DB/Writer/Timer 경계는 동일. 이미 종료한 실측 결과를 사후 복원할 수는 없음.
 
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
