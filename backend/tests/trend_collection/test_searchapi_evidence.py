@@ -76,6 +76,23 @@ def test_two_different_article_bodies_only_reach_review_not_publication():
     assert not hasattr(decision, "proposed_status")
 
 
+
+def test_evidence_digest_is_bound_to_original_body_content():
+    _, _, originals, _ = inputs()
+    base = assess()
+    changed = replace(originals[1], body_text=NEWSIS_BODY + " 부가 설명.")
+    updated = assess(originals=(originals[0], changed))
+    assert base.status == updated.status == "REVIEW_REQUIRED"
+    assert base.evidence_ref != updated.evidence_ref
+
+
+def test_evidence_order_does_not_change_digest():
+    _, _, originals, _ = inputs()
+    assert assess().evidence_ref == assess(
+        originals=(originals[1], originals[0]),
+    ).evidence_ref
+
+
 def test_raw_searchapi_metadata_cannot_establish_article_evidence():
     assert assess(originals=()).reason == "TWO_ORIGINAL_ARTICLES_REQUIRED"
 
