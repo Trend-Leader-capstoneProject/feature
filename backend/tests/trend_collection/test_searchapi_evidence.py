@@ -187,9 +187,12 @@ def test_non_public_link_is_rejected():
     _, news, originals, _ = inputs()
     private = "https://127.0.0.1/article"
     bad = (news[0], replace(news[1], url=private))
-    assert assess(
+    result = assess(
         news=bad, originals=(originals[0], replace(originals[1], source_url=private)),
-    ).reason == "ARTICLE_LINK_NOT_IN_NEWS"
+    )
+    assert result.reason == "INVALID_NEWS_METADATA"
+    assert result.status == "HOLD"
+    assert result.publish_authorization == "NONE"
 
 def test_malformed_metadata_urls_fail_closed_without_type_errors():
     _, news, originals, _ = inputs()
