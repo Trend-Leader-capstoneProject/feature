@@ -1,5 +1,6 @@
 """SearchApi Trending Now discovery values; never grants publication authority."""
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
@@ -12,6 +13,8 @@ _ALLOWED_TOPICS = {
     "beauty_and_fashion": frozenset({"FASHION", "BEAUTY"}),
     "food_and_drink": frozenset({"FOOD"}),
     "entertainment": frozenset({"ENTERTAINMENT"}),
+    "games": frozenset({"GAME"}),
+    "technology": frozenset({"IT_DIGITAL"}),
 }
 
 
@@ -25,6 +28,7 @@ class TrendingLead:
     started_at_utc: datetime
     news_token: str
     possible_root_codes: frozenset[str]
+    is_active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +77,7 @@ def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead,
     seen: set[str] = set()
     candidates: list[TrendingLead] = []
     for item in payload["trends"]:
-        if not isinstance(item, dict) or item.get("is_active") is not True:
+        if not isinstance(item, dict) or type(item.get("is_active")) is not bool:
             continue
         query = _clean_text(item.get("query"), limit=255)
         token = _clean_text(item.get("news_token"), limit=2048)
@@ -91,10 +95,40 @@ def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead,
             continue
         seen.add(key)
         possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
-        candidates.append(TrendingLead(query, started, token, possible))
+        candidates.append(TrendingLead(query, started, token, possible, item["is_active"]))
         if len(candidates) == MAX_CANDIDATES:
             break
     return tuple(candidates)
+
+
+def summarize_trend_response(payload: object, *, now: datetime) -> dict:
+    """Read-only raw distribution, even for excluded topics; never return tokens."""
+    # Validate the KR response envelope before counting untrusted records.
+    parse_trending_now(payload, now=now)
+    counts: Counter[str] = Counter()
+    states: Counter[str] = Counter()
+    for item in payload["trends"]:
+        if not isinstance(item, dict):
+            states["invalid_record"] += 1
+            continue
+        state = item.get("is_active")
+        states["active" if state is True else
+               "inactive" if state is False else "unknown_state"] += 1
+        categories = item.get("categories")
+        if isinstance(categories, list):
+            # Count actual upstream category tags independently of our filter.
+            for tag in set(tag for tag in categories if isinstance(tag, str)):
+                if 0 < len(tag) <= 100 and tag.isascii():
+                    counts[tag] += 1
+        else:
+            counts["<missing/invalid>"] += 1
+    return {
+        "raw_total": len(payload["trends"]),
+        "state_counts": dict(sorted(states.items())),
+        "upstream_category_counts": dict(sorted(counts.items())),
+        "mapped_eligible_count": len(parse_trending_now(payload, now=now)),
+        "mapping_is_a_hint_only": True,
+    }
 
 
 def _safe_public_url(value: object) -> str | None:
