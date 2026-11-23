@@ -283,6 +283,53 @@ describe("TrendCard", () => {
     });
   });
 
+  test("SearchApi 기사형 데이터는 기존 카드의 카테고리·원문 버튼으로 표시한다", async () => {
+    const onOpenSource = jest.fn();
+    const articleUrl = "https://www.yna.co.kr/view/AKR20261123042700005";
+    const trend = createTrend({
+      // Isolated contract fixture: these IDs are not operational DB IDs.
+      trend_id: 914,
+      title: "지드래곤·김태호 PD '굿데이' 시즌2 제작 확정",
+      summary: "제작사 TEO가 음악 예능 '굿데이' 시즌2 제작을 발표했습니다.",
+      thumbnail_url: null,
+      last_collected_at: "2026-11-23T09:00:00Z",
+      categories: [{
+        category_id: 92,
+        category_name: "예능",
+        parent: {
+          category_id: 9,
+          category_name: "엔터테인먼트",
+          category_code: "ENTERTAINMENT",
+        },
+      }],
+      latest_source: {
+        source_id: 501,
+        platform: "ETC",
+        source_title: null,
+        source_url: articleUrl,
+      },
+    });
+
+    await render(
+      <TrendCard
+        displayNumber={1}
+        onOpenSource={onOpenSource}
+        trend={trend}
+      />,
+    );
+
+    expect(screen.getByText(trend.title)).toBeTruthy();
+    expect(screen.getByText(trend.summary!)).toBeTruthy();
+    expect(screen.getByText("엔터테인먼트 · 예능")).toBeTruthy();
+    expect(screen.getByText("기타")).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole("button", { name: "원문 보기" }),
+    );
+    expect(onOpenSource).toHaveBeenCalledTimes(1);
+    expect(onOpenSource).toHaveBeenCalledWith(articleUrl);
+  });
+
   test("Personalized TrendCard는 순번 없이 기존 콘텐츠를 표시한다", async () => {
     await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend()} />);
 
