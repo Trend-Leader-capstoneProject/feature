@@ -43,6 +43,14 @@
 - **현재 미구현(동작 경계)**: 외부 뉴스 원문 HTML을 독립적으로 읽고 출처·기사 본문을 추출/검증하는 안전한 Reader, 보도 출처의 실질적 독립성·주장 의미 검증, 자동 게시 승인 근거, News Event stable identity와 보존/노출 TTL, SearchApi용 운영 SourceAdapter 등록, 실제 게시·DB·APK E2E. 현재 작성한 `ArticleObservation`은 원문 Reader가 반환해야 할 값의 계약일 뿐, 생성 자체가 증거의 진위를 증명하지 않는다. 이 단계를 넘어서기 전에 허위 검증 성공을 게시 Snapshot으로 승격하지 않는다.
 - **사건 동일성 정정**: 2025-12-10 뉴시스는 이미 지드래곤·김태호 PD의 `굿데이` 시즌2 계획을 보도했다(https://www.newsis.com/view/NISX20251210_0003435791). 따라서 2026-11-23 카드 샘플의 신규 사실은 단순 '시즌2 최초 제작 확정'이 아니라 **2027년 상반기 공개 계획 발표 및 신규 출연진 관련 발표**로 구분해야 한다. 이전 카드 테스트 제목·요약도 이 구분에 맞게 수정. 과거 보도 링크는 사건 동일성 점검용이지 현재 SearchApi 조회 또는 원문 자동 확인의 실행 증거는 아니다.
 
+## 2026-11-23 — 첫 비게시 원문 Reader의 책임/한계
+
+- 사용자 수정 확인: 기존 `tests/trend_collection/test_searchapi_evidence.py`의 비공개 링크 거부 사유 검증은 **17 PASS**(사용자 실측). 기존 격리 DB 2 PASS, Frontend TrendCard Jest 13 PASS, Ruff PASS 증거는 그대로 보존한다.
+- 신규 `app/trend_collection/searchapi_article_reader.py`: YNA(`www.yna.co.kr`)와 Newsis(`mobile.newsis.com`)의 정확한 HTTPS 호스트와 `/view/` 경로만 허용한다. 도메인/경로 사전검증, 프록시/리디렉션 차단, GET 총 2회, 각 10초·HTML 512KB·본문 32K자, HTML 형식/인코딩/원문 본문/타임존 포함 게시 시각 검증, 스크립트/메뉴/푸터 분리와 안전한 실패 코드만 사용한다. URL 둘 다 검증하고 서로 다른 호스트인지 확인한 **이후에만** 외부 요청한다. 실제 페이지 마크업과 시각 메타가 맞지 않으면 HOLD가 정상이며 무리한 fallback으로 조회·게시를 허용하지 않는다.
+- `review_news_articles()`는 이 Reader로 얻은 두 개의 `ArticleObservation`을 이미 존재하는 `assess_cross_source_evidence()`에 전달한다. **성공하더라도 `REVIEW_REQUIRED`·`publish_authorization=NONE`; 자동 의미 검증, 보도자료 전재 독립성 증명, SourceAdapter/Writer 승인 또는 자동 게시 권한은 생성하지 않는다.
+- 신규 `tests/trend_collection/test_searchapi_article_reader.py`는 가짜 응답 HTML로 URL·타임아웃·응답 제한·본문/시각·무재시도·두 출처 결합을 테스트한다. 구현 전 로컬 테스트용 모듈 Stub을 사용한 격리 21 PASS가 확보됐으나 **동일 소스의 실제 저장소 전용 테스트 PASS는 아직 미확보**이며, 실제 외부 기사 원문 접속도 수행하지 않았다.
+- 보안 경계: 고정 발행사 호스트와 직접 HTTPS만으로 DNS/IP 재바인딩 위험이 운영 수준에서 완전히 소멸한 것은 아니므로 실제 운영 활성화 전 네트워크 egress 및 원문 출처 정책을 독립 검증한다. 원문 본문은 임시 메모리 평가용이며 DB/로그/파일에 저장하거나 사용자 앱에 재게시하지 않는다. Google Trends/News 재호출, Search History 실패 경로 재시도, 기존 시스템 Timer/DB/Journal은 범위 밖이다.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
