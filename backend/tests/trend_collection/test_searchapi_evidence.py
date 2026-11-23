@@ -190,3 +190,28 @@ def test_non_public_link_is_rejected():
     assert assess(
         news=bad, originals=(originals[0], replace(originals[1], source_url=private)),
     ).reason == "ARTICLE_LINK_NOT_IN_NEWS"
+
+def test_malformed_metadata_urls_fail_closed_without_type_errors():
+    _, news, originals, _ = inputs()
+    malformed = (news[0], replace(news[1], url=["not", "a", "url"]))
+    assert assess(news=malformed).reason == "INVALID_NEWS_METADATA"
+    malformed_observation = replace(originals[1], source_url=["bad"])
+    assert assess(
+        originals=(originals[0], malformed_observation),
+    ).reason == "ORIGINAL_ARTICLE_REQUIRED"
+
+
+def test_keyword_corroboration_is_not_semantic_truth_proof():
+    _, _, originals, _ = inputs()
+    # Contains all tokens but explicitly denies the claimed future release.
+    denying = replace(
+        originals[0],
+        body_text=(
+            "굿데이 시즌2가 상반기 공개된다는 주장은 사실이 아니다. "
+            "제작 시점은 아직 확인할 수 없다고 밝혔다. "
+            "이는 원문 기사 사실을 나타내지 않는 테스트 문장이다. "
+        ) * 2,
+    )
+    assessment = assess(originals=(denying, originals[1]))
+    assert assessment.status == "REVIEW_REQUIRED"
+    assert assessment.publish_authorization == "NONE"
