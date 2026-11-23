@@ -203,3 +203,30 @@ def test_first_article_failure_stops_before_second_request():
     assert result.status == "HOLD"
     assert result.publish_authorization == "NONE"
     assert opener.open.call_count == 1
+
+def test_invalid_second_article_url_rejected_before_network():
+    reader, opener = reader_with(FakeResponse())
+    fact = ProposedFact("case", "ENTERTAINMENT", (("굿데이",),))
+    trend = TrendingLead("지드래곤", NOW, "token", frozenset({"ENTERTAINMENT"}))
+    unsafe = NewsLead("unsafe", "https://127.0.0.1/view/a", "any", PUBLISHED)
+    result = review_news_articles(
+        trend, (article(), unsafe), fact, now=NOW, reader=reader,
+    )
+    assert result.status == "HOLD"
+    assert result.reason == "ARTICLE_URL_NOT_ALLOWED"
+    opener.open.assert_not_called()
+
+
+def test_same_publisher_pair_rejected_before_network():
+    reader, opener = reader_with(FakeResponse())
+    fact = ProposedFact("case", "ENTERTAINMENT", (("굿데이",),))
+    trend = TrendingLead("지드래곤", NOW, "token", frozenset({"ENTERTAINMENT"}))
+    second = NewsLead(
+        "duplicate", "https://www.yna.co.kr/view/OTHER", "YNA", PUBLISHED,
+    )
+    result = review_news_articles(
+        trend, (article(), second), fact, now=NOW, reader=reader,
+    )
+    assert result.status == "HOLD"
+    assert result.reason == "SAME_PUBLISHER_ORIGIN"
+    opener.open.assert_not_called()
