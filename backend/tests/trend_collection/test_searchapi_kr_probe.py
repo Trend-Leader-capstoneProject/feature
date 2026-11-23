@@ -64,8 +64,11 @@ def test_two_leads_make_at_most_three_calls_without_publication():
              "categories": ["entertainment"]},
         ],
     }
-    client.related_news.return_value = {
-        "search_parameters": {"engine": "google_trends_trending_now_news"},
+    client.related_news.side_effect = lambda token: {
+        "search_parameters": {
+            "engine": "google_trends_trending_now_news",
+            "news_token": token,
+        },
         "news": [{"title": "공식 발표", "source": "Official Source",
                   "link": "https://example.org/official",
                   "iso_date": "2026-11-22T11:00:00Z"}],
@@ -82,3 +85,22 @@ def test_two_leads_make_at_most_three_calls_without_publication():
 def test_no_flag_never_requests_credentials():
     with pytest.raises(SystemExit):
         main([])
+
+def test_mismatched_news_token_rejected():
+    from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
+
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now",
+                              "geo": "KR", "time": "past_24_hours"},
+        "trends": [{"query": "식품", "start_date": "2026-11-22T11:00:00Z",
+                    "news_token": "expected", "is_active": True,
+                    "categories": ["food_and_drink"]}],
+    }
+    client.related_news.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now_news",
+                              "news_token": "other"},
+        "news": [],
+    }
+    with pytest.raises(SearchApiDiscoveryError, match="NEWS_TOKEN_MISMATCH"):
+        collect_report(client, now=NOW)
