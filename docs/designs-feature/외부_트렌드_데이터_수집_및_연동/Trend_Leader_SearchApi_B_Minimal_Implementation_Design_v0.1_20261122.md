@@ -51,6 +51,8 @@
 - 신규 `tests/trend_collection/test_searchapi_article_reader.py`는 가짜 응답 HTML로 URL·타임아웃·응답 제한·본문/시각·무재시도·두 출처 결합을 테스트한다. 구현 전 로컬 테스트용 모듈 Stub을 사용한 격리 21 PASS가 확보됐으나 **동일 소스의 실제 저장소 전용 테스트 PASS는 아직 미확보**이며, 실제 외부 기사 원문 접속도 수행하지 않았다.
 - 보안 경계: 고정 발행사 호스트와 직접 HTTPS만으로 DNS/IP 재바인딩 위험이 운영 수준에서 완전히 소멸한 것은 아니므로 실제 운영 활성화 전 네트워크 egress 및 원문 출처 정책을 독립 검증한다. 원문 본문은 임시 메모리 평가용이며 DB/로그/파일에 저장하거나 사용자 앱에 재게시하지 않는다. Google Trends/News 재호출, Search History 실패 경로 재시도, 기존 시스템 Timer/DB/Journal은 범위 밖이다.
 
+- **2026-11-23 사용자 실측 완료**: 보강 Reader 로컬 **26 PASS / Ruff PASS**, 원문 진단 단위 테스트 **5 PASS**. 실제 `scripts.probe_searchapi_articles --live` 출력: YNA `PARSE_OK_NOT_FACT_VERIFIED`(게시 `2026-11-23T00:40:37+00:00`, 794자), NEWSIS `PARSE_OK_NOT_FACT_VERIFIED`(게시 `2026-11-23T01:54:18+00:00`, 626자). SearchApi 신규 호출 0회, 저장·게시 권한 없음. **두 기사 HTML의 추출 계약은 사용자 환경에서 통과**, 기사 본문의 주장 일치·원출처 실질적 독립성·사건 중복 ID·TTL·운영 Writer 검증은 여전히 미완료. 동일 진단 재실행 없이 다음 검증 단계로 진행.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
