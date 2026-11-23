@@ -115,13 +115,17 @@ class _ArticleHTML(HTMLParser):
         element_id = (attr.get("id") or "").lower()
         if not self.found_body and (
             tag == "article" or element_id in _BODY_IDS
+            or (attr.get("itemprop") or "").lower() == "articlebody"
             or bool(classes & _BODY_CLASSES)
+            or {"story-news", "article"}.issubset(classes)
         ):
             self.depth = 1
             self.found_body = True
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]):
         self.handle_starttag(tag, attrs)
+        if tag not in _VOID_TAGS:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str):
         if tag in _VOID_TAGS:
@@ -189,7 +193,12 @@ class ArticleReader:
             with self._opener.open(request, timeout=_TIMEOUT) as response:
                 if response.status != 200:
                     raise ArticleReadBlocked("ARTICLE_UNEXPECTED_STATUS")
-                if getattr(response, "url", url) != url:
+                geturl = getattr(response, "geturl", None)
+                result_url = (
+                    geturl() if callable(geturl)
+                    else getattr(response, "url", None)
+                )
+                if result_url != url:
                     raise ArticleReadBlocked("ARTICLE_URL_CHANGED")
                 data = response.read(_MAX_HTML_BYTES + 1)
                 content_type = response.headers.get("Content-Type", "")
