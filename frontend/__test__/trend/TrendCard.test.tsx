@@ -289,8 +289,8 @@ describe("TrendCard", () => {
     const trend = createTrend({
       // Isolated contract fixture: these IDs are not operational DB IDs.
       trend_id: 914,
-      title: "지드래곤·김태호 PD '굿데이' 시즌2 제작 확정",
-      summary: "제작사 TEO가 음악 예능 '굿데이' 시즌2 제작을 발표했습니다.",
+      title: "'굿데이' 시즌2, 2027년 상반기 공개 계획 발표",
+      summary: "제작사 TEO가 '굿데이' 시즌2의 2027년 상반기 공개 계획을 알렸습니다.",
       thumbnail_url: null,
       last_collected_at: "2026-11-23T09:00:00Z",
       categories: [{
