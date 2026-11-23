@@ -28,6 +28,13 @@
 
 - **2026-11-23 실제 장애**: 사용자 WSL 실행에서 `SEARCHAPI_HISTORY_BLOCKED:HISTORY_HTTP_403` 발생. History API 공식 문서의 `Requires Subscription` 조건을 이전에 누락했음. 엔드포인트와 Bearer 방식은 맞지만, HTTP 403의 정확한 계정별 사유는 검증되지 않음. History 진단 도구는 **보조 기능으로만 유지**하고 반복 실행·추가 계정 설정 요구를 하지 않음. `HISTORY_ACCESS_FORBIDDEN`으로 구분·무재시도 처리. 원본 총량 복구는 현재 HOLD이며, 이미 수신한 3/3회 KR 뉴스 메타데이터 및 교차확인된 '굿데이' 발표 사건의 **비게시** 경로 검증으로 전환.
 
+## 2026-11-23 통합 계약 첫 구현 증거 (비운영)
+
+- PR #140에 `tests/api/test_searchapi_trend_card_integration.py` 추가: 기사 형태의 제목·자체 요약·YNA 원문 URL을 **격리 DB 트랜잭션에서만** 기존 `insert_trend_item` 공통 DML로 저장한 다음, 실제 `GET /api/trends`의 제목·요약·ENTERTAINMENT 카테고리·`ETC` 원문 링크와 `inspect_snapshot`의 중복 SKIP 계약을 확인한다. `trend_id`/`category_id`/`source_id`는 임의 수치가 아니라 **격리 DB 자동 발급 ID**를 사용한다. `HIDDEN` 행이 공개 API에 보이지 않는지도 검증한다.
+- `frontend/__test__/trend/TrendCard.test.tsx`에 같은 실제 기사 모양의 API 데이터에 대한 컴포넌트 계약 검증 추가: 엔터테인먼트/예능 표시, NULL 이미지·출처 제목 수용, 원문 보기 클릭 시 지정 YNA 링크만 전달. Jest fixture ID는 테스트 식별자로, 실제 DB 레코드가 아니다.
+- 위 변경은 **테스트 코드만 추가/보강**한 것으로, 자동 SourceAdapter/독립 기사 사실 확인/운영 Writer 허가/운영 DB 게시의 구현이나 성공 증거가 아니다. 이 환경에는 저장소 실행용 테스트 DB 및 Expo 의존성·CI 실행 환경이 없어 두 신규 테스트의 실제 PASS 결과는 미확보. 해당 테스트는 승인된 `trend_leader_test` 대상과 설치된 Frontend 의존성에서 추후 실행해야 한다.
+- 다음 기능 구현을 가로막는 확정 전 정책: Google 검색어가 아닌 **뉴스 사건 단위 source identity와 중복 기준**, 기사 원문 독립 검증이 가능한 근거 수준, 게시/노출 신선도. 이를 보장하지 않고 News 메타데이터를 `ACTIVE` Snapshot으로 변환하는 코드는 생성하지 않는다. 기존 독립 Writer 경계·G6·OS Timer는 그대로 유지.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
