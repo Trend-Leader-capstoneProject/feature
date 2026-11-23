@@ -141,7 +141,12 @@ def assess_cross_source_evidence(
     if len(observations) != 2:
         return hold("TWO_ORIGINAL_ARTICLES_REQUIRED")
     # Do not let a caller manufacture additional related-news references.
-    if any(type(article) is not NewsLead for article in related_news):
+    if any(
+        type(article) is not NewsLead
+        or not isinstance(article.url, str)
+        or _safe_public_url(article.url) is None
+        for article in related_news
+    ):
         return hold("INVALID_NEWS_METADATA")
     news_by_url = {item.url: item for item in related_news}
     if len(news_by_url) != len(related_news):
@@ -155,6 +160,8 @@ def assess_cross_source_evidence(
         if type(observation) is not ArticleObservation:
             return hold("ORIGINAL_ARTICLE_REQUIRED")
         url = observation.source_url
+        if not isinstance(url, str):
+            return hold("ORIGINAL_ARTICLE_REQUIRED")
         matching = news_by_url.get(url)
         origin = _publisher_group(url)
         if matching is None or origin is None:
