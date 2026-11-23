@@ -95,7 +95,9 @@ def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead,
             continue
         seen.add(key)
         possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
-        candidates.append(TrendingLead(query, started, token, possible, item["is_active"]))
+        candidates.append(
+            TrendingLead(query, started, token, possible, item["is_active"])
+        )
         if len(candidates) == MAX_CANDIDATES:
             break
     return tuple(candidates)
