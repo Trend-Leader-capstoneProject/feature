@@ -52,10 +52,13 @@ def test_beauty_and_fashion_remains_ambiguous():
         frozenset({"BEAUTY", "FASHION"}))
 
 
-def test_out_of_scope_and_inactive_filtered():
+def test_out_of_scope_filtered_but_inactive_24h_signal_retained():
     items = [_trend(categories=["other"]), _trend(is_active=False),
              _trend(categories=["food_and_drink", "politics"])]
-    assert parse_trending_now(_trends(items), now=NOW) == ()
+    result = parse_trending_now(_trends(items), now=NOW)
+    assert len(result) == 1
+    assert result[0].is_active is False
+    assert result[0].possible_root_codes == frozenset({"FOOD"})
 
 
 def test_deduplication_and_bound():
