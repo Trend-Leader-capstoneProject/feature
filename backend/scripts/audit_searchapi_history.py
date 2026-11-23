@@ -1,7 +1,7 @@
 """Audit a saved SearchApi KR result; no new Trending Now/News requests.
 
 Run from backend/: python -m scripts.audit_searchapi_history --day 2026-11-23
-One free Search History GET and one cached JSON GET; never writes to disk/DB.
+One Search History GET (requires subscription) and one cached JSON GET; no DB writes.
 """
 
 from __future__ import annotations
@@ -76,6 +76,14 @@ def _read_json(opener, url: str, *, key: str | None = None) -> dict:
             payload = response.read(MAX_BYTES + 1)
     except HTTPError as exc:
         try:
+            if exc.code == 403:
+                # Search History requires an eligible subscription, even
+                # though authorized history reads are not billed as searches.
+                raise HistoryReadBlocked("HISTORY_ACCESS_FORBIDDEN") from None
+            if exc.code == 401:
+                raise HistoryReadBlocked("HISTORY_AUTH_REJECTED") from None
+            if exc.code == 429:
+                raise HistoryReadBlocked("HISTORY_RATE_LIMITED") from None
             raise HistoryReadBlocked(f"HISTORY_HTTP_{exc.code}") from None
         finally:
             exc.close()
