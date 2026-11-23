@@ -5,6 +5,7 @@ independently verified facts. This module accepts article-body observations
 from a separate original-page reader; it never fetches, stores or publishes.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -149,6 +150,7 @@ def assess_cross_source_evidence(
     origins: set[str] = set()
     texts: list[str] = []
     accepted_urls: list[str] = []
+    body_digests: list[tuple[str, str, str]] = []
     for observation in observations:
         if type(observation) is not ArticleObservation:
             return hold("ORIGINAL_ARTICLE_REQUIRED")
@@ -191,14 +193,21 @@ def assess_cross_source_evidence(
             return hold("FACT_NOT_SUPPORTED_IN_ARTICLE_BODY")
         texts.append(normalized)
         accepted_urls.append(url)
+        body_digests.append((
+            url,
+            observation.published_at_utc.astimezone(timezone.utc).isoformat(),
+            sha256(normalized.encode("utf-8")).hexdigest(),
+        ))
 
     if texts[0] == texts[1]:
         return hold("IDENTICAL_REPRINT")
     urls = tuple(sorted(accepted_urls))
-    evidence_ref = sha256(
-        ("searchapi-crosscheck-v1:" + fact.review_case_key + ":" +
-         "|".join(urls)).encode("utf-8")
-    ).hexdigest()
+    # Evidence digest must change when original-page content changes. This is
+    # an audit fingerprint, NOT a stable event/source identity or approval.
+    evidence_ref = sha256(json.dumps(
+        {"case": fact.review_case_key, "articles": sorted(body_digests)},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
     return CrossSourceReview(
         "REVIEW_REQUIRED",
         "TWO_ARTICLE_BODIES_CONTAIN_ASSERTIONS_NOT_INDEPENDENT_PROOF",
