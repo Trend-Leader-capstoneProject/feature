@@ -2,6 +2,8 @@
 
 import json
 from datetime import date, datetime, timezone
+from io import BytesIO
+from urllib.error import HTTPError
 
 import pytest
 
@@ -14,6 +16,7 @@ from scripts.audit_searchapi_history import (
     _safe_result_url,
     _select_history_entry,
     recover_history,
+    _read_json,
 )
 
 NOW = datetime(2026, 11, 23, 12, tzinfo=timezone.utc)
@@ -149,3 +152,28 @@ def test_raw_category_summary_does_not_hide_excluded_categories():
     assert summary["upstream_category_counts"]["other"] == 1
     assert summary["mapped_eligible_count"] == 3
     assert "SECRET" not in str(summary)
+
+
+@pytest.mark.parametrize(("status_code", "expected"), [
+    (403, "HISTORY_ACCESS_FORBIDDEN"),
+    (401, "HISTORY_AUTH_REJECTED"),
+    (429, "HISTORY_RATE_LIMITED"),
+])
+def test_history_http_failures_are_safe_and_never_retried(
+    status_code, expected,
+):
+    class DenyingOpener:
+        calls = 0
+
+        def open(self, request, timeout):
+            self.calls += 1
+            raise HTTPError(
+                request.full_url, status_code, "response-body-hidden",
+                {}, BytesIO(b'{"error": "sensitive upstream details"}'),
+            )
+
+    opener = DenyingOpener()
+    with pytest.raises(HistoryReadBlocked, match=f"^{expected}$"):
+        _read_json(opener, "https://www.searchapi.io/api/v1/search_history",
+                   key="PLACEHOLDER_KEY")
+    assert opener.calls == 1
