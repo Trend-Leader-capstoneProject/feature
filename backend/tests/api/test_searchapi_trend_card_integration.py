@@ -18,8 +18,12 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.main import create_app
 from app.models.category import Category
-from app.models.db_enums import CategoryCode, TrendStatus
-from app.models.trend import Trend
+from app.models.db_enums import CategoryCode
+from app.trend_collection.searchapi_evidence import (
+    CrossSourceReview,
+    ProposedFact,
+    build_review_event_identity,
+)
 from scripts.ap3_writer_transaction import insert_trend_item
 from scripts.run_auto_supply import inspect_snapshot
 
@@ -130,26 +134,87 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
     }]
 
 
-def test_hidden_news_row_is_not_exposed(
+def test_reviewed_event_identity_uses_writer_dedupe_but_stays_hidden(
     client: TestClient, db_session: Session,
 ) -> None:
-    """A preapproval/HIDDEN record must never leak into public trend listing."""
-    observed = datetime(2026, 11, 23, 9, 0, 0)
-    hidden = Trend(
-        title="SearchApi pending article fact",
-        normalized_title="searchapi-contract-pending-article",
-        summary=None,
-        thumbnail_url=None,
-        status=TrendStatus.HIDDEN,
-        first_collected_at=observed,
-        last_collected_at=observed,
-        updated_at=None,
+    """Review-only evidence can never imply ACTIVE publication authorization."""
+    from app.trend_collection.freshness_policy import validate_snapshot_freshness
+    from app.trend_collection.supply_adapter import SupplyBlocked
+
+    # Synthetic review proof: this is NOT live original-page verification.
+    fact = ProposedFact(
+        "good-day-2-2027-h1-announcement",
+        "ENTERTAINMENT",
+        (("굿데이",), ("시즌2",)),
     )
-    db_session.add(hidden)
+    review = CrossSourceReview(
+        status="REVIEW_REQUIRED",
+        reason="TWO_ARTICLE_BODIES_CONTAIN_ASSERTIONS_NOT_INDEPENDENT_PROOF",
+        urls=(
+            ARTICLE_URL,
+            "https://mobile.newsis.com/view/NISX20261123_0003878761",
+        ),
+        evidence_ref=sha256(b"test-only-article-evidence").hexdigest(),
+    )
+    identity = build_review_event_identity(fact, review)
+    assert identity is not None
+    assert identity.proposed_status == "HIDDEN"
+    assert identity.publish_authorization == "NONE"
+    with pytest.raises(SupplyBlocked, match="SNAPSHOT_TYPE_NOT_SUPPORTED"):
+        validate_snapshot_freshness(object(), identity, datetime.now().astimezone())
+
+    parent = Category(
+        category_code=CategoryCode.ENTERTAINMENT,
+        category_name="SearchApi Review-Only Parent",
+        sort_order=1,
+        is_active=True,
+        parent_id=None,
+    )
+    db_session.add(parent)
     db_session.flush()
+    child = Category(
+        category_code=None,
+        category_name="SearchApi Review-Only Child",
+        sort_order=1,
+        is_active=True,
+        parent_id=parent.category_id,
+    )
+    db_session.add(child)
+    db_session.flush()
+
+    # Reuse the common Writer DML inside a rollback-isolated test database.
+    # Operational run_writer() is not invoked; an unapproved review item
+    # must never reach the ACTIVE publication path.
+    row = SimpleNamespace(
+        title="SearchApi pending article review",
+        normalized_title="searchapi-review-only-good-day-2027",
+        external_id=identity.external_id,
+        source_key=identity.source_key,
+        source_url=identity.source_url,
+        platform="ETC",
+    )
+    trend_id = insert_trend_item(
+        db_session.connection(),
+        row,
+        category_id=child.category_id,
+        collected_at=datetime(2026, 11, 23, 9, 0, 0),
+        summary=None,
+        is_primary=True,
+        status=identity.proposed_status,
+        platform="ETC",
+    )
+    assert inspect_snapshot(db_session.connection(), row) == (
+        "SKIP_EXISTING_RELEASE"
+    )
+    persisted = db_session.execute(
+        text("SELECT status FROM trends WHERE trend_id = :id"),
+        {"id": trend_id},
+    ).scalar_one()
+    assert persisted == "HIDDEN"
+
     response = client.get("/api/trends")
     assert response.status_code == 200, response.text
     assert all(
-        row["trend_id"] != hidden.trend_id
-        for row in response.json()["data"]["items"]
+        item["trend_id"] != trend_id
+        for item in response.json()["data"]["items"]
     )
