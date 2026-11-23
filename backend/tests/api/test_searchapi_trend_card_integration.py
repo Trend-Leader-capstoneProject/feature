@@ -26,9 +26,9 @@ from scripts.run_auto_supply import inspect_snapshot
 pytestmark = pytest.mark.integration
 
 ARTICLE_URL = "https://www.yna.co.kr/view/AKR20261123042700005"
-EVENT_TITLE = "지드래곤·김태호 PD '굿데이' 시즌2 제작 확정"
+EVENT_TITLE = "'굿데이' 시즌2, 2027년 상반기 공개 계획 발표"
 EVENT_SUMMARY = (
-    "제작사 TEO가 음악 예능 '굿데이' 시즌2 제작을 발표했습니다."
+    "제작사 TEO가 '굿데이' 시즌2의 2027년 상반기 공개 계획을 알렸습니다."
 )
 # Fixed test-only identity; this is not a validated production event ID.
 TEST_EXTERNAL_ID = "test-only-searchapi-good-day-20261123"
