@@ -17,7 +17,9 @@ from app.trend_collection.searchapi_evidence import (
     ArticleObservation,
     CrossSourceReview,
     ProposedFact,
+    ReviewEventIdentity,
     assess_cross_source_evidence,
+    build_review_event_identity,
 )
 
 _ALLOWED_HOSTS = frozenset({"www.yna.co.kr", "mobile.newsis.com"})
@@ -250,3 +252,21 @@ def review_news_articles(
     return assess_cross_source_evidence(
         lead, related_news, observations, fact, now=now,
     )
+
+def prepare_review_event(
+    lead: TrendingLead,
+    related_news: tuple[NewsLead, ...],
+    fact: ProposedFact,
+    *,
+    now: datetime,
+    reader: ArticleReader,
+) -> tuple[CrossSourceReview, ReviewEventIdentity | None]:
+    """Join original-page review and stable dedupe key, without authorization.
+
+    This is a review-only collection boundary, not a SourceAdapter.verify()
+    implementation. REVIEW_REQUIRED is never a publishable Snapshot.
+    """
+    review = review_news_articles(
+        lead, related_news, fact, now=now, reader=reader,
+    )
+    return review, build_review_event_identity(fact, review)
