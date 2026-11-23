@@ -18,6 +18,14 @@
 - **WSL KR 실측**: `READ_ONLY_DISCOVERY`, `total_eligible_leads=4`, `news_queries=2`, `requests_executed=3`; News 2개 후보 모두 엔터테인먼트(지드래곤, 심진화). 이는 원본 반환 총 건수가 아니라 `is_active=True` 및 3개 허용 Google 분야의 자체 필터 결과다. 실제 Google 검색어 원본 총량은 출력하지 않았으므로 미확인. 뉴스/검색어가 사실 검증·게시 적격이라는 뜻은 아님.
 - **관측성 최소 개선(같은 PR)**: 비게시 Probe JSON에 `total_trends_returned`, `active_trends_returned`, 전체 `eligible_leads`(토큰 없는 쿼리·Root 힌트) 추가. News API 2개 제한과 DB/Writer/Timer 경계는 동일. 이미 종료한 실측 결과를 사후 복원할 수는 없음.
 
+## 2026-11-23 KR 실측 기반 최소 보완
+
+- 3회 읽기 전용 호출은 이미 모두 실행(Trending Now 1, News 2). 새 검색 재실행은 이번 승인 범위가 아니므로 중단. 최초 Probe의 `total_eligible_leads=4`는 전체 원본 공급량을 의미하지 않는다.
+- 원본 확인: SearchApi Search History API(https://www.searchapi.io/docs/search-history-api)는 최근 90일 기록 조회를 무료로 제공하고 성공 기록의 `json_url`을 반환한다. `python -m scripts.audit_searchapi_history --day 2026-11-23`는 해당 날짜의 KR `past_24_hours` 단일 기록을 선택한 다음, 고정 SearchApi 호스트·경로의 저장된 JSON만 다시 읽는다(History 1 + JSON 1, **신규 Trending/News 호출 0회**). JSON 링크를 외부에 공유하거나 출력하지 않고 Key를 터미널에서 숨김 입력하며, 다른/다수 기록·HTTP 리디렉션은 거부한다. 실제 History 응답은 사용자가 아직 실행하지 않아 미확인.
+- 필터 수정: `games → GAME`, `technology → IT_DIGITAL` 힌트를 추가하고 `is_active=False`(최근 24시간 범위 내 상승이 끝난 현상)를 **읽기 전용 후보**에 포함한다. Active 후보부터 News 조회를 우선한다. `shopping`/`other` 등은 실제 분야 근거 없이 FASHION/BEAUTY/FOOD로 추정하지 않고 원본 카테고리 분포에만 남긴다. 세부 Category와 게시 적격 판정은 기존 독립 검증 및 Writer의 책임이다.
+- 실제 카드 검증 사례(수동 교차확인, **운영 게이트 미충족**): 검색어 `지드래곤`, 관측 시작 2026-11-22T13:30:00Z. 제목 제안 `지드래곤·김태호 PD '굿데이' 시즌2 제작 확정`; 요약 제안 `제작사 TEO가 2026년 11월 23일 음악 예능 '굿데이' 시즌2 제작과 2027년 상반기 공개 계획을 발표했다.`; 대분류 ENTERTAINMENT, 세부분류 `예능`; 링크 예시 https://www.yna.co.kr/view/AKR20261123042700005. 추가 근거: https://mobile.newsis.com/view/NISX20261123_0003878761. 두 보도는 제작사 발표에 대한 교차 보도이며 **프로그램 자체의 공식 게시 원문이나 자동 독립 사실 확인 구현 증거는 아님**. `trend_id/category_id`를 위조하지 않고, `source_title`·`thumbnail_url`은 NULL 제안. 출처의 연결 플랫폼은 실제 뉴스 원문 기준 `ETC`.
+- 아직 미구현: 자동 본문/공식 원출처 확인 및 출처 동일성, SourceAdapter의 Writer-side 재조회, ID/TTL 최종 정책, DB INSERT, FastAPI/Expo 실기기 E2E. 이번 패치는 이들을 완료한 것으로 주장하지 않는다.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
