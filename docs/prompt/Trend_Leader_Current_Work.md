@@ -39,7 +39,8 @@
 
 - **사용자 확정**: SearchApi Trending Now 한국 KR → 관련 뉴스·공식 원출처 확인 → 검증된 사실만 자체 TrendCard로 발행하는 **B안**, 기존 Writer/Journal/Schema/API/TrendCard 및 6시간 전역 쿨다운·Batch 1 재사용. 게임·IT 외 FOOD/FASHION/BEAUTY/ENTERTAINMENT 우선. 자동 게시와 운영 G6는 별도 승인.
 - **PR #140** `feat/searchapi-verified-discovery`(dev `253ead4` 기반): 읽기 전용 SearchApi Client + KR Trending/News 메타데이터 Parser + 사용자 키 비노출 `scripts.probe_searchapi_kr --live` + 테스트. 현재 오프라인 격리 시험 **37 PASS**(기존 의존성 Stub 사용; 실제 저장소 회귀 미실행). SearchApi 공식 API 엔진/필드 계약 2026-11-23 재확인.
-- **읽기 전용 라이브 요청 승인**: 실제 KR 조회 최대 3회(Trending 1 + News 최대 2). ChatGPT 실행 환경에 SearchApi Key 연결되지 않아 **실제 호출 0회**. 로컬 `getpass` 단회 호출 결과를 확보한 뒤 응답 기반 검증·원문 사실 확인·Category 매핑·중복 ID/TTL 확정 및 Writer 별도 통합을 진행. 허가 범위를 무인 게시·DB 쓰기·Scheduler 재개로 확장하지 않는다.
+- **SearchApi KR 실측 사용자 완료(2026-11-23)**: 승인된 읽기 전용 **3/3회**(Trending 1 + News 2), 자체 필터 `total_eligible_leads=4`, 뉴스 확인 대상 2개 모두 ENTERTAINMENT(지드래곤·심진화). 원본 전체 트렌드 건수는 기존 Probe가 기록하지 않아 미확인. SearchApi 분야 힌트·뉴스 메타데이터를 실제 사실 검증/Writer 승인으로 간주하지 않는다. 추가 라이브 조회는 이번 승인 한도를 모두 사용했으므로 진행하지 않음. 기존 운영 DB/Timer/PR #139 보존.
+- **PR #140 진단 버그 수정**: Probe가 전체 수신 건수(`total_trends_returned`), 원본 active 건수, **모든 필터 통과 검색어**를 토큰 없이 출력하도록 최소 패치, 관련 회귀 테스트 추가. 수정 전 기존 격리 37 PASS와 수정 후 미실행 시험을 구분. 다음은 검증 가능한 사건 1건 → 정확한 Category Child → 기존 Writer E2E 연결이며 별도 G6·운영 쓰기 승인은 유지.
 - **PR #139 별도 유지**, Godot 기존 Journal/DB 정상 및 `pending` 보호 복구 완료, Timer는 아직 중단. 동일 진단·Linux 74 PASS 반복 불필요. PR #140 머지/운영 배포 아직 미승인.
 
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
