@@ -6,6 +6,7 @@ from a separate original-page reader; it never fetches, stores or publishes.
 """
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -220,4 +221,60 @@ def assess_cross_source_evidence(
         "TWO_ARTICLE_BODIES_CONTAIN_ASSERTIONS_NOT_INDEPENDENT_PROOF",
         urls,
         evidence_ref,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewEventIdentity:
+    """Stable event key for a review candidate; never an approval or Snapshot.
+
+    A human-defined case key is required until independent, machine-verifiable
+    event attribution exists. Search terms and article body hashes must not
+    become the permanent event identity.
+    """
+
+    candidate_identity: str
+    external_id: str
+    source_key: str
+    evidence_ref: str
+    source_url: str
+
+    @property
+    def proposed_status(self) -> str:
+        return "HIDDEN"
+
+    @property
+    def publish_authorization(self) -> str:
+        return "NONE"
+
+
+def build_review_event_identity(
+    fact: ProposedFact, review: CrossSourceReview,
+) -> ReviewEventIdentity | None:
+    """Bridge reviewed evidence to the Writer's existing dedupe fields.
+
+    This returns a review-only identity, not a PersistableSnapshot. Actual
+    Writer verification and rights/operational approval must remain separate.
+    """
+    if (
+        type(fact) is not ProposedFact or type(review) is not CrossSourceReview
+        or review.status != "REVIEW_REQUIRED"
+        or review.publish_authorization != "NONE"
+        or not isinstance(fact.review_case_key, str)
+        or re.fullmatch(r"[a-z0-9_:-]{1,120}", fact.review_case_key) is None
+        or type(review.urls) is not tuple or len(review.urls) != 2
+        or len(set(review.urls)) != 2
+        or any(_safe_public_url(url) is None for url in review.urls)
+        or not isinstance(review.evidence_ref, str)
+        or re.fullmatch(r"[0-9a-f]{64}", review.evidence_ref) is None
+    ):
+        return None
+
+    identity = f"searchapi-event:{fact.review_case_key}"
+    return ReviewEventIdentity(
+        candidate_identity=identity,
+        external_id=identity,
+        source_key=sha256(f"ETC:{identity}".encode("utf-8")).hexdigest(),
+        evidence_ref=review.evidence_ref,
+        source_url=sorted(review.urls)[0],
     )
