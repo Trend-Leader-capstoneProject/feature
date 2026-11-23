@@ -8,9 +8,11 @@ run the operational Writer, or modify the operational DB/Journal/Timer.
 from collections.abc import Iterator
 from datetime import datetime
 from hashlib import sha256
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -18,8 +20,7 @@ from app.main import create_app
 from app.models.category import Category
 from app.models.db_enums import CategoryCode, TrendSourcePlatform, TrendStatus
 from app.models.trend import Trend
-from app.models.trend_category_map import TrendCategoryMap
-from app.models.trend_source import TrendSource
+from scripts.ap3_writer_transaction import insert_trend_item
 
 pytestmark = pytest.mark.integration
 
@@ -72,49 +73,41 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
     db_session.flush()
 
     observed = datetime(2026, 11, 23, 9, 0, 0)
-    trend = Trend(
+    # Exercise the same SQL insert path used by the operational Writer,
+    # but only inside the rollback-protected integration DB fixture.
+    row = SimpleNamespace(
         title=EVENT_TITLE,
         normalized_title="searchapi-contract-good-day-season2-20261123",
-        summary=EVENT_SUMMARY,
-        thumbnail_url=None,
-        status=TrendStatus.ACTIVE,
-        first_collected_at=observed,
-        last_collected_at=observed,
-        updated_at=None,
-    )
-    db_session.add(trend)
-    db_session.flush()
-
-    source = TrendSource(
-        trend_id=trend.trend_id,
         source_key=sha256(
             f"ETC:{TEST_EXTERNAL_ID}".encode("utf-8")
         ).hexdigest(),
         source_url=ARTICLE_URL,
-        source_title=None,
-        platform=TrendSourcePlatform.ETC,
-        collected_at=observed,
         external_id=TEST_EXTERNAL_ID,
     )
-    db_session.add_all([
-        source,
-        TrendCategoryMap(
-            trend_id=trend.trend_id,
-            category_id=child.category_id,
-            is_primary=True,
-        ),
-    ])
-    db_session.flush()
+    trend_id = insert_trend_item(
+        db_session.connection(),
+        row,
+        category_id=child.category_id,
+        collected_at=observed,
+        summary=EVENT_SUMMARY,
+        is_primary=True,
+        status="ACTIVE",
+        platform="ETC",
+    )
+    source_id = db_session.execute(
+        text("SELECT source_id FROM trend_sources WHERE trend_id = :id"),
+        {"id": trend_id},
+    ).scalar_one()
 
     response = client.get("/api/trends", params={"category_id": child.category_id})
     assert response.status_code == 200, response.text
     items = response.json()["data"]["items"]
-    card = next(item for item in items if item["trend_id"] == trend.trend_id)
+    card = next(item for item in items if item["trend_id"] == trend_id)
     assert card["title"] == EVENT_TITLE
     assert card["summary"] == EVENT_SUMMARY
     assert card["thumbnail_url"] is None
     assert card["latest_source"] == {
-        "source_id": source.source_id,
+        "source_id": source_id,
         "platform": "ETC",
         "source_title": None,
         "source_url": ARTICLE_URL,
