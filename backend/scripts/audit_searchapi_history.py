@@ -26,7 +26,9 @@ from app.trend_collection.searchapi_discovery import (
 HISTORY_ENDPOINT = "https://www.searchapi.io/api/v1/search_history"
 MAX_BYTES = 2_000_000
 TIMEOUT = 10
-_RESULT_PATH = re.compile(r"/api/v1/(?:public_search|searches)/search_[A-Za-z0-9]+(?:\.json)?")
+_RESULT_PATH = re.compile(
+    r"/api/v1/(?:public_search|searches)/search_[A-Za-z0-9]+(?:\.json)?"
+)
 
 
 class HistoryReadBlocked(RuntimeError):
