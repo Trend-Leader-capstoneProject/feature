@@ -230,3 +230,46 @@ def test_same_publisher_pair_rejected_before_network():
     assert result.status == "HOLD"
     assert result.reason == "SAME_PUBLISHER_ORIGIN"
     opener.open.assert_not_called()
+
+
+def test_legacy_yonhap_article_classes_are_supported():
+    body, published = _extract_article(
+        html(root='div class="story-news article"'),
+        "text/html; charset=utf-8",
+    )
+    assert "굿데이 시즌2" in body
+    assert published == PUBLISHED
+
+
+def test_articlebody_itemprop_selector_is_supported():
+    body, published = _extract_article(
+        html(root='div itemprop="articleBody"'),
+        "text/html; charset=utf-8",
+    )
+    assert "굿데이 시즌2" in body
+    assert published == PUBLISHED
+
+
+def test_self_closing_article_tag_cannot_capture_following_page_text():
+    page = html().replace(b"<article>", b"<article/>")
+    with pytest.raises(
+        ArticleReadBlocked, match="ARTICLE_BODY_MISSING_OR_INVALID",
+    ):
+        _extract_article(page, "text/html; charset=utf-8")
+
+
+def test_response_without_final_url_proof_is_rejected():
+    response = FakeResponse()
+    del response.url
+    reader, opener = reader_with(response)
+    with pytest.raises(ArticleReadBlocked, match="ARTICLE_URL_CHANGED"):
+        reader.read(article(), now=NOW)
+    assert opener.open.call_count == 1
+
+
+def test_geturl_is_checked_before_body_extraction():
+    response = FakeResponse()
+    response.geturl = lambda: NEWSIS
+    reader, _ = reader_with(response)
+    with pytest.raises(ArticleReadBlocked, match="ARTICLE_URL_CHANGED"):
+        reader.read(article(), now=NOW)
