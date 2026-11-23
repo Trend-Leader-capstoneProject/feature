@@ -55,6 +55,10 @@ def collect_report(client: SearchApiClient, *, now: datetime) -> dict:
     items: list[dict] = []
     for lead in selected:
         raw_news = client.related_news(lead.news_token)
+        parameters = raw_news.get("search_parameters")
+        if (not isinstance(parameters, dict)
+                or parameters.get("news_token") != lead.news_token):
+            raise SearchApiDiscoveryError("NEWS_TOKEN_MISMATCH")
         news = parse_related_news(raw_news, now=now)
         items.append({
             "query": lead.query,
