@@ -177,14 +177,17 @@ class ArticleReader:
         self._calls = 0
 
     def read(self, news: NewsLead, *, now: datetime) -> ArticleObservation:
+        if type(news) is not NewsLead:
+            raise ArticleReadBlocked("ARTICLE_INPUT_INVALID")
+        return self.read_url(news.url, now=now)
+
+    def read_url(self, source_url: str, *, now: datetime) -> ArticleObservation:
+        """Standalone original-page diagnosis; does not attest SearchApi news."""
         if self._calls >= 2:
             raise ArticleReadBlocked("ARTICLE_REQUEST_BUDGET")
-        if (
-            type(news) is not NewsLead or not isinstance(now, datetime)
-            or now.utcoffset() is None
-        ):
+        if not isinstance(now, datetime) or now.utcoffset() is None:
             raise ArticleReadBlocked("ARTICLE_INPUT_INVALID")
-        url = _allow_url(news.url)
+        url = _allow_url(source_url)
         self._calls += 1
         request = Request(url, method="GET", headers={
             "Accept": "text/html", "User-Agent": "TrendLeader-ArticleReview/0.1",
