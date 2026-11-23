@@ -35,6 +35,13 @@
 | AP-3C-2 합성 연결 | PR #134 병합. 사용자 pytest 112 PASS, Ruff PASS, 실제 MariaDB policy 실행 POLICY_FIXTURE_COMMITTED (synthetic_only=true, publication_authorized=false). 기존 trend_id 3/4 HIDDEN, is_primary=0 유지; 신규 trend_id 5 Synthetic AP3 policy fixture HIDDEN, is_primary=1 확인. 추가 policy 재실행 HOLD 및 최종 Journal 대조 결과는 미보고(기존 AP-3B 실증과 구분). 신규 합성 PoC 반복 불필요. |
 | 재평가 | 기존 APK/배포/조회 기반 보존. 실제 자동 외부 데이터 게시 및 무인 Scheduler/다양성은 아직 입증되지 않음. |
 
+## SearchApi 신규 작업 (2026-11-23 KST, PR #140 Draft)
+
+- **사용자 확정**: SearchApi Trending Now 한국 KR → 관련 뉴스·공식 원출처 확인 → 검증된 사실만 자체 TrendCard로 발행하는 **B안**, 기존 Writer/Journal/Schema/API/TrendCard 및 6시간 전역 쿨다운·Batch 1 재사용. 게임·IT 외 FOOD/FASHION/BEAUTY/ENTERTAINMENT 우선. 자동 게시와 운영 G6는 별도 승인.
+- **PR #140** `feat/searchapi-verified-discovery`(dev `253ead4` 기반): 읽기 전용 SearchApi Client + KR Trending/News 메타데이터 Parser + 사용자 키 비노출 `scripts.probe_searchapi_kr --live` + 테스트. 현재 오프라인 격리 시험 **37 PASS**(기존 의존성 Stub 사용; 실제 저장소 회귀 미실행). SearchApi 공식 API 엔진/필드 계약 2026-11-23 재확인.
+- **읽기 전용 라이브 요청 승인**: 실제 KR 조회 최대 3회(Trending 1 + News 최대 2). ChatGPT 실행 환경에 SearchApi Key 연결되지 않아 **실제 호출 0회**. 로컬 `getpass` 단회 호출 결과를 확보한 뒤 응답 기반 검증·원문 사실 확인·Category 매핑·중복 ID/TTL 확정 및 Writer 별도 통합을 진행. 허가 범위를 무인 게시·DB 쓰기·Scheduler 재개로 확장하지 않는다.
+- **PR #139 별도 유지**, Godot 기존 Journal/DB 정상 및 `pending` 보호 복구 완료, Timer는 아직 중단. 동일 진단·Linux 74 PASS 반복 불필요. PR #140 머지/운영 배포 아직 미승인.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다. 별도 신규 PR 없음.
