@@ -76,6 +76,8 @@ def test_two_leads_make_at_most_three_calls_without_publication():
     result = collect_report(client, now=NOW)
     assert result["requests_executed"] == 3
     assert result["news_queries"] == 2
+    assert result["raw_category_counts"]["food_and_drink"] == 1
+    assert result["eligible_leads"][0]["is_active"] is True
     assert result["total_trends_returned"] == 2
     assert result["active_trends_returned"] == 2
     assert len(result["eligible_leads"]) == 2
@@ -142,3 +144,10 @@ def test_four_eligible_leads_do_not_collapse_to_two_reported_leads():
     assert result["requests_executed"] == 3
     assert "token0" not in str(result)
     assert "token3" not in str(result)
+
+def test_active_lead_preferred_over_ended_when_same_category():
+    ended = TrendingLead("ended", NOW, "token1", frozenset({"FOOD"}), False)
+    active = TrendingLead("active", NOW, "token2", frozenset({"FOOD"}), True)
+    chosen = choose_news_leads((ended, active))
+    assert chosen[0].query == "active"
+    assert chosen[1].query == "ended"
