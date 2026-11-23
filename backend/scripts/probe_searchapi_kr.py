@@ -70,11 +70,26 @@ def collect_report(client: SearchApiClient, *, now: datetime) -> dict:
                 for item in news
             ],
         })
+    # Include every eligible lead, even those skipped by the 2-news-call
+    # probe budget. No news tokens, credentials or raw response are emitted.
     return {
         "status": "READ_ONLY_DISCOVERY",
         "publication_authorization": "NONE",
         "region": "KR", "time": "past_24_hours",
+        "total_trends_returned": len(raw["trends"]),
+        "active_trends_returned": sum(
+            isinstance(item, dict) and item.get("is_active") is True
+            for item in raw["trends"]
+        ),
         "total_eligible_leads": len(leads),
+        "eligible_leads": [
+            {
+                "query": lead.query,
+                "started_at_utc": lead.started_at_utc.isoformat(),
+                "possible_root_codes": sorted(lead.possible_root_codes),
+            }
+            for lead in leads
+        ],
         "news_queries": len(selected),
         "requests_executed": 1 + len(selected),
         "candidates": items,
