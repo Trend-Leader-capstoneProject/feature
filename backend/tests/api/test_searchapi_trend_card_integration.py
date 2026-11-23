@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.main import create_app
 from app.models.category import Category
-from app.models.db_enums import CategoryCode, TrendSourcePlatform, TrendStatus
+from app.models.db_enums import CategoryCode, TrendStatus
 from app.models.trend import Trend
 from scripts.ap3_writer_transaction import insert_trend_item
+from scripts.run_auto_supply import inspect_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -83,6 +84,7 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
         ).hexdigest(),
         source_url=ARTICLE_URL,
         external_id=TEST_EXTERNAL_ID,
+        platform="ETC",
     )
     trend_id = insert_trend_item(
         db_session.connection(),
@@ -98,6 +100,11 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
         text("SELECT source_id FROM trend_sources WHERE trend_id = :id"),
         {"id": trend_id},
     ).scalar_one()
+    # Confirm the same identity is observed as duplicate by the real Writer
+    # inspector, rather than incorrectly proposing a second insert.
+    assert inspect_snapshot(db_session.connection(), row) == (
+        "SKIP_EXISTING_RELEASE"
+    )
 
     response = client.get("/api/trends", params={"category_id": child.category_id})
     assert response.status_code == 200, response.text
