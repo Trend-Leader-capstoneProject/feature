@@ -19,9 +19,10 @@ from app.trend_collection.searchapi_discovery import (
     TrendingLead,
     parse_related_news,
     parse_trending_now,
+    summarize_trend_response,
 )
 
-_ROOT_PRIORITY = ("FOOD", "ENTERTAINMENT", "FASHION", "BEAUTY")
+_ROOT_PRIORITY = ("FOOD", "ENTERTAINMENT", "FASHION", "BEAUTY", "GAME", "IT_DIGITAL")
 MAX_NEWS_QUERIES = 2
 
 
@@ -29,8 +30,10 @@ def choose_news_leads(leads: tuple[TrendingLead, ...]) -> tuple[TrendingLead, ..
     """At most 2 distinct-root leads, preferring unambiguous category hints."""
     selected: list[TrendingLead] = []
     used_roots: set[str] = set()
+    # Recently active topics take priority over ended 24-hour observations.
+    ordered = sorted(leads, key=lambda lead: not lead.is_active)
     for root in _ROOT_PRIORITY:
-        for lead in leads:
+        for lead in ordered:
             if (lead in selected or lead.possible_root_codes != frozenset({root})
                     or root in used_roots):
                 continue
@@ -39,7 +42,7 @@ def choose_news_leads(leads: tuple[TrendingLead, ...]) -> tuple[TrendingLead, ..
             break
         if len(selected) == MAX_NEWS_QUERIES:
             return tuple(selected)
-    for lead in leads:
+    for lead in ordered:
         if lead not in selected:
             selected.append(lead)
             if len(selected) == MAX_NEWS_QUERIES:
@@ -72,6 +75,7 @@ def collect_report(client: SearchApiClient, *, now: datetime) -> dict:
         })
     # Include every eligible lead, even those skipped by the 2-news-call
     # probe budget. No news tokens, credentials or raw response are emitted.
+    audit = summarize_trend_response(raw, now=now)
     return {
         "status": "READ_ONLY_DISCOVERY",
         "publication_authorization": "NONE",
@@ -81,11 +85,13 @@ def collect_report(client: SearchApiClient, *, now: datetime) -> dict:
             isinstance(item, dict) and item.get("is_active") is True
             for item in raw["trends"]
         ),
+        "raw_category_counts": audit["upstream_category_counts"],
         "total_eligible_leads": len(leads),
         "eligible_leads": [
             {
                 "query": lead.query,
                 "started_at_utc": lead.started_at_utc.isoformat(),
+                "is_active": lead.is_active,
                 "possible_root_codes": sorted(lead.possible_root_codes),
             }
             for lead in leads
