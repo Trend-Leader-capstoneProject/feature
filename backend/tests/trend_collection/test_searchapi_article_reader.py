@@ -10,6 +10,7 @@ from app.trend_collection.searchapi_article_reader import (
     ArticleReadBlocked,
     ArticleReader,
     _extract_article,
+    prepare_review_event,
     review_news_articles,
 )
 from app.trend_collection.searchapi_discovery import NewsLead, TrendingLead
@@ -273,3 +274,48 @@ def test_geturl_is_checked_before_body_extraction():
     reader, _ = reader_with(response)
     with pytest.raises(ArticleReadBlocked, match="ARTICLE_URL_CHANGED"):
         reader.read(article(), now=NOW)
+
+
+def test_review_event_to_dedupe_key_is_nonpublishing():
+    reader, opener = reader_with(
+        FakeResponse(),
+        FakeResponse(
+            url=NEWSIS,
+            data=html(body=BODY + " 두 번째 기사에서 확인한 추가 문장."),
+        ),
+    )
+    lead = TrendingLead(
+        "지드래곤", NOW, "test-token", frozenset({"ENTERTAINMENT"}),
+    )
+    fact = ProposedFact(
+        "good-day-2-2027-h1-announcement", "ENTERTAINMENT",
+        (("굿데이",), ("시즌2",)),
+    )
+    news = (article(), NewsLead("굿데이2", NEWSIS, "뉴시스", PUBLISHED))
+    review, identity = prepare_review_event(
+        lead, news, fact, now=NOW, reader=reader,
+    )
+    assert review.status == "REVIEW_REQUIRED"
+    assert review.publish_authorization == "NONE"
+    assert identity is not None
+    assert identity.external_id == (
+        "searchapi-event:good-day-2-2027-h1-announcement"
+    )
+    assert identity.proposed_status == "HIDDEN"
+    assert identity.publish_authorization == "NONE"
+    assert opener.open.call_count == 2
+
+
+def test_review_event_with_invalid_source_returns_no_identity():
+    reader, opener = reader_with(FakeResponse())
+    lead = TrendingLead(
+        "지드래곤", NOW, "test-token", frozenset({"ENTERTAINMENT"}),
+    )
+    fact = ProposedFact("case", "ENTERTAINMENT", (("굿데이",),))
+    unsafe = NewsLead("unsafe", "https://127.0.0.1/view/a", "any", PUBLISHED)
+    review, identity = prepare_review_event(
+        lead, (article(), unsafe), fact, now=NOW, reader=reader,
+    )
+    assert review.status == "HOLD"
+    assert identity is None
+    opener.open.assert_not_called()
