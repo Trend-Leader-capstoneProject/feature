@@ -53,6 +53,12 @@
 
 - **2026-11-23 사용자 실측 완료**: 보강 Reader 로컬 **26 PASS / Ruff PASS**, 원문 진단 단위 테스트 **5 PASS**. 실제 `scripts.probe_searchapi_articles --live` 출력: YNA `PARSE_OK_NOT_FACT_VERIFIED`(게시 `2026-11-23T00:40:37+00:00`, 794자), NEWSIS `PARSE_OK_NOT_FACT_VERIFIED`(게시 `2026-11-23T01:54:18+00:00`, 626자). SearchApi 신규 호출 0회, 저장·게시 권한 없음. **두 기사 HTML의 추출 계약은 사용자 환경에서 통과**, 기사 본문의 주장 일치·원출처 실질적 독립성·사건 중복 ID·TTL·운영 Writer 검증은 여전히 미완료. 동일 진단 재실행 없이 다음 검증 단계로 진행.
 
+## 2026-11-24 — Writer 입력 연결 (비운영, 자동 승인과 분리)
+
+- 신규 `NewsSnapshot` / `SearchApiSnapshotBridge`는 기존 `PersistableSnapshot` 구조와 `bind_snapshot`, `validate_snapshot_freshness`, `_category_id`, `inspect_snapshot`, `insert_trend_item` 재사용을 목표로 한다. Collector는 사건 키/검색어/관측시각/두 URL만 전달하고 제목/요약/분류/검토 증거/운영 권한은 부여할 수 없다. 독립 내용 검토에서 제공된 신뢰된 `ReviewedNewsCase`와 Writer 재조회한 두 원문의 지문이 정확히 일치할 때만 정식 Snapshot을 구성한다. `REVIEW_REQUIRED`만으로 승격하지 않는다. 아직 실제 검토 데이터의 신뢰된 공급·자동 승인 경로는 존재하지 않으며, 새 수동 검토 인프라의 운영 채택도 결정하지 않았다.
+- News 전용 scope/identity/출처 URL/기존 10분 Preview 검증과 격리 구현의 보수적 24시간 수집 적격 상한을 추가한다. 이 시간은 운영 노출 TTL/삭제 정책의 최종 확정이 아니다. 기존 Registry는 미변경이므로 정상 운영 CLI로 사용할 수 없고, 실제 승인된 권리/G6·자동 사실 판정·egress 정책·최종 TTL을 우회하지 않는다.
+- 기존 격리 DB 통합 시험의 ACTIVE 샘플에 합성 검색 및 합성 기사 HTML로 구성한 신뢰된 테스트 사건을 전달하여 bridge → 정식 Snapshot → 공통 freshness → 실제 활성 Child 잠금 조회 → 공통 INSERT·중복 SKIP → 기존 API를 확인한다. 원문 지문 변경·Preview 변조·잘못된 승인 scope·만료 차단을 확인하는 사례를 추가하고 HIDDEN 비노출은 유지한다. 실제 저장소의 수정 테스트 실행 전이며, 운영 자동 게시의 증거가 아니다.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
