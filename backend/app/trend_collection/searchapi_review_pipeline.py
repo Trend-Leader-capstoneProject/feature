@@ -5,7 +5,7 @@ Callers explicitly supply the existing SearchApi client and article reader.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from app.trend_collection.searchapi_article_reader import (
@@ -27,6 +27,7 @@ from app.trend_collection.searchapi_evidence import (
 )
 
 MAX_NEWS_QUERIES = 2
+_PRIORITY_ROOTS = frozenset({"FOOD", "FASHION", "BEAUTY", "ENTERTAINMENT"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +65,18 @@ class SearchApiReviewPipeline:
             raise ValueError("SEARCHAPI_REVIEW_CLOCK_INVALID")
         now = now.astimezone(timezone.utc)
         leads = parse_trending_now(self._client.trending_now(), now=now)
+        # Game and IT already have dedicated suppliers. Preserve upstream
+        # order within each group and spend the same budget on uncovered roots.
+        eligible = (
+            lead for lead in leads
+            if lead.is_active and lead.possible_root_codes
+            and timedelta(0) <= now - lead.started_at_utc <= timedelta(hours=24)
+        )
         attempts = 0
-        for lead in leads:
-            if not lead.is_active or not lead.possible_root_codes:
-                continue
+        for lead in sorted(
+            eligible,
+            key=lambda item: not bool(item.possible_root_codes & _PRIORITY_ROOTS),
+        ):
             if attempts >= MAX_NEWS_QUERIES:
                 break
             attempts += 1
