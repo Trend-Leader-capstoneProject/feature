@@ -85,7 +85,11 @@ def test_popularity_snapshot_projection_and_digest():
     assert snapshot.content_digest == _digest(asdict(snapshot))
     assert not hasattr(snapshot, "source_published_at")
     assert preview["publish_authorization"] == "NONE"
-    assert SOURCE_ID not in ADAPTERS
+    # Code registration is not operational authorization: the default
+    # IGDB descriptor must remain inert without role-scoped credentials.
+    assert SOURCE_ID in ADAPTERS
+    with pytest.raises(SupplyBlocked, match="IGDB_CREDENTIALS_UNAVAILABLE"):
+        ADAPTERS[SOURCE_ID].collect_preview()
 
 
 def test_godot_snapshot_schema_and_digest_remain_unchanged():
@@ -240,7 +244,10 @@ def test_collector_empty_response_is_explicit_and_does_not_authorize_write(
 ):
     adapter = Mock()
     adapter.collect_preview.return_value = None
-    monkeypatch.setitem(supply.ADAPTERS, SOURCE_ID, adapter)
+    # Phase 4-F resolves IGDB through _operational_adapter rather than
+    # directly reading ADAPTERS. Stub this boundary without Linux secrets.
+    resolver = Mock(return_value=adapter)
+    monkeypatch.setattr(supply, "_operational_adapter", resolver)
     source = supply.ApprovedSource(
         source_id=SOURCE_ID, scope="IGDB_VISITS_FACTS_LINK_V1",
         rights_ref="test-only",
@@ -253,6 +260,7 @@ def test_collector_empty_response_is_explicit_and_does_not_authorize_write(
         with pytest.raises(SupplyBlocked, match="GAME_CURSOR_INVALID"):
             supply.collect_envelope(source, after_game_id=invalid)
     assert adapter.collect_preview.call_count == 1
+    resolver.assert_called_once_with(source, "collect")
 
 
 def test_godot_cannot_report_igdb_no_candidate(monkeypatch):

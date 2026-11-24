@@ -24,13 +24,18 @@ from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
-from app.trend_collection.igdb_adapter import SOURCE_ID as IGDB_SOURCE_ID
+from app.trend_collection.igdb_adapter import (
+    SOURCE_ID as IGDB_SOURCE_ID,
+    IgdbBlocked,
+)
+from app.trend_collection.igdb_client import IgdbClient, IgdbClientError
 from app.trend_collection.publication_policy import (
     PersistableSnapshot,
     PopularitySnapshot,
 )
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    IgdbOperationalAdapter,
     SupplyBlocked,
     bind_snapshot,
     utc,
@@ -195,6 +200,41 @@ def _bounded(stream):
     if not data or len(data) > MAX_INPUT:
         raise SupplyBlocked("INPUT_SIZE_INVALID")
     return data
+
+
+def _igdb_query(role: str):
+    """Bind a fresh IGDB client to only the currently executing Linux role."""
+    if role not in {"collect", "write"}:
+        raise SupplyBlocked("IGDB_EXECUTION_ROLE_INVALID")
+    # Administrator-provisioned files only; no .env, token cache or stdout.
+    # Each file must be root-owned, 0640, with the executing role's group.
+    path = CONTROL / f"igdb-{role}-credentials.json"
+    try:
+        with _root_file(path, secret=True) as stream:
+            info = os.fstat(stream.fileno())
+            if (info.st_gid != os.getegid()
+                    or info.st_mode & 0o077 != 0o040):
+                raise SupplyBlocked("IGDB_CREDENTIAL_SCOPE_INVALID")
+            credentials = _json(_bounded(stream))
+    except (FileNotFoundError, PermissionError):
+        raise SupplyBlocked("IGDB_CREDENTIALS_UNAVAILABLE") from None
+    if type(credentials) is not dict or set(credentials) != {
+        "client_id", "client_secret",
+    }:
+        raise SupplyBlocked("IGDB_CREDENTIALS_INVALID")
+    try:
+        return IgdbClient(
+            credentials["client_id"], credentials["client_secret"],
+        ).query
+    except IgdbClientError:
+        raise SupplyBlocked("IGDB_CREDENTIALS_INVALID") from None
+
+
+def _operational_adapter(source: ApprovedSource, role: str):
+    """Static registry scope plus separately supplied principal-scoped secrets."""
+    if source.source_id == IGDB_SOURCE_ID:
+        return IgdbOperationalAdapter(_igdb_query(role))
+    return ADAPTERS[source.source_id]
 
 
 @contextmanager
@@ -393,7 +433,9 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
             or not isinstance(envelope["source_id"], str)):
         raise SupplyBlocked("SOURCE_ENVELOPE_MISMATCH")
     source = profile.source(envelope["source_id"])
-    snapshot = ADAPTERS[source.source_id].verify(envelope["preview"], now_utc())
+    snapshot = _operational_adapter(source, "write").verify(
+        envelope["preview"], now_utc(),
+    )
     bound = bind_snapshot(snapshot, policy=VERSION, target=profile.target)
     result = _write(profile, bound, OperationalJournal(profile))
     return {"status": result, "candidate_identity": snapshot.candidate_identity}
@@ -407,7 +449,7 @@ def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
         or not 1 <= after_game_id < 10**20
     ):
         raise SupplyBlocked("GAME_CURSOR_INVALID")
-    adapter = ADAPTERS[source.source_id]
+    adapter = _operational_adapter(source, "collect")
     if source.source_id == IGDB_SOURCE_ID:
         preview = adapter.collect_preview(after_game_id=after_game_id)
     else:
@@ -446,7 +488,7 @@ def main() -> int:
     except RateLimited as exc:
         result = {"status": "HOLD", "reason": "RATE_LIMITED",
                   "retry_not_before": exc.retry_not_before}
-    except (CollectionError, SupplyBlocked, JournalBlocked) as exc:
+    except (CollectionError, SupplyBlocked, JournalBlocked, IgdbBlocked) as exc:
         result = {"status": "HOLD", "reason": str(exc)}
     except Exception:
         # Do not print raw config, SQL, credentials or upstream content.
