@@ -162,3 +162,27 @@ def test_wrong_root_is_rejected_without_reader_requests():
     assert result.status == "HOLD"
     assert identity is None
     opener.open.assert_not_called()
+
+
+def test_uncovered_roots_take_priority_over_game_and_it():
+    coordinator, (api, opener) = pipeline()
+    payload = api.trending_now()
+    template = payload["trends"][0]
+    payload["trends"] = [
+        {**template, "query": "게임", "news_token": "game",
+         "categories": ["games"]},
+        {**template, "query": "기술", "news_token": "tech",
+         "categories": ["technology"]},
+        {**template, "query": "지난 음식", "news_token": "stale",
+         "categories": ["food_and_drink"],
+         "start_date": "2026-11-21T09:00:00Z"},
+        {**template, "query": "음식", "news_token": "food",
+         "categories": ["food_and_drink"]},
+    ]
+    api.trending_now = Mock(return_value=payload)
+    candidate = coordinator.collect_preview(now=NOW)
+    assert candidate is not None
+    assert candidate.lead.possible_root_codes == frozenset({"FOOD"})
+    assert api.news_calls == ["food"]
+    api.trending_now.assert_called_once_with()
+    opener.open.assert_not_called()
