@@ -123,7 +123,10 @@ def reviewed_bridge(*, changed_body=False):
         }],
     }
     upstream.related_news.return_value = {
-        "search_parameters": {"engine": "google_trends_trending_now_news"},
+        "search_parameters": {
+            "engine": "google_trends_trending_now_news",
+            "news_token": lead.news_token,
+        },
         "news": [{
             "title": item.title, "link": item.url, "source": item.publisher,
             "iso_date": PUBLISHED.isoformat(),
