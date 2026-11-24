@@ -16,6 +16,7 @@ from app.trend_collection.searchapi_article_reader import (
 )
 from app.trend_collection.searchapi_discovery import (
     NewsLead,
+    SearchApiDiscoveryError,
     TrendingLead,
     parse_related_news,
     parse_trending_now,
@@ -80,9 +81,14 @@ class SearchApiReviewPipeline:
             if attempts >= MAX_NEWS_QUERIES:
                 break
             attempts += 1
-            news = parse_related_news(
-                self._client.related_news(lead.news_token), now=now,
-            )
+            raw_news = self._client.related_news(lead.news_token)
+            parameters = raw_news.get("search_parameters")
+            if (
+                not isinstance(parameters, dict)
+                or parameters.get("news_token") != lead.news_token
+            ):
+                raise SearchApiDiscoveryError("NEWS_TOKEN_MISMATCH")
+            news = parse_related_news(raw_news, now=now)
             supported: list[NewsLead] = []
             publisher_hosts: set[str] = set()
             for item in news:
