@@ -1,14 +1,15 @@
-"""Existing API contract for an independently approved SearchApi news row.
+"""SearchApi reviewed Snapshot -> shared Writer DML -> actual API.
 
-This test deliberately inserts an isolated approved-shaped row through ORM
-fixtures; it does NOT ingest a live SearchApi response, approve publication,
-run the operational Writer, or modify the operational DB/Journal/Timer.
+The approved case and upstream HTML are synthetic. All DML uses the existing
+rollback-isolated test DB. No operational Writer, approval or live API calls.
 """
 
 from collections.abc import Iterator
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,12 +20,26 @@ from app.db.session import get_db
 from app.main import create_app
 from app.models.category import Category
 from app.models.db_enums import CategoryCode
+from app.trend_collection.freshness_policy import validate_snapshot_freshness
+from app.trend_collection.searchapi_article_reader import ArticleReader
+from app.trend_collection.searchapi_discovery import NewsLead, TrendingLead
 from app.trend_collection.searchapi_evidence import (
+    ArticleObservation,
     CrossSourceReview,
     ProposedFact,
+    assess_cross_source_evidence,
     build_review_event_identity,
 )
-from scripts.ap3_writer_transaction import insert_trend_item
+from app.trend_collection.searchapi_review_pipeline import SearchApiReviewCandidate
+from app.trend_collection.searchapi_supply_snapshot import (
+    SCOPE,
+    SOURCE_ID,
+    NewsSnapshot,
+    ReviewedNewsCase,
+    SearchApiSnapshotBridge,
+)
+from app.trend_collection.supply_adapter import ADAPTERS, SupplyBlocked, bind_snapshot
+from scripts.ap3_writer_transaction import _category_id, insert_trend_item
 from scripts.run_auto_supply import inspect_snapshot
 
 pytestmark = pytest.mark.integration
@@ -34,8 +49,106 @@ EVENT_TITLE = "'굿데이' 시즌2, 2027년 상반기 공개 계획 발표"
 EVENT_SUMMARY = (
     "제작사 TEO가 '굿데이' 시즌2의 2027년 상반기 공개 계획을 알렸습니다."
 )
-# Fixed test-only identity; this is not a validated production event ID.
-TEST_EXTERNAL_ID = "test-only-searchapi-good-day-20261123"
+SECOND_URL = "https://mobile.newsis.com/view/NISX20261123_0003878761"
+NOW = datetime(2026, 11, 23, 2, tzinfo=timezone.utc)
+PUBLISHED = NOW - timedelta(hours=1)
+BODY = (
+    "제작사 TEO가 굿데이 시즌2의 2027년 상반기 공개 계획을 발표했다. "
+    "이는 실제 기사를 복사하지 않고 만든 테스트용 가상 본문입니다. "
+    "추가 일정과 출연진에 관한 내용은 이 사례의 검토 대상이 아닙니다."
+)
+
+
+class FakeArticleResponse:
+    status = 200
+    headers = {"Content-Type": "text/html; charset=utf-8"}
+
+    def __init__(self, url, body):
+        self.url = url
+        self.data = (
+            '<meta property="article:published_time" '
+            f'content="{PUBLISHED.isoformat()}"><article>{body}</article>'
+        ).encode("utf-8")
+
+    def read(self, limit):
+        return self.data[:limit]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+def reviewed_bridge(*, changed_body=False):
+    lead = TrendingLead(
+        "지드래곤", PUBLISHED, "test-only-token",
+        frozenset({"ENTERTAINMENT"}),
+    )
+    news = (
+        NewsLead("테스트 기사 1", ARTICLE_URL, "YNA", PUBLISHED),
+        NewsLead("테스트 기사 2", SECOND_URL, "NEWSIS", PUBLISHED),
+    )
+    fact = ProposedFact(
+        "good-day-2-2027-h1-announcement", "ENTERTAINMENT",
+        (("굿데이",), ("시즌2",), ("상반기",), ("공개 계획",)),
+    )
+    bodies = (BODY, BODY + " 서로 다른 테스트 기사 문장입니다.")
+    observations = tuple(
+        ArticleObservation(item.url, body, PUBLISHED, NOW)
+        for item, body in zip(news, bodies)
+    )
+    # This digest represents a trusted SYNTHETIC case in the test only.
+    # It does not certify a real article or turn keyword matching into truth.
+    initial = assess_cross_source_evidence(
+        lead, news, observations, fact, now=NOW,
+    )
+    assert initial.status == "REVIEW_REQUIRED"
+    assert initial.evidence_ref is not None
+    case = ReviewedNewsCase(
+        SearchApiReviewCandidate(lead, news), fact,
+        EVENT_TITLE, EVENT_SUMMARY, "예능", ARTICLE_URL,
+        initial.evidence_ref,
+    )
+    upstream = Mock()
+    upstream.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now", "geo": "KR",
+            "time": "past_24_hours",
+        },
+        "trends": [{
+            "query": lead.query, "news_token": lead.news_token,
+            "start_date": PUBLISHED.isoformat(),
+            "categories": ["entertainment"], "is_active": True,
+        }],
+    }
+    upstream.related_news.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now_news"},
+        "news": [{
+            "title": item.title, "link": item.url, "source": item.publisher,
+            "iso_date": PUBLISHED.isoformat(),
+        } for item in news],
+    }
+    opener = Mock()
+    opener.open.side_effect = [
+        FakeArticleResponse(ARTICLE_URL, bodies[0]),
+        FakeArticleResponse(
+            SECOND_URL, bodies[1] + (" 변경됨" if changed_body else ""),
+        ),
+    ]
+    bridge = SearchApiSnapshotBridge(
+        upstream, case, reader_factory=lambda: ArticleReader(opener=opener),
+        clock=lambda: NOW,
+    )
+    return bridge, opener
+
+
+def approved_test_profile():
+    def source(source_id):
+        if source_id != SOURCE_ID:
+            raise SupplyBlocked("SOURCE_NOT_APPROVED")
+        return SimpleNamespace(scope=SCOPE)
+    return SimpleNamespace(source=source)
 
 
 @pytest.fixture
@@ -56,7 +169,18 @@ def client(db_session: Session) -> Iterator[TestClient]:
 def test_existing_trend_api_renders_approved_shaped_news_row(
     client: TestClient, db_session: Session,
 ) -> None:
-    """Actual DB IDs and existing /api/trends contract; no mocked API."""
+    """Mock source I/O, real Snapshot, MariaDB DML and API, no mocked API."""
+    bridge, opener = reviewed_bridge()
+    preview = bridge.collect_preview()
+    assert preview is not None
+    assert "test-only-token" not in str(preview)
+    row = bridge.verify(preview, NOW)
+    assert type(row) is NewsSnapshot
+    assert SOURCE_ID not in ADAPTERS
+    assert opener.open.call_count == 2
+    row = bind_snapshot(row, policy="AUTO_V1", target="isolated-test")
+    validate_snapshot_freshness(approved_test_profile(), row, NOW)
+
     parent = Category(
         category_code=CategoryCode.ENTERTAINMENT,
         category_name="SearchApi Contract Entertainment",
@@ -69,7 +193,7 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
 
     child = Category(
         category_code=None,
-        category_name="SearchApi Contract Variety",
+        category_name="예능",
         sort_order=1,
         is_active=True,
         parent_id=parent.category_id,
@@ -77,28 +201,17 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
     db_session.add(child)
     db_session.flush()
 
-    observed = datetime(2026, 11, 23, 9, 0, 0)
-    # Exercise the same SQL insert path used by the operational Writer,
-    # but only inside the rollback-protected integration DB fixture.
-    row = SimpleNamespace(
-        title=EVENT_TITLE,
-        normalized_title="searchapi-contract-good-day-season2-20261123",
-        source_key=sha256(
-            f"ETC:{TEST_EXTERNAL_ID}".encode("utf-8")
-        ).hexdigest(),
-        source_url=ARTICLE_URL,
-        external_id=TEST_EXTERNAL_ID,
-        platform="ETC",
+    conn = db_session.connection()
+    category_id = _category_id(
+        conn, row.parent_code, row.child_name, lock=True,
     )
+    assert category_id == child.category_id
+    assert inspect_snapshot(conn, row) == "NEW"
     trend_id = insert_trend_item(
-        db_session.connection(),
-        row,
-        category_id=child.category_id,
-        collected_at=observed,
-        summary=EVENT_SUMMARY,
-        is_primary=True,
-        status="ACTIVE",
-        platform="ETC",
+        conn, row, category_id=category_id,
+        collected_at=NOW.replace(tzinfo=None),
+        summary=row.summary, is_primary=row.is_primary,
+        status=row.proposed_status, platform=row.platform,
     )
     source_id = db_session.execute(
         text("SELECT source_id FROM trend_sources WHERE trend_id = :id"),
@@ -138,9 +251,6 @@ def test_reviewed_event_identity_uses_writer_dedupe_but_stays_hidden(
     client: TestClient, db_session: Session,
 ) -> None:
     """Review-only evidence can never imply ACTIVE publication authorization."""
-    from app.trend_collection.freshness_policy import validate_snapshot_freshness
-    from app.trend_collection.supply_adapter import SupplyBlocked
-
     # Synthetic review proof: this is NOT live original-page verification.
     fact = ProposedFact(
         "good-day-2-2027-h1-announcement",
@@ -218,3 +328,36 @@ def test_reviewed_event_identity_uses_writer_dedupe_but_stays_hidden(
         item["trend_id"] != trend_id
         for item in response.json()["data"]["items"]
     )
+
+
+def test_reviewed_news_changed_evidence_holds():
+    bridge, opener = reviewed_bridge(changed_body=True)
+    preview = bridge.collect_preview()
+    assert preview is not None
+    with pytest.raises(SupplyBlocked, match="NEWS_REVIEWED_EVIDENCE_CHANGED"):
+        bridge.verify(preview, NOW)
+    assert opener.open.call_count == 2
+
+
+def test_reviewed_news_rejects_tampered_preview_and_missing_scope():
+    bridge, opener = reviewed_bridge()
+    preview = bridge.collect_preview()
+    assert preview is not None
+    with pytest.raises(SupplyBlocked, match="NEWS_PREVIEW_MISMATCH"):
+        bridge.verify({**preview, "title": "unreviewed"}, NOW)
+    with pytest.raises(SupplyBlocked, match="STALE_PREVIEW"):
+        bridge.verify(preview, NOW + timedelta(minutes=11))
+    opener.open.assert_not_called()
+
+    row = bridge.verify(preview, NOW)
+    unapproved = SimpleNamespace(
+        source=lambda _: SimpleNamespace(scope="UNAPPROVED"),
+    )
+    with pytest.raises(SupplyBlocked, match="SOURCE_SNAPSHOT_MISMATCH"):
+        validate_snapshot_freshness(unapproved, row, NOW)
+    with pytest.raises(SupplyBlocked, match="SNAPSHOT_EXPIRED"):
+        validate_snapshot_freshness(
+            approved_test_profile(),
+            replace(row, source_published_at=(NOW - timedelta(days=2)).isoformat()),
+            NOW,
+        )
