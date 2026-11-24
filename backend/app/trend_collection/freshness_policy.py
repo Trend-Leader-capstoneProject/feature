@@ -15,6 +15,16 @@ from app.trend_collection.publication_policy import (
     ContentSnapshot,
     PopularitySnapshot,
 )
+from app.trend_collection.searchapi_article_reader import (
+    ArticleReadBlocked,
+    _allow_url,
+)
+from app.trend_collection.searchapi_supply_snapshot import (
+    NEWS_WINDOW,
+    SCOPE as NEWS_SCOPE,
+    SOURCE_ID as NEWS_SOURCE_ID,
+    NewsSnapshot,
+)
 from app.trend_collection.supply_adapter import SupplyBlocked, utc
 
 GODOT_SCOPE = "GODOT_FACTS_LINK_V1"
@@ -60,6 +70,27 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
             raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH")
         reference_time = snapshot.calculated_at_utc
         window = POPULARITY_WINDOW
+    elif type(snapshot) is NewsSnapshot:
+        source_id, scope = NEWS_SOURCE_ID, NEWS_SCOPE
+        if (
+            not isinstance(snapshot.candidate_identity, str)
+            or re.fullmatch(
+                r"searchapi-event:[a-z0-9_:-]{1,120}",
+                snapshot.candidate_identity,
+            ) is None
+            or snapshot.parent_code not in {
+                "ENTERTAINMENT", "GAME", "IT_DIGITAL", "FOOD", "BEAUTY", "FASHION",
+            }
+            or not isinstance(snapshot.child_name, str)
+            or not 1 <= len(snapshot.child_name.strip()) <= 255
+        ):
+            raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH")
+        try:
+            _allow_url(snapshot.source_url)
+        except ArticleReadBlocked:
+            raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH") from None
+        reference_time = snapshot.source_published_at
+        window = NEWS_WINDOW
     else:
         raise SupplyBlocked("SNAPSHOT_TYPE_NOT_SUPPORTED")
     if (
