@@ -59,6 +59,13 @@
 - News 전용 scope/identity/출처 URL/기존 10분 Preview 검증과 격리 구현의 보수적 24시간 수집 적격 상한을 추가한다. 이 시간은 운영 노출 TTL/삭제 정책의 최종 확정이 아니다. 기존 Registry는 미변경이므로 정상 운영 CLI로 사용할 수 없고, 실제 승인된 권리/G6·자동 사실 판정·egress 정책·최종 TTL을 우회하지 않는다.
 - 기존 격리 DB 통합 시험의 ACTIVE 샘플에 합성 검색 및 합성 기사 HTML로 구성한 신뢰된 테스트 사건을 전달하여 bridge → 정식 Snapshot → 공통 freshness → 실제 활성 Child 잠금 조회 → 공통 INSERT·중복 SKIP → 기존 API를 확인한다. 원문 지문 변경·Preview 변조·잘못된 승인 scope·만료 차단을 확인하는 사례를 추가하고 HIDDEN 비노출은 유지한다. 실제 저장소의 수정 테스트 실행 전이며, 운영 자동 게시의 증거가 아니다.
 
+## 2026-11-24 — 자동 적격 판정 및 기존 Writer Snapshot 연결
+
+- 사용자 P0 진행 결정: 수동 사건별 `ReviewedNewsCase` 입력을 없애고 제한된 자동 적격 경로를 추가한다. `AutomaticSearchApiAdapter`는 기존 Reader·교차검증 및 `NewsSnapshot` 생성 함수 재사용. 두 원문의 명시적 동일 주체·대상·유형·출시/공개/발표 긍정형 사건 문장 하나를 추출할 수 있을 때 자체 제목과 보도 귀속 요약을 구성한다. 독립적 사실 확정이나 편집상 독립성을 보증하지 않는다. 분쟁·부정·다중 사건/불일치/원문 미확보는 후보 제외. 실제 기사 적격률은 미검증이다.
+- 기존 `category_master.py`의 FOOD 식품·음료, FASHION 의류/신발/가방, BEAUTY 향수/스킨케어/메이크업, ENTERTAINMENT 예능/영화/드라마만 초기 적용. Google Root 힌트는 범위를 좁힐 뿐 분류 근거가 아니다. 실제 활성 Child 검증은 기존 Writer 책임. 주체·Root/Child·대상명·행위 digest를 사건 키로 사용(동일 이름의 후속 동일 행위는 MVP에서 보수적 중복 처리); 검색어/URL/수집시각을 사건 ID로 사용하지 않는다.
+- Collector만 기존 1+최대2 SearchApi 요청을 사용하고 두 원문을 읽어 최소 URL/시각/힌트/사건·증거 지문만 전달한다. Writer는 SearchApi 재호출 없이 두 허용 URL의 원문을 독립 재조회하고 사건·분류·지문을 재생성하여 일치할 때 기존 `NewsSnapshot`을 구성한다. Google 발견 자체는 Writer가 독립 확인하지 않으므로 검색어·검색량·순위 주장을 카드에 표시하지 않는다. 원문/뉴스 제목/토큰은 전달하거나 저장하지 않는다. 기존 수동 bridge와 Snapshot 구성을 공통화한다.
+- 코드·합성 테스트 원격 반영 완료, 실제 pytest/Ruff 및 적격 후보 실측 미실행. 운영 Registry, Controller의 SearchApi no-candidate 정상 종료, 보호 Key, 허용 원출처 권리·egress, 운영 TTL/요청 범위 승인 및 #139 통합은 아직 미완료. 자동 규칙은 외부 이용 권리/운영 승인을 대신하지 않는다. 기존 실측 재실행/별도 진단 개발 불필요.
+
 ## 단계와 성공 조건 — 추가 우회 인프라 없음
 
 1. Discovery: `geo=KR`, `time=past_24_hours`; Engine/지역/기간 확인, 1회 조회, 주요 20후보 상한. SearchApi 분야는 Root 힌트에 불과하며 beauty_and_fashion은 패션·뷰티 양쪽 가능성이므로 확정하지 않는다. 저위험 범위에 속하는 후보만 다음 단계로 전달한다.
