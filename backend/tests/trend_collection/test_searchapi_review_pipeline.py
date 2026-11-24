@@ -11,6 +11,8 @@ from app.trend_collection.searchapi_evidence import ProposedFact
 from app.trend_collection.searchapi_review_pipeline import (
     SearchApiReviewPipeline,
 )
+from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
+from app.trend_collection.supply_adapter import SupplyBlocked
 
 NOW = datetime(2026, 11, 23, 10, tzinfo=timezone.utc)
 YNA = "https://www.yna.co.kr/view/AKR20261123042700005"
@@ -200,3 +202,88 @@ def test_unmatched_news_token_is_not_a_candidate(returned_token):
         coordinator.collect_preview(now=NOW)
     api.related_news.assert_called_once_with("fake-token")
     opener.open.assert_not_called()
+
+
+def _automatic_pair(topic, first, second):
+    api = FakeSearchApi()
+    payload = api.trending_now()
+    payload["trends"][0]["categories"] = [topic]
+    api.trending_now = Mock(return_value=payload)
+    bodies = {
+        YNA: first + " 첫 번째 매체가 별도로 제공한 시험용 추가 설명입니다.",
+        NEWSIS: second + " 두 번째 매체의 별도 시험용 설명과 내용입니다.",
+    }
+
+    def reader_factory():
+        opener = Mock()
+        opener.open.side_effect = lambda request, **_: FakeResponse(
+            request.full_url, bodies[request.full_url],
+        )
+        return ArticleReader(opener=opener)
+
+    collector = AutomaticSearchApiAdapter(
+        api, reader_factory=reader_factory, clock=lambda: NOW,
+    )
+    writer = AutomaticSearchApiAdapter(reader_factory=reader_factory)
+    return collector, writer, api, bodies
+
+
+@pytest.mark.parametrize(("topic", "kind", "root", "child"), [
+    ("food_and_drink", "음료", "FOOD", "식품·음료"),
+    ("beauty_and_fashion", "신발", "FASHION", "신발"),
+    ("beauty_and_fashion", "향수", "BEAUTY", "향수"),
+    ("entertainment", "예능", "ENTERTAINMENT", "예능"),
+])
+def test_automatic_case_reaches_writer_snapshot_without_manual_case(
+    topic, kind, root, child,
+):
+    sentence = f"테스트사는 {kind} '새 상품'을 발표했다."
+    collector, writer, api, _ = _automatic_pair(topic, sentence, sentence)
+    preview = collector.collect_preview()
+    assert preview is not None
+    assert "fake-token" not in str(preview)
+    assert "새 상품" not in str(preview)
+    snapshot = writer.verify(preview, NOW)
+    assert snapshot.title == "테스트사 새 상품 발표 소식"
+    assert snapshot.parent_code == root
+    assert snapshot.child_name == child
+    assert snapshot.proposed_status == "ACTIVE"
+    assert snapshot.summary.startswith("두 매체가 ")
+    assert snapshot.candidate_identity == f"searchapi-event:{preview['case_key']}"
+    api.trending_now.assert_called_once_with()
+    assert api.news_calls == ["fake-token"]
+
+
+@pytest.mark.parametrize("second", [
+    "테스트사는 음료 '다른 상품'을 발표했다.",
+    "테스트사는 음료 '새 상품'을 발표하지 않았다.",
+    "테스트사는 음료 '새 상품'을 발표했다. 해당 보도는 오보였다.",
+])
+def test_automatic_case_skips_conflicting_or_disputed_report(second):
+    collector, _, _, _ = _automatic_pair(
+        "food_and_drink", "테스트사는 음료 '새 상품'을 발표했다.", second,
+    )
+    assert collector.collect_preview() is None
+
+
+def test_automatic_writer_rejects_changed_article_evidence():
+    sentence = "테스트사는 음료 '새 상품'을 발표했다."
+    collector, writer, _, bodies = _automatic_pair(
+        "food_and_drink", sentence, sentence,
+    )
+    preview = collector.collect_preview()
+    assert preview is not None
+    bodies[YNA] += " 원문이 변경되었습니다."
+    with pytest.raises(SupplyBlocked, match="NEWS_REVIEWED_EVIDENCE_CHANGED"):
+        writer.verify(preview, NOW)
+
+
+def test_automatic_writer_rejects_injected_presentation():
+    sentence = "테스트사는 음료 '새 상품'을 발표했다."
+    collector, writer, _, _ = _automatic_pair(
+        "food_and_drink", sentence, sentence,
+    )
+    preview = collector.collect_preview()
+    assert preview is not None
+    with pytest.raises(SupplyBlocked, match="INVALID_NEWS_PREVIEW"):
+        writer.verify({**preview, "title": "임의 제목"}, NOW)
