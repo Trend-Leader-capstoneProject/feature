@@ -108,21 +108,34 @@ class SearchApiSnapshotBridge:
 
     scope = SCOPE
 
-    def __init__(self, client, case: ReviewedNewsCase, *, reader_factory=ArticleReader):
-        if type(case) is not ReviewedNewsCase:
+    def __init__(
+        self, client, case: ReviewedNewsCase, *,
+        reader_factory=ArticleReader, clock=None,
+    ):
+        if (
+            type(case) is not ReviewedNewsCase
+            or type(case.candidate) is not SearchApiReviewCandidate
+            or type(case.fact) is not ProposedFact
+        ):
             raise SupplyBlocked("REVIEWED_CASE_REQUIRED")
         self._case = case
         self._client = client
         self._reader_factory = reader_factory
+        self._clock = clock if clock is not None else (
+            lambda: datetime.now(timezone.utc)
+        )
 
     def collect_preview(self) -> dict | None:
-        now = datetime.now(timezone.utc)
+        now = self._clock()
         candidate = SearchApiReviewPipeline(
             self._client, reader=self._reader_factory(),
         ).collect_preview(now=now)
-        if candidate is None:
-            return None
         case = self._case
+        if (
+            candidate is None
+            or case.fact.root_code not in candidate.lead.possible_root_codes
+        ):
+            return None
         preview = _preview(candidate, case.fact.review_case_key, now)
         if preview != _preview(case.candidate, case.fact.review_case_key, now):
             return None
