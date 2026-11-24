@@ -14,6 +14,11 @@ from app.trend_collection.godot_release_collector import (
     _request_json,
     collect,
 )
+from app.trend_collection.igdb_adapter import (
+    SCOPE as IGDB_SCOPE,
+    SOURCE_ID as IGDB_SOURCE_ID,
+)
+from app.trend_collection.igdb_supply_snapshot import IgdbSnapshotBridge
 from app.trend_collection.publication_policy import (
     ContentSnapshot,
     PersistableSnapshot,
@@ -88,8 +93,32 @@ class GodotAdapter:
         return decision.snapshot
 
 
-# Fixed code registry, no dynamic imports or arbitrary caller-provided URLs.
-ADAPTERS: dict[str, SourceAdapter] = {REPO: GodotAdapter()}
+class IgdbOperationalAdapter:
+    """IGDB bridge; unbound registry entries cannot perform I/O or verify."""
+
+    scope = IGDB_SCOPE
+
+    def __init__(self, query=None):
+        self._bridge = IgdbSnapshotBridge(query) if query is not None else None
+
+    def _ready(self) -> IgdbSnapshotBridge:
+        if self._bridge is None:
+            raise SupplyBlocked("IGDB_CREDENTIALS_UNAVAILABLE")
+        return self._bridge
+
+    def collect_preview(self, *, after_game_id=None) -> dict | None:
+        return self._ready().collect_preview(after_game_id=after_game_id)
+
+    def verify(self, preview: dict, now: datetime) -> PersistableSnapshot:
+        return self._ready().verify(preview, now)
+
+
+# Static code registry, not an approval list. The IGDB entry is inert until
+# a protected approval profile selects it and role-specific credentials bind it.
+ADAPTERS: dict[str, SourceAdapter] = {
+    REPO: GodotAdapter(),
+    IGDB_SOURCE_ID: IgdbOperationalAdapter(),
+}
 
 
 def bind_snapshot(snapshot: PersistableSnapshot, *, policy: str, target: str):

@@ -1,4 +1,4 @@
-"""Independently verified IGDB projection; no operational registration."""
+"""Independently verified IGDB projection without approval authority."""
 
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -69,7 +69,7 @@ def project_verified_popularity(verified: dict) -> PopularitySnapshot:
 
 
 class IgdbSnapshotBridge:
-    """Explicit review bridge; intentionally not in operational ADAPTERS."""
+    """Explicit projection bridge; caller must enforce operational approval."""
 
     scope = SCOPE
 
