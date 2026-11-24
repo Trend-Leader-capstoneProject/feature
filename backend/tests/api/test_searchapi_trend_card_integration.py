@@ -179,7 +179,9 @@ def test_existing_trend_api_renders_approved_shaped_news_row(
     assert "test-only-token" not in str(preview)
     row = bridge.verify(preview, NOW)
     assert type(row) is NewsSnapshot
-    assert SOURCE_ID not in ADAPTERS
+    assert ADAPTERS[SOURCE_ID].scope == SCOPE
+    with pytest.raises(SupplyBlocked, match="SEARCHAPI_ROLE_NOT_BOUND"):
+        ADAPTERS[SOURCE_ID].verify(preview, NOW)
     assert opener.open.call_count == 2
     row = bind_snapshot(row, policy="AUTO_V1", target="isolated-test")
     validate_snapshot_freshness(approved_test_profile(), row, NOW)

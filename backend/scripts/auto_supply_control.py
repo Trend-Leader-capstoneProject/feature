@@ -16,6 +16,8 @@ RUNTIME = Path('/opt/trend-leader-auto-supply')
 INTERVAL = 6 * 3600
 MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
+SEARCHAPI_SOURCE_ID = 'searchapi-kr-reviewed-news'
+EMPTY_CANDIDATE_SOURCES = frozenset({IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID})
 IGDB_GAME = re.compile(r'igdb-game:([1-9][0-9]{0,19})\Z')
 
 
@@ -165,7 +167,7 @@ def run_child(uid, role, envelope=None, *, source_id=None,
         preview = (set(payload) == {'source_id', 'preview'}
                    and type(payload['preview']) is dict)
         empty = (set(payload) == {'source_id', 'status'}
-                 and source_id == IGDB_SOURCE_ID
+                 and source_id in EMPTY_CANDIDATE_SOURCES
                  and payload['status'] == 'NO_ELIGIBLE_CANDIDATE')
         if (not (preview or empty)
                 or (source_id is not None and payload['source_id'] != source_id)):
@@ -209,7 +211,7 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     if code == 0:
         if (type(envelope) is dict
                 and set(envelope) == {'source_id', 'status'}
-                and source.source_id == IGDB_SOURCE_ID
+                and source.source_id in EMPTY_CANDIDATE_SOURCES
                 and envelope['source_id'] == source.source_id
                 and envelope['status'] == 'NO_ELIGIBLE_CANDIDATE'):
             no_candidate = True
@@ -231,6 +233,13 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
                 raise RuntimeError('WRITER_OUTCOME_MISMATCH')
             if source.source_id == IGDB_SOURCE_ID and success:
                 game_id = _confirmed_igdb_game(envelope['preview'], result)
+            if source.source_id == SEARCHAPI_SOURCE_ID and success:
+                key = envelope['preview'].get('case_key')
+                identity = result.get('candidate_identity')
+                if (not isinstance(key, str)
+                        or re.fullmatch(r'[a-f0-9]{64}', key) is None
+                        or identity != f'searchapi-event:{key}'):
+                    raise RuntimeError('NEWS_WRITER_IDENTITY_UNCONFIRMED')
     elif (code == 2 and type(envelope) is dict
           and envelope.get('status') == 'HOLD'):
         result = envelope

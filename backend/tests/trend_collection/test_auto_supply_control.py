@@ -403,3 +403,69 @@ def test_child_accepts_igdb_empty_only_and_passes_cursor(monkeypatch):
                           after_game_id=87622)
     with pytest.raises(RuntimeError, match='CHILD_OUTCOME_UNKNOWN'):
         control.run_child(101, 'collect', source_id='godotengine/godot-builds')
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+def test_searchapi_empty_rotates_without_writer_or_cursor_change(tmp_path):
+    path = tmp_path / 'state.json'
+    source = 'searchapi-kr-reviewed-news'
+    profile = _profile('godotengine/godot-builds', 'igdb:visits', source)
+    initial = {**READY, 'last_completed_source_id': 'igdb:visits',
+               'igdb_last_game_id': 87622}
+    child = Mock(return_value=(0, {
+        'source_id': source, 'status': 'NO_ELIGIBLE_CANDIDATE',
+    }))
+    assert cycle(profile, path, initial, child=child,
+                 clock=lambda: NOW) == {'status': 'SKIP_NO_CANDIDATE'}
+    child.assert_called_once_with(101, 'collect', source_id=source)
+    final = json.loads(path.read_text())
+    assert final == {**READY, 'not_before': NOW + INTERVAL,
+                     'last_completed_source_id': source,
+                     'igdb_last_game_id': 87622}
+    assert choose_source(profile, final).source_id == 'godotengine/godot-builds'
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+@pytest.mark.parametrize('matches', [True, False])
+def test_searchapi_writer_identity_controls_rotation(tmp_path, matches):
+    path = tmp_path / 'state.json'
+    source = 'searchapi-kr-reviewed-news'
+    key = 'a' * 64
+    profile = _profile(source, 'igdb:visits')
+    envelope = {'source_id': source, 'preview': {'case_key': key}}
+    result = {'status': 'COMMITTED',
+              'candidate_identity': 'searchapi-event:' + (key if matches else 'b' * 64)}
+    child = Mock(side_effect=[(0, envelope), (0, result)])
+    if matches:
+        assert cycle(profile, path, READY, child=child,
+                     clock=lambda: NOW) == result
+        state = json.loads(path.read_text())
+        assert state['last_completed_source_id'] == source
+        assert not state['pending']
+        assert choose_source(profile, state).source_id == 'igdb:visits'
+    else:
+        with pytest.raises(RuntimeError, match='NEWS_WRITER_IDENTITY_UNCONFIRMED'):
+            cycle(profile, path, READY, child=child, clock=lambda: NOW)
+        assert json.loads(path.read_text())['pending']
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Linux child process contract')
+def test_child_accepts_searchapi_empty_but_not_wrong_source(monkeypatch):
+    import pwd
+
+    from scripts import auto_supply_control as control
+
+    source = 'searchapi-kr-reviewed-news'
+    monkeypatch.setattr(pwd, 'getpwuid', lambda _: SimpleNamespace(
+        pw_name='trend-collector', pw_gid=200,
+    ))
+    runner = Mock(return_value=SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps({
+            'source_id': source, 'status': 'NO_ELIGIBLE_CANDIDATE',
+        }).encode(),
+    ))
+    monkeypatch.setattr(control.subprocess, 'run', runner)
+    assert control.run_child(101, 'collect', source_id=source)[0] == 0
+    with pytest.raises(RuntimeError, match='CHILD_OUTCOME_UNKNOWN'):
+        control.run_child(101, 'collect', source_id='igdb:visits')

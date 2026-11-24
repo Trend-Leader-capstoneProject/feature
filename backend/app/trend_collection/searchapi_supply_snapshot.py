@@ -2,8 +2,8 @@
 
 A trusted, independently content-reviewed case is an explicit prerequisite.
 The collector envelope cannot supply the case, its fact or its review digest.
-A bounded attributed-report adapter is available for isolated use. It is
-not registered for operational publication.
+A bounded attributed-report adapter is bound only through approved roles.
+The registry descriptor alone confers no publication authority.
 """
 
 import re
@@ -33,10 +33,15 @@ from app.trend_collection.searchapi_review_pipeline import (
     SearchApiReviewCandidate,
     SearchApiReviewPipeline,
 )
-from app.trend_collection.supply_adapter import SupplyBlocked, utc
+from app.trend_collection.supply_adapter import (
+    SEARCHAPI_SCOPE,
+    SEARCHAPI_SOURCE_ID,
+    SupplyBlocked,
+    utc,
+)
 
-SOURCE_ID = "searchapi-kr-reviewed-news"
-SCOPE = "SEARCHAPI_REVIEWED_NEWS_V1"
+SOURCE_ID = SEARCHAPI_SOURCE_ID
+SCOPE = SEARCHAPI_SCOPE
 UNBOUND = "UNBOUND_OPERATIONAL"
 # Conservative admission ceiling for the isolated 24-hour discovery contract.
 # This is not an approved operational retention or display TTL.
@@ -360,7 +365,7 @@ def _automatic_preview(case: ReviewedNewsCase, observed: datetime) -> dict:
 
 
 class AutomaticSearchApiAdapter:
-    """Bounded automatic path; not installed in the operational registry.
+    """Bounded automatic path; role binding and approval remain separate.
 
     Collector alone uses SearchApi (existing three-call ceiling). Writer reads
     both original pages itself and derives the event and category anew.
@@ -375,6 +380,8 @@ class AutomaticSearchApiAdapter:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def collect_preview(self) -> dict | None:
+        if self._client is None:
+            raise SupplyBlocked("SEARCHAPI_COLLECTOR_REQUIRED")
         now = self._clock()
         reader = self._reader_factory()
         candidate = SearchApiReviewPipeline(

@@ -59,6 +59,8 @@
 
 - **2026-11-24 통합 승인 및 병합**: 사용자 명시 승인으로 #139를 dev에 Merge (`3a0a42a28296989d5a1c4d2f11986a2c74907b76`). 기존 IGDB 1715 PASS·Linux 74 PASS·실제 로컬 E2E 증거 보존. dev의 adaptive-icon 변경 보존. #140에서 두 브랜치 인수인계 기록을 함께 유지하고 기존 IGDB/Godot 운영 연결을 기반으로 SearchApi 연결을 진행. 실제 WSL/DB/Timer/Lightsail 변경 없음.
 
+- **2026-11-24 SearchApi 운영 배선 구현(#140, 실제 활성화 금지)**: IGDB 통합 기반에서 비실행 Registry Descriptor, Collector 전용 root 소유 `searchapi-collect-credentials.json` (역할 그룹 0640), Writer는 Key 없이 기존 원문 재조회, `NO_ELIGIBLE_CANDIDATE`→`SKIP_NO_CANDIDATE` 및 6시간 전역 cooldown/기존 IGDB cursor 보존, Writer 사건 ID 응답 일치 검증을 연결. 실제 권리·G6·TTL·egress 미확정 상태에서 승인 파일/Secret 발행, WSL 배포·실제 조회/DB/Timer 변경 금지. 관련 테스트 신규 작성 및 기존 격리 DB 테스트의 비실행 Descriptor 기대값 갱신. 실행 증거 아직 없음; 변경 영향 pytest/Ruff 및 Linux Scheduler 검증 필요. 기존 20 PASS와 합산하지 않음.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.

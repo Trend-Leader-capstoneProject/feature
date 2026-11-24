@@ -33,8 +33,12 @@ from app.trend_collection.publication_policy import (
     PersistableSnapshot,
     PopularitySnapshot,
 )
+from app.trend_collection.searchapi_client import SearchApiClient, SearchApiClientError
+from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
+from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    SEARCHAPI_SOURCE_ID,
     IgdbOperationalAdapter,
     SupplyBlocked,
     bind_snapshot,
@@ -230,10 +234,37 @@ def _igdb_query(role: str):
         raise SupplyBlocked("IGDB_CREDENTIALS_INVALID") from None
 
 
+def _searchapi_client():
+    """Read only the collector's root-owned, group-readable key file."""
+    path = CONTROL / "searchapi-collect-credentials.json"
+    try:
+        with _root_file(path, secret=True) as stream:
+            info = os.fstat(stream.fileno())
+            if (info.st_gid != os.getegid()
+                    or stat.S_IMODE(info.st_mode) != 0o640):
+                raise SupplyBlocked("SEARCHAPI_CREDENTIAL_SCOPE_INVALID")
+            credentials = _json(_bounded(stream))
+    except (FileNotFoundError, PermissionError):
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_UNAVAILABLE") from None
+    if type(credentials) is not dict or set(credentials) != {"api_key"}:
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_INVALID")
+    try:
+        return SearchApiClient(credentials["api_key"])
+    except SearchApiClientError:
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_INVALID") from None
+
+
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
         return IgdbOperationalAdapter(_igdb_query(role))
+    if source.source_id == SEARCHAPI_SOURCE_ID:
+        if role == "collect":
+            return AutomaticSearchApiAdapter(_searchapi_client())
+        if role == "write":
+            # The Writer re-reads the original pages; it never needs the key.
+            return AutomaticSearchApiAdapter()
+        raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
     return ADAPTERS[source.source_id]
 
 
@@ -455,7 +486,7 @@ def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
     else:
         preview = adapter.collect_preview()
     if preview is None:
-        if source.source_id != IGDB_SOURCE_ID:
+        if source.source_id not in {IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID}:
             raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
         return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
     if type(preview) is not dict:
@@ -488,7 +519,10 @@ def main() -> int:
     except RateLimited as exc:
         result = {"status": "HOLD", "reason": "RATE_LIMITED",
                   "retry_not_before": exc.retry_not_before}
-    except (CollectionError, SupplyBlocked, JournalBlocked, IgdbBlocked) as exc:
+    except (
+        CollectionError, SupplyBlocked, JournalBlocked, IgdbBlocked,
+        SearchApiClientError, SearchApiDiscoveryError,
+    ) as exc:
         result = {"status": "HOLD", "reason": str(exc)}
     except Exception:
         # Do not print raw config, SQL, credentials or upstream content.
