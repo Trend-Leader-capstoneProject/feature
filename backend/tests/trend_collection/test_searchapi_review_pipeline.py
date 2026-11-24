@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.trend_collection.searchapi_article_reader import ArticleReader
+from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
 from app.trend_collection.searchapi_evidence import ProposedFact
 from app.trend_collection.searchapi_review_pipeline import (
     SearchApiReviewPipeline,
@@ -79,6 +80,7 @@ class FakeSearchApi:
         return {
             "search_parameters": {
                 "engine": "google_trends_trending_now_news",
+                "news_token": token,
             },
             "news": [
                 {
@@ -185,4 +187,16 @@ def test_uncovered_roots_take_priority_over_game_and_it():
     assert candidate.lead.possible_root_codes == frozenset({"FOOD"})
     assert api.news_calls == ["food"]
     api.trending_now.assert_called_once_with()
+    opener.open.assert_not_called()
+
+
+@pytest.mark.parametrize("returned_token", [None, "different-token"])
+def test_unmatched_news_token_is_not_a_candidate(returned_token):
+    coordinator, (api, opener) = pipeline()
+    payload = api.related_news("fake-token")
+    payload["search_parameters"]["news_token"] = returned_token
+    api.related_news = Mock(return_value=payload)
+    with pytest.raises(SearchApiDiscoveryError, match="NEWS_TOKEN_MISMATCH"):
+        coordinator.collect_preview(now=NOW)
+    api.related_news.assert_called_once_with("fake-token")
     opener.open.assert_not_called()
