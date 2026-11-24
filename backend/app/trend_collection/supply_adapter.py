@@ -26,7 +26,6 @@ from app.trend_collection.publication_policy import (
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 
-
 SEARCHAPI_SOURCE_ID = "searchapi-kr-reviewed-news"
 SEARCHAPI_SCOPE = "SEARCHAPI_REVIEWED_NEWS_V1"
 
