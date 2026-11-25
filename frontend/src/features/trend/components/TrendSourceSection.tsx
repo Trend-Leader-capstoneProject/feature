@@ -14,8 +14,12 @@ import type {
 
 export interface TrendSourceSectionProps {
   source: TrendLatestSource | null;
+  topic?: string;
   onOpenSource: (url: string) => void;
 }
+
+const INTEREST_SOURCE_URL =
+  "https://trends.google.com/trending?geo=KR&hl=ko&hours=24";
 
 function getPlatformLabel(
   platform: TrendSourcePlatform,
@@ -37,6 +41,7 @@ function getPlatformLabel(
 
 export function TrendSourceSection({
   source,
+  topic,
   onOpenSource,
 }: TrendSourceSectionProps) {
   const { styles } = useStyles();
@@ -48,13 +53,36 @@ export function TrendSourceSection({
     );
   }
 
+  const interest =
+    source.platform === "ETC" && source.source_url === INTEREST_SOURCE_URL;
+  const igdb =
+    source.platform === "ETC" &&
+    /^https:\/\/www\.igdb\.com\/games\/[a-z0-9][a-z0-9-]{0,254}$/.test(
+      source.source_url,
+    );
+  const godot =
+    source.platform === "ETC" &&
+    /^https:\/\/github\.com\/godotengine\/godot-builds\/releases\/tag\/[0-9]+\.[0-9]+(?:\.[0-9]+)?-(?:stable|beta[0-9]+|rc[0-9]+|dev[0-9]+)$/.test(
+      source.source_url,
+    );
+  const platformLabel = interest ? "Google Trends" : igdb ? "IGDB"
+    : godot ? "GitHub" : getPlatformLabel(source.platform);
+  const sourceLabel = interest ? "관측 출처 보기" : "원문 보기";
+
+  let encodedTopic: string | null = null;
+  if (interest && topic?.trim()) {
+    try {
+      encodedTopic = encodeURIComponent(topic.trim());
+    } catch {
+      // A malformed title must not break the existing source link.
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.sourceCopy}>
         <Text style={styles.platform}>
-          {getPlatformLabel(
-            source.platform,
-          )}
+          {platformLabel}
         </Text>
 
         {source.source_title !== null && (
@@ -67,8 +95,39 @@ export function TrendSourceSection({
         )}
       </View>
 
+      {encodedTopic !== null && (
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="관련 정보 검색"
+            onPress={() => onOpenSource(
+              `https://www.google.com/search?hl=ko&q=${encodedTopic}`,
+            )}
+            style={({ pressed }) => [
+              styles.openButton,
+              pressed && styles.pressedOpenButton,
+            ]}
+          >
+            <Text style={styles.openButtonLabel}>관련 정보 검색</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="관련 뉴스 검색"
+            onPress={() => onOpenSource(
+              `https://news.google.com/search?hl=ko&gl=KR&ceid=KR%3Ako&q=${encodedTopic}`,
+            )}
+            style={({ pressed }) => [
+              styles.openButton,
+              pressed && styles.pressedOpenButton,
+            ]}
+          >
+            <Text style={styles.openButtonLabel}>관련 뉴스 검색</Text>
+          </Pressable>
+        </View>
+      )}
+
       <Pressable
-        accessibilityLabel="원문 보기"
+        accessibilityLabel={sourceLabel}
         accessibilityRole="button"
         onPress={() =>
           onOpenSource(
@@ -82,7 +141,7 @@ export function TrendSourceSection({
         ]}
       >
         <Text style={styles.openButtonLabel}>
-          원문 보기
+          {sourceLabel}
         </Text>
       </Pressable>
     </View>
@@ -92,6 +151,12 @@ export function TrendSourceSection({
 const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.space3,
+  },
+
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.space2,
   },
 
   sourceCopy: {

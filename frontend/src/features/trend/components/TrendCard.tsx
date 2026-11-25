@@ -90,6 +90,7 @@ export function TrendCard({
       <TrendSourceSection
         onOpenSource={onOpenSource}
         source={trend.latest_source}
+        topic={trend.title}
       />
     </View>
   );

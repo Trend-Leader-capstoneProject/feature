@@ -330,6 +330,42 @@ describe("TrendCard", () => {
     expect(onOpenSource).toHaveBeenCalledWith(articleUrl);
   });
 
+  test("관심도 카드는 관련 정보·뉴스 검색과 관측 출처를 별도로 제공한다", async () => {
+    const onOpenSource = jest.fn();
+    const sourceUrl = "https://trends.google.com/trending?geo=KR&hl=ko&hours=24";
+    const title = "시그널2 & 드라마";
+    await render(<TrendCard onOpenSource={onOpenSource} trend={createTrend({
+      title,
+      latest_source: { source_id: 1, platform: "ETC", source_title: null,
+        source_url: sourceUrl },
+    })} />);
+    expect(screen.getByText("Google Trends")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "관련 정보 검색" }));
+    await fireEvent.press(screen.getByRole("button", { name: "관련 뉴스 검색" }));
+    await fireEvent.press(screen.getByRole("button", { name: "관측 출처 보기" }));
+    expect(onOpenSource.mock.calls).toEqual([
+      [`https://www.google.com/search?hl=ko&q=${encodeURIComponent(title)}`],
+      [`https://news.google.com/search?hl=ko&gl=KR&ceid=KR%3Ako&q=${encodeURIComponent(title)}`],
+      [sourceUrl],
+    ]);
+  });
+
+  test.each([
+    ["https://www.igdb.com/games/free-fire", "IGDB"],
+    ["https://github.com/godotengine/godot-builds/releases/tag/4.6-stable", "GitHub"],
+    ["https://trends.google.com.example.org/trending?geo=KR&hl=ko&hours=24", "기타"],
+  ])("기존 출처 %s는 라벨과 원문 버튼을 유지한다", async (url, label) => {
+    const onOpenSource = jest.fn();
+    await render(<TrendCard onOpenSource={onOpenSource} trend={createTrend({
+      latest_source: { source_id: 1, platform: "ETC", source_title: null,
+        source_url: url },
+    })} />);
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "관련 뉴스 검색" })).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "원문 보기" }));
+    expect(onOpenSource).toHaveBeenCalledWith(url);
+  });
+
   test("Personalized TrendCard는 순번 없이 기존 콘텐츠를 표시한다", async () => {
     await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend()} />);
 
