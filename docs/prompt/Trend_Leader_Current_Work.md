@@ -67,6 +67,8 @@
 
 - **2026-11-25 사용자 범위 확정 — SearchApi 우선·과잉 확장/검증 금지**: SearchApi 기존 B안과 PR #140의 검증 완료 기반을 최대한 활용하고, 뉴스와이어 등 신규 공급원 채택·추가 API 엔진·범용 Reader/검증 플랫폼·반복 PoC·전체 회귀 반복은 현재 P0에서 보류. 기존 KR Trending Now 1회 + 관련 News 최대 2회, Batch 1, 6시간 전역 cooldown, 네 미충족 Root 우선, Writer/Journal/Schema/API/Expo 재사용을 유지. 실제 게시 가능한 근거 한 건 확보에 집중: 기존 관련 News 결과에서 권리 및 자동 접근 근거가 있는 공식 발표 후보를 먼저 확인하고, 없는 경우 게시하지 않는다. 뉴스 메타데이터만으로 사실 검증/게시 권한을 대신하거나 기존 YNA+NEWSIS 운영 HOLD를 우회하지 않는다. 단일 직접 발표 예외·24h 노출 TTL 등의 상세 계약과 실제 운영/G6 승인 여부는 사용자 범위 결정과 별개이며 확정 증거를 임의 생성하지 않음. 새 출처/엔진이 필요하면 실제 병목을 확인한 뒤 최소 대안만 제시. 이전 성공 시험 89 PASS/17 SKIP·Linux 34 PASS·Ruff PASS를 재사용하며 변경 영향만 검증. 이번 갱신은 범위 기록뿐, 신규 외부 호출/운영 DB/배포/Timer/코드 변경 없음.
 
+- **2026-11-25 SearchApi 실제 후보 확보 실측 — 사용자 보고**: 기존 `scripts.probe_searchapi_kr --live`의 1 Trending + 2 News = 3 요청, READ_ONLY_DISCOVERY/NONE, KR past_24_hours, 전체 219/active 70/분류 적격 19. 원본 태그(중복 가능): entertainment 30, food_and_drink 2, beauty_and_fashion 1, games 2, technology 1. 실제 조회한 두 후보는 사생활 관련 보도 및 게임 관련 제3자 평가·투자 보도 위주로, 사용 가능한 신규 공식 발표 원문 0건. 기사 제목/본문·개인 사생활 정보·토큰/키는 기록하지 않음. 작품명 `시그널2`는 추가 탐색 가능 후보이나 직접 공식 원문과 권리 미확보(언론사 간접 보도는 게시 근거 아님). Probe는 서로 다른 단일 Root를 먼저 선정해 GAME에 예산을 사용했고 실제 운영 Pipeline은 우선 Root 내 upstream 순서에 의존하므로 양쪽 모두 작품/제품 자체의 신규 발표를 우선한다는 보장은 없음. 기존 검증·API 연결 성공 재시험 금지. 이번 실측은 발견 성공/게시 적격 미확보이지 수집 실패가 아님. 다음 결정: 같은 3회 요청 상한 내에서 공식 원출처 발견에 집중하는 최소 변경 또는 허용 근거가 있는 검색 관심도 신호 자체의 카드 계약 검토; 새 엔진·출처·게시 계약은 Level 2 결정 필요. 실제 운영 G6/DB/Timer/코드 변경 없음.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
