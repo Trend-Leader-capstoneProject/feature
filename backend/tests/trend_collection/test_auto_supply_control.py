@@ -406,9 +406,11 @@ def test_child_accepts_igdb_empty_only_and_passes_cursor(monkeypatch):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
-def test_searchapi_empty_rotates_without_writer_or_cursor_change(tmp_path):
+@pytest.mark.parametrize('source', [
+    'searchapi-kr-reviewed-news', 'searchapi-kr-interest',
+])
+def test_searchapi_empty_rotates_without_writer_or_cursor_change(tmp_path, source):
     path = tmp_path / 'state.json'
-    source = 'searchapi-kr-reviewed-news'
     profile = _profile('godotengine/godot-builds', 'igdb:visits', source)
     initial = {**READY, 'last_completed_source_id': 'igdb:visits',
                'igdb_last_game_id': 87622}
@@ -427,14 +429,21 @@ def test_searchapi_empty_rotates_without_writer_or_cursor_change(tmp_path):
 
 @pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
 @pytest.mark.parametrize('matches', [True, False])
-def test_searchapi_writer_identity_controls_rotation(tmp_path, matches):
+@pytest.mark.parametrize(('source', 'prefix', 'reason'), [
+    ('searchapi-kr-reviewed-news', 'searchapi-event:',
+     'NEWS_WRITER_IDENTITY_UNCONFIRMED'),
+    ('searchapi-kr-interest', 'searchapi-interest:',
+     'INTEREST_WRITER_IDENTITY_UNCONFIRMED'),
+])
+def test_searchapi_writer_identity_controls_rotation(
+    tmp_path, matches, source, prefix, reason,
+):
     path = tmp_path / 'state.json'
-    source = 'searchapi-kr-reviewed-news'
     key = 'a' * 64
     profile = _profile(source, 'igdb:visits')
     envelope = {'source_id': source, 'preview': {'case_key': key}}
     result = {'status': 'COMMITTED',
-              'candidate_identity': 'searchapi-event:' + (key if matches else 'b' * 64)}
+              'candidate_identity': prefix + (key if matches else 'b' * 64)}
     child = Mock(side_effect=[(0, envelope), (0, result)])
     if matches:
         assert cycle(profile, path, READY, child=child,
@@ -444,18 +453,19 @@ def test_searchapi_writer_identity_controls_rotation(tmp_path, matches):
         assert not state['pending']
         assert choose_source(profile, state).source_id == 'igdb:visits'
     else:
-        with pytest.raises(RuntimeError, match='NEWS_WRITER_IDENTITY_UNCONFIRMED'):
+        with pytest.raises(RuntimeError, match=reason):
             cycle(profile, path, READY, child=child, clock=lambda: NOW)
         assert json.loads(path.read_text())['pending']
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Linux child process contract')
-def test_child_accepts_searchapi_empty_but_not_wrong_source(monkeypatch):
+@pytest.mark.parametrize('source', [
+    'searchapi-kr-reviewed-news', 'searchapi-kr-interest',
+])
+def test_child_accepts_searchapi_empty_but_not_wrong_source(monkeypatch, source):
     import pwd
 
     from scripts import auto_supply_control as control
-
-    source = 'searchapi-kr-reviewed-news'
     monkeypatch.setattr(pwd, 'getpwuid', lambda _: SimpleNamespace(
         pw_name='trend-collector', pw_gid=200,
     ))

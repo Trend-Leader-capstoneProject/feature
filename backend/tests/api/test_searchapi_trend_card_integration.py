@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.main import create_app
 from app.models.category import Category
 from app.models.db_enums import CategoryCode
+from app.repositories.trend_repository import TrendRepository
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.searchapi_article_reader import ArticleReader
 from app.trend_collection.searchapi_discovery import NewsLead, TrendingLead
@@ -29,6 +30,12 @@ from app.trend_collection.searchapi_evidence import (
     ProposedFact,
     assess_cross_source_evidence,
     build_review_event_identity,
+)
+from app.trend_collection.searchapi_interest import (
+    SCOPE as INTEREST_SCOPE,
+    SOURCE_ID as INTEREST_SOURCE_ID,
+    SOURCE_URL as INTEREST_URL,
+    SearchInterestAdapter,
 )
 from app.trend_collection.searchapi_review_pipeline import SearchApiReviewCandidate
 from app.trend_collection.searchapi_supply_snapshot import (
@@ -366,3 +373,83 @@ def test_reviewed_news_rejects_tampered_preview_and_missing_scope():
             replace(row, source_published_at=(NOW - timedelta(days=2)).isoformat()),
             NOW,
         )
+
+
+def test_interest_card_and_expiry_use_existing_api_and_writer(
+    client: TestClient, db_session: Session,
+):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    topic = "관심도 검증용 작품"
+    topics = {topic: ("ENTERTAINMENT", "드라마")}
+    collector, writer = Mock(), Mock()
+    for upstream in (collector, writer):
+        upstream.trending_now.return_value = {
+            "search_parameters": {
+                "engine": "google_trends_trending_now",
+                "geo": "KR", "time": "past_24_hours",
+            },
+            "trends": [{
+                "query": topic, "is_active": True,
+                "start_date": (now - timedelta(hours=1)).isoformat(),
+                "news_token": "fixture-token", "categories": ["entertainment"],
+            }],
+        }
+    preview = SearchInterestAdapter(
+        collector, topics=topics, clock=lambda: now,
+    ).collect_preview()
+    assert preview is not None
+    row = SearchInterestAdapter(writer, topics=topics).verify(preview, now)
+    row = bind_snapshot(row, policy="AUTO_V1", target="isolated-test")
+    profile = SimpleNamespace(
+        source=lambda source_id: SimpleNamespace(
+            scope=INTEREST_SCOPE if source_id == INTEREST_SOURCE_ID else "WRONG",
+        ),
+    )
+    validate_snapshot_freshness(profile, row, now)
+    parent = Category(
+        category_code=CategoryCode.ENTERTAINMENT, category_name="Interest Parent",
+        sort_order=1, is_active=True, parent_id=None,
+    )
+    db_session.add(parent)
+    db_session.flush()
+    child = Category(
+        category_code=None, category_name="드라마", sort_order=1,
+        is_active=True, parent_id=parent.category_id,
+    )
+    db_session.add(child)
+    db_session.flush()
+    conn = db_session.connection()
+    assert _category_id(conn, row.parent_code, row.child_name, lock=True) == (
+        child.category_id
+    )
+    assert inspect_snapshot(conn, row) == "NEW"
+    trend_id = insert_trend_item(
+        conn, row, category_id=child.category_id,
+        collected_at=now.replace(tzinfo=None), summary=row.summary,
+        is_primary=True, status="ACTIVE", platform="ETC",
+    )
+    assert inspect_snapshot(conn, row) == "SKIP_EXISTING_RELEASE"
+    response = client.get("/api/trends", params={"category_id": child.category_id})
+    assert response.status_code == 200, response.text
+    card = next(
+        item for item in response.json()["data"]["items"]
+        if item["trend_id"] == trend_id
+    )
+    assert card["title"] == topic
+    assert card["summary"] == row.summary
+    assert card["latest_source"]["source_url"] == INTEREST_URL
+    assert card["thumbnail_url"] is None
+    for offset, visible in [
+        (timedelta(hours=24, seconds=-1), True),
+        (timedelta(hours=24), False),
+    ]:
+        repo = TrendRepository(db_session, utc_now=lambda: now + offset)
+        ids = {item.trend_id for item in repo.find_page(
+            limit=20, category_ids=[child.category_id],
+            cursor_last_collected_at=None, cursor_trend_id=None,
+        )}
+        assert (trend_id in ids) is visible
+        assert (
+            trend_id in repo.find_latest_sources_by_trend_ids([trend_id])
+        ) is visible
+    assert inspect_snapshot(conn, row) == "SKIP_EXISTING_RELEASE"

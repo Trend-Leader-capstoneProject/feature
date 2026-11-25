@@ -19,13 +19,25 @@ from app.trend_collection.searchapi_article_reader import (
     ArticleReadBlocked,
     _allow_url,
 )
+from app.trend_collection.searchapi_interest import (
+    ROOTS as INTEREST_ROOTS,
+    SOURCE_URL as INTEREST_URL,
+    WINDOW as INTEREST_WINDOW,
+    InterestSnapshot,
+    _case_key,
+)
 from app.trend_collection.searchapi_supply_snapshot import (
     NEWS_WINDOW,
     SCOPE as NEWS_SCOPE,
     SOURCE_ID as NEWS_SOURCE_ID,
     NewsSnapshot,
 )
-from app.trend_collection.supply_adapter import SupplyBlocked, utc
+from app.trend_collection.supply_adapter import (
+    INTEREST_SCOPE,
+    INTEREST_SOURCE_ID,
+    SupplyBlocked,
+    utc,
+)
 
 GODOT_SCOPE = "GODOT_FACTS_LINK_V1"
 PREVIEW_WINDOW = timedelta(minutes=10)
@@ -70,6 +82,25 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
             raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH")
         reference_time = snapshot.calculated_at_utc
         window = POPULARITY_WINDOW
+    elif type(snapshot) is InterestSnapshot:
+        source_id, scope = INTEREST_SOURCE_ID, INTEREST_SCOPE
+        if (
+            not isinstance(snapshot.candidate_identity, str)
+            or re.fullmatch(
+                r"searchapi-interest:[a-f0-9]{64}", snapshot.candidate_identity,
+            ) is None
+            or not isinstance(snapshot.title, str)
+            or snapshot.candidate_identity != "searchapi-interest:" + _case_key(
+                snapshot.title,
+            )
+            or snapshot.source_url != INTEREST_URL
+            or snapshot.parent_code not in INTEREST_ROOTS
+            or not isinstance(snapshot.child_name, str)
+            or not 1 <= len(snapshot.child_name.strip()) <= 255
+        ):
+            raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH")
+        reference_time = snapshot.started_at_utc
+        window = INTEREST_WINDOW
     elif type(snapshot) is NewsSnapshot:
         source_id, scope = NEWS_SOURCE_ID, NEWS_SCOPE
         if (

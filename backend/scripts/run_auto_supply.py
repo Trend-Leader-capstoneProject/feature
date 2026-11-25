@@ -35,9 +35,11 @@ from app.trend_collection.publication_policy import (
 )
 from app.trend_collection.searchapi_client import SearchApiClient, SearchApiClientError
 from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
+from app.trend_collection.searchapi_interest import SearchInterestAdapter
 from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    INTEREST_SOURCE_ID,
     SEARCHAPI_SOURCE_ID,
     IgdbOperationalAdapter,
     SupplyBlocked,
@@ -234,9 +236,11 @@ def _igdb_query(role: str):
         raise SupplyBlocked("IGDB_CREDENTIALS_INVALID") from None
 
 
-def _searchapi_client():
-    """Read only the collector's root-owned, group-readable key file."""
-    path = CONTROL / "searchapi-collect-credentials.json"
+def _searchapi_client(role: str = "collect"):
+    """Read only the current role's root-owned, group-readable key file."""
+    if role not in {"collect", "write"}:
+        raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
+    path = CONTROL / f"searchapi-{role}-credentials.json"
     try:
         with _root_file(path, secret=True) as stream:
             info = os.fstat(stream.fileno())
@@ -254,10 +258,30 @@ def _searchapi_client():
         raise SupplyBlocked("SEARCHAPI_CREDENTIALS_INVALID") from None
 
 
+def _interest_topics():
+    """Read the administrator's common, non-secret approved topic catalog."""
+    try:
+        with _root_file(CONTROL / "searchapi-interest-topics.json") as stream:
+            topics = _json(_bounded(stream))
+    except (FileNotFoundError, PermissionError):
+        raise SupplyBlocked("INTEREST_CATALOG_UNAVAILABLE") from None
+    if type(topics) is not dict or not 1 <= len(topics) <= 100:
+        raise SupplyBlocked("INTEREST_CATALOG_INVALID")
+    if any(type(value) is not list or len(value) != 2 for value in topics.values()):
+        raise SupplyBlocked("INTEREST_CATALOG_INVALID")
+    return {key: tuple(value) for key, value in topics.items()}
+
+
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
         return IgdbOperationalAdapter(_igdb_query(role))
+    if source.source_id == INTEREST_SOURCE_ID:
+        if role not in {"collect", "write"}:
+            raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
+        return SearchInterestAdapter(
+            _searchapi_client(role), topics=_interest_topics(),
+        )
     if source.source_id == SEARCHAPI_SOURCE_ID:
         if role == "collect":
             return AutomaticSearchApiAdapter(_searchapi_client())
@@ -486,7 +510,9 @@ def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
     else:
         preview = adapter.collect_preview()
     if preview is None:
-        if source.source_id not in {IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID}:
+        if source.source_id not in {
+            IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
+        }:
             raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
         return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
     if type(preview) is not dict:

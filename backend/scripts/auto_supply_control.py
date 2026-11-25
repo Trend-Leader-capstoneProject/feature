@@ -17,7 +17,10 @@ INTERVAL = 6 * 3600
 MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
 SEARCHAPI_SOURCE_ID = 'searchapi-kr-reviewed-news'
-EMPTY_CANDIDATE_SOURCES = frozenset({IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID})
+INTEREST_SOURCE_ID = 'searchapi-kr-interest'
+EMPTY_CANDIDATE_SOURCES = frozenset({
+    IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
+})
 IGDB_GAME = re.compile(r'igdb-game:([1-9][0-9]{0,19})\Z')
 
 
@@ -240,6 +243,13 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
                         or re.fullmatch(r'[a-f0-9]{64}', key) is None
                         or identity != f'searchapi-event:{key}'):
                     raise RuntimeError('NEWS_WRITER_IDENTITY_UNCONFIRMED')
+            if source.source_id == INTEREST_SOURCE_ID and success:
+                key = envelope['preview'].get('case_key')
+                if (not isinstance(key, str)
+                        or re.fullmatch(r'[a-f0-9]{64}', key) is None
+                        or result.get('candidate_identity')
+                        != f'searchapi-interest:{key}'):
+                    raise RuntimeError('INTEREST_WRITER_IDENTITY_UNCONFIRMED')
     elif (code == 2 and type(envelope) is dict
           and envelope.get('status') == 'HOLD'):
         result = envelope

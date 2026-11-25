@@ -35,15 +35,12 @@ class TrendRepository:
         self.db = db
         self._utc_now = utc_now or (lambda: datetime.now(UTC))
 
-    def _igdb_expiry_cutoff(self) -> datetime:
+    def _visibility_now(self) -> datetime:
         """The storage contract uses UTC timestamps without tzinfo in MariaDB."""
         now = self._utc_now()
         if not isinstance(now, datetime) or now.utcoffset() is None:
             raise ValueError("IGDB_VISIBILITY_CLOCK_INVALID")
-        return (
-            now.astimezone(UTC).replace(tzinfo=None)
-            - timedelta(days=MAX_POLICY_DAYS)
-        )
+        return now.astimezone(UTC).replace(tzinfo=None)
 
     @staticmethod
     def _expired_igdb_source(cutoff: datetime):
@@ -56,6 +53,18 @@ class TrendRepository:
             TrendSource.collected_at <= cutoff,
         )
 
+    def _expired_source(self):
+        now = self._visibility_now()
+        return or_(
+            self._expired_igdb_source(now - timedelta(days=MAX_POLICY_DAYS)),
+            and_(
+                TrendSource.platform == TrendSourcePlatform.ETC,
+                TrendSource.external_id.is_not(None),
+                TrendSource.external_id.startswith("searchapi-interest:"),
+                TrendSource.collected_at <= now - timedelta(hours=24),
+            ),
+        )
+
     def find_page(
         self,
         *,
@@ -66,17 +75,17 @@ class TrendRepository:
     ) -> list[Trend]:
         """정렬·Category·Cursor 조건을 적용한 Trend Page를 조회한다."""
 
-        expired_igdb = exists(
+        expired_source = exists(
             select(1).select_from(TrendSource).where(
                 TrendSource.trend_id == Trend.trend_id,
-                self._expired_igdb_source(self._igdb_expiry_cutoff()),
+                self._expired_source(),
             )
         )
         statement = select(
             Trend,
         ).where(
             Trend.status == TrendStatus.ACTIVE,
-            ~expired_igdb,
+            ~expired_source,
         )
 
         if category_ids is not None:
@@ -167,7 +176,7 @@ class TrendRepository:
                 ),
             ).where(
                 TrendSource.trend_id.in_(trend_ids),
-                ~self._expired_igdb_source(self._igdb_expiry_cutoff()),
+                ~self._expired_source(),
             )
             .subquery()
         )

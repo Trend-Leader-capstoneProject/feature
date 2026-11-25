@@ -19,10 +19,15 @@ from app.trend_collection.searchapi_discovery import (
     TrendingLead,
     parse_trending_now,
 )
-from app.trend_collection.supply_adapter import SupplyBlocked, utc
+from app.trend_collection.supply_adapter import (
+    INTEREST_SCOPE,
+    INTEREST_SOURCE_ID,
+    SupplyBlocked,
+    utc,
+)
 
-SOURCE_ID = "searchapi-kr-interest"
-SCOPE = "SEARCHAPI_KR_INTEREST_V1"
+SOURCE_ID = INTEREST_SOURCE_ID
+SCOPE = INTEREST_SCOPE
 SOURCE_URL = "https://trends.google.com/trending?geo=KR&hl=ko&hours=24"
 WINDOW = timedelta(hours=24)
 PREVIEW_WINDOW = timedelta(minutes=10)

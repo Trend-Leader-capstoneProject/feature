@@ -28,6 +28,8 @@ from app.trend_collection.rule_first_preview import build_rule_first_preview
 
 SEARCHAPI_SOURCE_ID = "searchapi-kr-reviewed-news"
 SEARCHAPI_SCOPE = "SEARCHAPI_REVIEWED_NEWS_V1"
+INTEREST_SOURCE_ID = "searchapi-kr-interest"
+INTEREST_SCOPE = "SEARCHAPI_KR_INTEREST_V1"
 
 
 class SupplyBlocked(RuntimeError):
@@ -128,12 +130,19 @@ class SearchApiOperationalDescriptor:
         raise SupplyBlocked("SEARCHAPI_ROLE_NOT_BOUND")
 
 
+class SearchInterestOperationalDescriptor(SearchApiOperationalDescriptor):
+    """Interest rights and credentials must be bound separately from news."""
+
+    scope = INTEREST_SCOPE
+
+
 # Static code registry, not an approval list. External adapters stay inert
 # until the protected profile selects them and the executing role is bound.
 ADAPTERS: dict[str, SourceAdapter] = {
     REPO: GodotAdapter(),
     IGDB_SOURCE_ID: IgdbOperationalAdapter(),
     SEARCHAPI_SOURCE_ID: SearchApiOperationalDescriptor(),
+    INTEREST_SOURCE_ID: SearchInterestOperationalDescriptor(),
 }
 
 
