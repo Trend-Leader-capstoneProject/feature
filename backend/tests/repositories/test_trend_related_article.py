@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import CheckConstraint, UniqueConstraint, delete, insert, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
@@ -115,8 +115,30 @@ def test_related_article_constraints(db_session: Session, kind: str):
         candidate["published_at"] = NOW + timedelta(seconds=1)
     elif kind == "fk":
         candidate["trend_id"] = -1
-    with pytest.raises(IntegrityError), db_session.begin_nested():
+    # PyMySQL maps MariaDB CHECK error 4025 to OperationalError, unlike
+    # duplicate keys and foreign keys. Verify the specific failure, not just
+    # any database error, so e.g. a lost connection cannot pass this test.
+    if kind in {"third", "zero", "future"}:
+        expected_error = OperationalError
+        expected_code = 4025
+        constraint = (
+            "ck_trend_related_articles_published_at" if kind == "future"
+            else "ck_trend_related_articles_selection_order"
+        )
+    else:
+        expected_error = IntegrityError
+        expected_code = 1452 if kind == "fk" else 1062
+        constraint = {
+            "url": "uq_trend_related_articles_trend_url_key",
+            "slot": "uq_trend_related_articles_trend_selection_order",
+            "fk": "fk_trend_related_articles_trend_id_trends",
+        }[kind]
+
+    with pytest.raises(expected_error) as exc, db_session.begin_nested():
         db_session.execute(insert(table), candidate)
+
+    assert exc.value.orig.args[0] == expected_code
+    assert constraint in str(exc.value.orig)
     assert len(db_session.scalars(
         select(TrendRelatedArticle.article_id).where(
             TrendRelatedArticle.trend_id == parent.trend_id,
