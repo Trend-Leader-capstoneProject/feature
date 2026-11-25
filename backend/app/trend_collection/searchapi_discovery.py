@@ -182,3 +182,40 @@ def parse_related_news(payload: object, *, now: datetime) -> tuple[NewsLead, ...
         if len(results) == MAX_NEWS:
             break
     return tuple(results)
+
+
+def official_search_query(topic: str) -> str:
+    """Keep an upstream topic a bounded literal, not a search operator."""
+    if _clean_text(topic, limit=255) is None or '"' in topic or "\\" in topic:
+        raise SearchApiDiscoveryError("INVALID_OFFICIAL_TOPIC")
+    return f'"{topic}" 공식 발표'
+
+
+def parse_official_search_links(
+    payload: object, *, topic: str,
+) -> tuple[str, ...]:
+    """Only first three direct organic links; no redirects or source claims."""
+    if not isinstance(payload, dict):
+        raise SearchApiDiscoveryError("INVALID_OFFICIAL_RESPONSE")
+    params = payload.get("search_parameters")
+    if (
+        not isinstance(params, dict)
+        or params.get("engine") != "google"
+        or params.get("q") != official_search_query(topic)
+        or params.get("gl") != "kr" or params.get("hl") != "ko"
+    ):
+        raise SearchApiDiscoveryError("WRONG_OFFICIAL_SCOPE")
+    organic = payload.get("organic_results", [])
+    if not isinstance(organic, list):
+        raise SearchApiDiscoveryError("INVALID_OFFICIAL_RESPONSE")
+    links: list[str] = []
+    for item in organic[:3]:
+        if not isinstance(item, dict) or item.get("link_token"):
+            continue
+        url = _safe_public_url(item.get("link"))
+        if url is None or url in links:
+            continue
+        if urlsplit(url).path == "/goto":
+            continue
+        links.append(url)
+    return tuple(links)

@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -79,3 +80,19 @@ def test_empty_error_response_never_accepted():
     opener.open.return_value = FakeResponse({"error": "unknown"})
     with pytest.raises(SearchApiClientError, match="SEARCHAPI_UNCONFIRMED_RESPONSE"):
         client.trending_now()
+
+
+def test_official_search_uses_existing_third_call_budget():
+    client, opener = _client()
+    client.trending_now()
+    client.related_news("abc")
+    client.official_search("시그널2")
+    request = opener.open.call_args.args[0]
+    assert parse_qs(urlsplit(request.full_url).query) == {
+        "engine": ["google"], "q": ['"시그널2" 공식 발표'],
+        "gl": ["kr"], "hl": ["ko"],
+    }
+    assert request.get_header("Authorization") == "Bearer not-a-real-key"
+    with pytest.raises(SearchApiClientError, match="SEARCHAPI_REQUEST_BUDGET"):
+        client.official_search("시그널2")
+    assert opener.open.call_count == 3

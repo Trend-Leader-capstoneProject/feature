@@ -9,11 +9,12 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 from app.trend_collection.godot_release_collector import RateLimited
 from app.trend_collection.rate_limit import retry_deadline
+from app.trend_collection.searchapi_discovery import official_search_query
 
 ENDPOINT = "https://www.searchapi.io/api/v1/search"
 TIMEOUT = 10
 MAX_BYTES = 512_000
-MAX_CALLS = 3  # One trend query, at most two candidate news queries.
+MAX_CALLS = 3  # Trending + up to two News, or Trending + News + Google.
 _TOKEN_ALPHABET = frozenset(ascii_letters + digits + "-_+/=")
 
 
@@ -110,3 +111,10 @@ class SearchApiClient:
             raise SearchApiClientError("SEARCHAPI_NEWS_TOKEN_INVALID")
         return self._get(engine="google_trends_trending_now_news",
                          news_token=news_token)
+
+
+    def official_search(self, topic: str) -> dict:
+        """Find possible official links; results are not verified sources."""
+        return self._get(
+            engine="google", q=official_search_query(topic), gl="kr", hl="ko",
+        )
