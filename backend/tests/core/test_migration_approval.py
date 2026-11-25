@@ -369,7 +369,8 @@ def test_recovery_reference_cannot_be_the_preflight_itself(inputs):
 
 def test_actual_lineage_uses_revision_ids_in_current_checkout():
     assert approval._repository_lineage() == (
-        "b7f2c81d9e04", "a4d7c9e21f3b", "7e9d740c5df1", "2f29fa23597c",
+        "d3a9f27c6b41", "b7f2c81d9e04", "a4d7c9e21f3b",
+        "7e9d740c5df1", "2f29fa23597c",
     )
 
 

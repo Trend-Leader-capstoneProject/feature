@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.trend_ai_analysis import TrendAiAnalysis
     from app.models.trend_category_map import TrendCategoryMap
     from app.models.trend_rank_snapshot import TrendRankSnapshot
+    from app.models.trend_related_article import TrendRelatedArticle
     from app.models.trend_source import TrendSource
     from app.models.user_trend_bookmark import UserTrendBookmark
 
@@ -128,6 +129,15 @@ class Trend(Base):
         back_populates="trend",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+
+    # 관측 출처와 분리된 사용자 참고 기사
+    related_articles: Mapped[list[TrendRelatedArticle]] = relationship(
+        "TrendRelatedArticle",
+        back_populates="trend",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="TrendRelatedArticle.selection_order",
     )
 
     # 트렌드의 플랫폼별 순위 변동 이력

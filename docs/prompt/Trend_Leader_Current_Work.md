@@ -91,6 +91,8 @@
 
 - **2026-11-25 Related News DEC-01~07 일괄 설계 승인**: 사용자 명시 승인, `Trend_Leader_SearchApi_Related_News_Enhancement_Design_FROZEN_v1.0_20261125.md` 우선 적용. 이전 관심도 고정 URL/2회 계약은 본 문서의 제한적 참고 기사 확장 범위에서만 변경, 기존 NewsSnapshot 사건 게시 HOLD. 1차 C+D-1 UI 코드 및 집중 Jest 테스트 작성: 정확한 관측 URL+ETC 식별, Google/News 검색 링크, 관측 출처 별도 버튼, IGDB/GitHub 정확한 URL 라벨, 기존 원문 버튼 호환. 실제 Jest/typecheck 실행 미확보. D-2 신규 테이블/Migration/Writer/권리 설정·429/배치 API/관련 기사 UI 후속 구현 필요, 아직 미구현. 기존 COMMITTED 증거 유지, 운영 DB/Timer/프로필/Lightsail/merge 변경 없음. 최종 산출물 반영 요청 유지.
 
+- **2026-11-26 C+D-1 검증 완료 및 Related News ORM/Migration 구현**: 사용자 최신 pull 후 typecheck 정상, Jest 전체 **32 suites / 214 tests PASS** 보고(코드 기준 `2a0ab90`, 로컬 HEAD 원문 미보고). 이전 UI 테스트 미확인 상태를 대체. FROZEN v1.0 DEC-04에 따라 `TrendRelatedArticle` 모델 등록, `Trend.related_articles` 관계와 `d3a9f27c6b41`(parent `b7f2c81d9e04`) 신규 테이블 전용 Migration 작성. 기존 schema/table/row 변경 및 backfill 없음. PK/FK CASCADE, URL SHA-256 및 slot 복합 UNIQUE, selection_order 1/2 CHECK로 DB 최대 2건, published_at<=collected_at CHECK, UTC 명시 시각, nullable title, InnoDB, 기존 복합 UNIQUE prefix가 trend_id 인덱스 역할(중복 인덱스 없음). ORM/실제 테스트 DB 저장·slot/URL/FK/미래/삭제 제약 집중 테스트 및 실제 lineage 기대값 2곳 갱신. 기존 migration 수정 없음. 실제 pytest/Ruff 및 MariaDB Migration 실행은 아직 미확인. 다음은 기존 격리 test DB에서 신규 8건 및 변경 lineage 2건 확인, 이후 선택 News/권리 및 요청 예산·429 처리/Writer 최소 GRANT 연결, API/D-2 UI. 실제 운영 DB migration/GRANT/profile/Timer/배포/merge 미실행. 최종 산출물 ERD·테이블 명세·API·아키텍처/테스트 반영 요청 유지.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
