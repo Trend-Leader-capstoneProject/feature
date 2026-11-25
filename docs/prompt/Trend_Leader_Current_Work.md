@@ -85,6 +85,8 @@
 
 - **2026-11-25 최초 실제 SearchApi 관심도 공급 COMMITTED — 사용자 실측**: 기존 WSL 보호 프로필과 Scheduler 단회 실행 반환 `{"status":"COMMITTED","candidate_identity":"searchapi-interest:ec0d23948eeae664de7ad886dbd087cddd60aeeda92469564aa05c7c4236bfba"}` 확인. 실제 Collector→독립 Writer→로컬 MariaDB 3309 저장·Journal 완료 경로의 성공 반환 증거. 실제 DB 별도 조회/GET /api/trends/Expo 표시·원문 링크·Timer 재개 증거는 아직 없음. 재수집·재배포·재승인·pytest 불필요. 다음은 로컬 FastAPI가 동일 3309 DB를 바라보는지 확인하고 기존 Expo 전체/엔터테인먼트→드라마 목록 및 출처 링크 확인, 이후 기존 Timer 재개(6h cooldown·2026-11-27 13:50 KST 승인 만료 보존). Lightsail은 로컬 검증 완료 후 별도 통합 승인 및 배포 대상으로 실제 클라우드 DB/실행본/프로필 변경 미실행. 로컬과 클라우드 데이터가 자동 동기화된다고 가정하지 않음.
 
+- **2026-11-25 SearchApi 사용성 개선 방향 사용자 승인 — C+D-2 목표, C+D-1 fallback**: Google Trends 관측 출처 유지, 검색어 기반 관련 정보 검색과 선택적 직접 관련 기사 링크 제공. 적격 기사 미확보/조회 실패 시 Google News 검색 링크로 대체하여 기존 관심도 공급을 차단하지 않는다(기존 필수 관측 검증/Writer/Journal/권한 실패는 예외, 그대로 HOLD). 관련 기사는 참고자료이며 사건 주장/검색량 상승의 인과 근거 아님. 현재 승인된 것은 기능 방향이며 요청 예산 2→최대3, 기사 필드/권리/선정/TTL, DB 및 API 계약, 기존 저장 카드 보강 여부는 후속 일괄 설계 결정 필요. 공식 News API https://www.searchapi.io/docs/google-trends-trending-now-news-api 및 약관 https://www.searchapi.io/legal/terms (2026-04-11 개정 표기) 재확인. 기존 NewsSnapshot 게시 경로 HOLD, 본문/AI/이미지/새 엔진 제외. 기존 COMMITTED 증거 보존, 현재 승인 profile 만료 11-27 13:50 KST, 로컬 API/Expo 검증 및 Timer 재개 증거 미확보. C+D-1을 우선 사용자 경험 개선 가능, D-2는 변경 계약 승인 전 구현/운영 활성화하지 않음. 실제 운영/DB/Timer/PR merge 변경 없음.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
