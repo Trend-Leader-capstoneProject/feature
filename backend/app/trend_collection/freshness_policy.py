@@ -26,6 +26,7 @@ from app.trend_collection.searchapi_interest import (
     InterestSnapshot,
     _case_key,
 )
+from app.trend_collection.searchapi_related_articles import validate_selected_articles
 from app.trend_collection.searchapi_supply_snapshot import (
     NEWS_WINDOW,
     SCOPE as NEWS_SCOPE,
@@ -33,6 +34,7 @@ from app.trend_collection.searchapi_supply_snapshot import (
     NewsSnapshot,
 )
 from app.trend_collection.supply_adapter import (
+    INTEREST_RELATED_SCOPE,
     INTEREST_SCOPE,
     INTEREST_SOURCE_ID,
     SupplyBlocked,
@@ -99,6 +101,19 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
             or not 1 <= len(snapshot.child_name.strip()) <= 255
         ):
             raise SupplyBlocked("SOURCE_SNAPSHOT_MISMATCH")
+        approved = profile.source(source_id)
+        if approved.scope == INTEREST_RELATED_SCOPE:
+            scope = INTEREST_RELATED_SCOPE
+            try:
+                validate_selected_articles(
+                    snapshot.related_articles, topic=snapshot.title,
+                    observed=utc(snapshot.observed_at_utc),
+                    rules=approved.article_rules,
+                )
+            except (TypeError, ValueError, OverflowError, AttributeError):
+                raise SupplyBlocked("ARTICLE_SNAPSHOT_INVALID") from None
+        elif snapshot.related_articles:
+            raise SupplyBlocked("ARTICLE_SCOPE_NOT_APPROVED")
         reference_time = snapshot.started_at_utc
         window = INTEREST_WINDOW
     elif type(snapshot) is NewsSnapshot:

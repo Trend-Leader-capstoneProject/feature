@@ -5,7 +5,7 @@ Collector and Writer must have independently bound clients and catalogs.
 """
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 
@@ -18,6 +18,12 @@ from app.trend_collection.publication_policy import (
 from app.trend_collection.searchapi_discovery import (
     TrendingLead,
     parse_trending_now,
+)
+from app.trend_collection.searchapi_related_articles import (
+    ArticleLinkRule,
+    RelatedArticle,
+    RelatedNewsResult,
+    fetch_related_articles,
 )
 from app.trend_collection.supply_adapter import (
     INTEREST_SCOPE,
@@ -56,10 +62,15 @@ class InterestSnapshot:
     is_primary: bool = True
     thumbnail_url: None = None
     source_title: None = None
+    related_articles: tuple[RelatedArticle, ...] = ()
 
     @property
     def content_digest(self) -> str:
-        return _digest(asdict(self))
+        payload = asdict(self)
+        if not self.related_articles:
+            # Preserve the existing observation-only digest.
+            payload.pop("related_articles")
+        return _digest(payload)
 
 
 def _clock(now: datetime) -> datetime:
@@ -83,11 +94,13 @@ class SearchInterestAdapter:
 
     def __init__(
         self, client, *, topics: Mapping[str, tuple[str, str]], clock=None,
+        allow_missing_news_token: bool = False,
     ):
         if not callable(getattr(client, "trending_now", None)):
             raise SupplyBlocked("INTEREST_CLIENT_REQUIRED")
         self._client = client
         self._topics = dict(topics)
+        self._allow_missing_news_token = allow_missing_news_token
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         for query, category in self._topics.items():
             if (
@@ -122,13 +135,30 @@ class SearchInterestAdapter:
 
     def collect_preview(self) -> dict | None:
         now = _clock(self._clock())
-        leads = parse_trending_now(self._client.trending_now(), now=now)
+        leads = parse_trending_now(
+            self._client.trending_now(), now=now,
+            allow_missing_news_token=self._allow_missing_news_token,
+        )
         for lead in leads:
             if self._eligible(lead, now):
                 return self._preview(lead, now)
         return None
 
     def verify(self, preview: dict, now: datetime) -> InterestSnapshot:
+        now = _clock(now)
+        return self._snapshot(self._verified_lead(preview, now), now)
+
+    def verify_with_news(
+        self, preview: dict, now: datetime, *, rules: tuple[ArticleLinkRule, ...],
+    ) -> tuple[InterestSnapshot, RelatedNewsResult]:
+        """Caller must bind the independently approved Writer scope."""
+        now = _clock(now)
+        lead = self._verified_lead(preview, now)
+        snapshot = self._snapshot(lead, now)
+        news = fetch_related_articles(self._client, lead=lead, now=now, rules=rules)
+        return replace(snapshot, related_articles=news.articles), news
+
+    def _verified_lead(self, preview: dict, now: datetime) -> TrendingLead:
         now = _clock(now)
         if (
             type(preview) is not dict or set(preview) != {
@@ -151,13 +181,16 @@ class SearchInterestAdapter:
             raise SupplyBlocked("INTEREST_PREVIEW_EXPIRED")
         # The Writer fetches the observation itself, not the collector's
         # claimed ranking, title, category, token or raw provider response.
-        leads = parse_trending_now(self._client.trending_now(), now=now)
+        leads = parse_trending_now(
+            self._client.trending_now(), now=now,
+            allow_missing_news_token=self._allow_missing_news_token,
+        )
         for lead in leads:
             if (
                 self._eligible(lead, now)
                 and self._preview(lead, observed) == preview
             ):
-                return self._snapshot(lead, now)
+                return lead
         raise SupplyBlocked("INTEREST_OBSERVATION_UNCONFIRMED")
 
     def _snapshot(self, lead: TrendingLead, now: datetime) -> InterestSnapshot:

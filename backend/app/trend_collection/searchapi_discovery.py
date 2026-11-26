@@ -62,7 +62,9 @@ def _timestamp(value: object, now: datetime) -> datetime | None:
         return None
 
 
-def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead, ...]:
+def parse_trending_now(
+    payload: object, *, now: datetime, allow_missing_news_token: bool = False,
+) -> tuple[TrendingLead, ...]:
     """Use category labels only as hints, never as a concrete child category."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise SearchApiDiscoveryError("INVALID_CLOCK")
@@ -81,6 +83,8 @@ def parse_trending_now(payload: object, *, now: datetime) -> tuple[TrendingLead,
             continue
         query = _clean_text(item.get("query"), limit=255)
         token = _clean_text(item.get("news_token"), limit=2048)
+        if token is None and allow_missing_news_token:
+            token = ""
         started = _timestamp(item.get("start_date"), now)
         categories = item.get("categories")
         if (query is None or token is None or started is None

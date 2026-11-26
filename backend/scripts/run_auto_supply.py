@@ -35,10 +35,18 @@ from app.trend_collection.publication_policy import (
 )
 from app.trend_collection.searchapi_client import SearchApiClient, SearchApiClientError
 from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
-from app.trend_collection.searchapi_interest import SearchInterestAdapter
+from app.trend_collection.searchapi_interest import (
+    InterestSnapshot,
+    SearchInterestAdapter,
+)
+from app.trend_collection.searchapi_related_articles import (
+    ArticleLinkRule,
+    parse_article_rules,
+)
 from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    INTEREST_RELATED_SCOPE,
     INTEREST_SOURCE_ID,
     SEARCHAPI_SOURCE_ID,
     IgdbOperationalAdapter,
@@ -80,6 +88,7 @@ class ApprovedSource:
     source_id: str
     scope: str
     rights_ref: str
+    article_rules: tuple[ArticleLinkRule, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +108,14 @@ class ApprovedProfile:
     approved_by: str
     g5_ref: str
     g6_ref: str
+
+    @property
+    def related_articles_enabled(self):
+        return any(
+            source.source_id == INTEREST_SOURCE_ID
+            and source.scope == INTEREST_RELATED_SCOPE
+            for source in self.sources
+        )
 
     @property
     def username(self):
@@ -136,17 +153,30 @@ def parse_profile(raw, now: datetime) -> ApprovedProfile:
         raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
     approved = []
     for entry in sources:
-        if (type(entry) is not dict or set(entry) != {
-            "source_id", "scope", "rights", "rights_ref",
-        }):
+        if type(entry) is not dict:
+            raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
+        related = (
+            entry.get("source_id") == INTEREST_SOURCE_ID
+            and entry.get("scope") == INTEREST_RELATED_SCOPE
+        )
+        expected_keys = {"source_id", "scope", "rights", "rights_ref"}
+        if related:
+            expected_keys.add("article_rules")
+        if set(entry) != expected_keys:
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
         source = entry["source_id"]
         if (not isinstance(source, str) or source not in ADAPTERS
-                or entry["scope"] != ADAPTERS[source].scope
+                or (not related and entry["scope"] != ADAPTERS[source].scope)
                 or entry["rights"] != RIGHTS
                 or any(item.source_id == source for item in approved)):
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
-        approved.append(ApprovedSource(source, entry["scope"], entry["rights_ref"]))
+        try:
+            rules = parse_article_rules(entry["article_rules"]) if related else ()
+        except ValueError:
+            raise SupplyBlocked("ARTICLE_RULES_INVALID") from None
+        approved.append(ApprovedSource(
+            source, entry["scope"], entry["rights_ref"], rules,
+        ))
     values = {key: raw[key] for key in keys}
     values["sources"] = tuple(approved)
     profile = ApprovedProfile(**values)
@@ -281,6 +311,7 @@ def _operational_adapter(source: ApprovedSource, role: str):
             raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
         return SearchInterestAdapter(
             _searchapi_client(role), topics=_interest_topics(),
+            allow_missing_news_token=source.scope == INTEREST_RELATED_SCOPE,
         )
     if source.source_id == SEARCHAPI_SOURCE_ID:
         if role == "collect":
@@ -379,20 +410,31 @@ def _verify_session(conn: Connection, profile: ApprovedProfile):
     if ((database, account, role) != (profile.database, profile.current_user, None)
             or not isinstance(version, str) or "mariadb" not in version.lower()):
         raise SupplyBlocked("WRITER_SESSION_MISMATCH")
-    check_table_grants(conn.exec_driver_sql("SHOW GRANTS").scalars().all(),
-                       profile.database, profile.current_user)
+    check_table_grants(
+        conn.exec_driver_sql("SHOW GRANTS").scalars().all(),
+        profile.database, profile.current_user,
+        related_articles=profile.related_articles_enabled,
+    )
     if conn.exec_driver_sql("SHOW GRANTS FOR PUBLIC").all():
         raise SupplyBlocked("PUBLIC_GRANTS_PRESENT")
+    tables = ["categories", "trends", "trend_sources", "trend_category_map"]
+    if profile.related_articles_enabled:
+        tables.append("trend_related_articles")
+    # Only static table names; never input values.
+    names = ",".join(f"'{name}'" for name in tables)
     engines = conn.exec_driver_sql(
         "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
-        "('categories','trends','trend_sources','trend_category_map')"
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (" + names + ")"
     ).all()
-    if dict(engines) != {name: "InnoDB" for name in (
-        "categories", "trends", "trend_sources", "trend_category_map",
-    )} or tuple(conn.exec_driver_sql(
-        "SELECT @@session.foreign_key_checks, @@session.unique_checks"
-    ).one()) != (1, 1):
+    if dict(engines) != {name: "InnoDB" for name in tables} or tuple(
+        conn.exec_driver_sql(
+            "SELECT @@session.foreign_key_checks, @@session.unique_checks"
+        ).one()
+    ) != (1, 1):
+        raise SupplyBlocked("WRITER_STORAGE_MISMATCH")
+    if profile.related_articles_enabled and conn.exec_driver_sql(
+        "SELECT @@session.check_constraint_checks"
+    ).scalar_one() != 1:
         raise SupplyBlocked("WRITER_STORAGE_MISMATCH")
 
 
@@ -423,6 +465,25 @@ def inspect_snapshot(conn: Connection, snapshot: PersistableSnapshot) -> str:
     ), {"title": snapshot.normalized_title}).first() is not None:
         raise SupplyBlocked("TITLE_COLLISION")
     return "NEW"
+
+
+def _insert_related_articles(
+    conn: Connection, trend_id: int, snapshot: InterestSnapshot,
+):
+    """The caller owns the transaction and has checked the approved snapshot."""
+    for article in snapshot.related_articles:
+        conn.execute(text(
+            "INSERT INTO trend_related_articles "
+            "(trend_id, article_url, url_key, publisher, title, published_at, "
+            "collected_at, selection_order) VALUES "
+            "(:id, :url, :key, :publisher, :title, :published, :collected, :slot)"
+        ), {
+            "id": trend_id, "url": article.url, "key": article.url_key,
+            "publisher": article.publisher, "title": article.title,
+            "published": utc(article.published_at_utc).replace(tzinfo=None),
+            "collected": utc(snapshot.observed_at_utc).replace(tzinfo=None),
+            "slot": article.selection_order,
+        })
 
 
 def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> str:
@@ -460,12 +521,14 @@ def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> 
                 if conn.exec_driver_sql("SELECT @@in_transaction").scalar_one() != 1:
                     raise SupplyBlocked("TRANSACTION_NOT_ACTIVE")
                 _assert_current(profile, snapshot)
-                insert_trend_item(
+                trend_id = insert_trend_item(
                     conn, snapshot, category_id=category_id,
                     collected_at=utc(snapshot.observed_at_utc).replace(tzinfo=None),
                     summary=snapshot.summary, is_primary=True,
                     status="ACTIVE", platform=snapshot.platform,
                 )
+                if type(snapshot) is InterestSnapshot and snapshot.related_articles:
+                    _insert_related_articles(conn, trend_id, snapshot)
                 _assert_current(profile, snapshot)
             except Exception:
                 conn.rollback()
@@ -488,12 +551,23 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
             or not isinstance(envelope["source_id"], str)):
         raise SupplyBlocked("SOURCE_ENVELOPE_MISMATCH")
     source = profile.source(envelope["source_id"])
-    snapshot = _operational_adapter(source, "write").verify(
-        envelope["preview"], now_utc(),
-    )
+    adapter = _operational_adapter(source, "write")
+    news = None
+    if (source.source_id == INTEREST_SOURCE_ID
+            and source.scope == INTEREST_RELATED_SCOPE):
+        snapshot, news = adapter.verify_with_news(
+            envelope["preview"], now_utc(), rules=source.article_rules,
+        )
+    else:
+        snapshot = adapter.verify(envelope["preview"], now_utc())
     bound = bind_snapshot(snapshot, policy=VERSION, target=profile.target)
     result = _write(profile, bound, OperationalJournal(profile))
-    return {"status": result, "candidate_identity": snapshot.candidate_identity}
+    outcome = {"status": result, "candidate_identity": snapshot.candidate_identity}
+    if news is not None:
+        outcome["related_news_status"] = news.status
+        if news.status == "RATE_LIMITED":
+            outcome["retry_not_before"] = news.retry_not_before
+    return outcome
 
 
 def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:

@@ -18,6 +18,7 @@ MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
 SEARCHAPI_SOURCE_ID = 'searchapi-kr-reviewed-news'
 INTEREST_SOURCE_ID = 'searchapi-kr-interest'
+INTEREST_RELATED_SCOPE = 'SEARCHAPI_KR_INTEREST_RELATED_V1'
 EMPTY_CANDIDATE_SOURCES = frozenset({
     IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
 })
@@ -65,7 +66,19 @@ def next_state(result, now, previous, *, writer=False, source_id=None,
     writer_done = writer and status in {'COMMITTED', 'SKIP_EXISTING_RELEASE'}
     empty_done = not writer and no_candidate and status == 'SKIP_NO_CANDIDATE'
     completed = writer_done or empty_done
-    if status == 'HOLD' and reason == 'RATE_LIMITED':
+    if writer and result.get('related_news_status') == 'RATE_LIMITED':
+        failures = min(3, previous.get('related_news_rate_failures', 0) + 1)
+        deadline = result.get('retry_not_before')
+        known = type(deadline) is int and deadline >= 0
+        updated = {
+            'pending': not completed or not known or failures >= 3,
+            'not_before': max(
+                now + INTERVAL * 2 ** (failures - 1), deadline if known else 0,
+            ),
+            'rate_failures': 0 if completed else previous['rate_failures'],
+            'related_news_rate_failures': failures,
+        }
+    elif status == 'HOLD' and reason == 'RATE_LIMITED':
         failures = previous['rate_failures'] + 1
         deadline = result.get('retry_not_before')
         if type(deadline) is not int or deadline < 0 or failures >= 3:
@@ -85,6 +98,12 @@ def next_state(result, now, previous, *, writer=False, source_id=None,
             'pending': False, 'not_before': now + INTERVAL,
             'rate_failures': previous['rate_failures'] if status == 'HOLD' else 0,
         }
+    # A successful unrelated source must not erase the optional News streak.
+    if ('related_news_rate_failures' in previous
+            and 'related_news_rate_failures' not in updated
+            and not (writer_done and result.get('related_news_status')
+                     in {'AVAILABLE', 'EMPTY'})):
+        updated['related_news_rate_failures'] = previous['related_news_rate_failures']
     return _preserve_rotation(updated, previous, source_id=source_id,
                               completed=completed, game_id=game_id)
 
@@ -108,11 +127,14 @@ def load_state(path, read_record):
         'pending', 'not_before', 'rate_failures',
     } <= set(data) or set(data) - {
         'pending', 'not_before', 'rate_failures', 'last_completed_source_id',
-        'igdb_last_game_id',
+        'igdb_last_game_id', 'related_news_rate_failures',
     } or type(data['pending']) is not bool
             or type(data['not_before']) is not int or data['not_before'] < 0
             or type(data['rate_failures']) is not int
             or not 0 <= data['rate_failures'] <= 3
+            or ('related_news_rate_failures' in data
+                and (type(data['related_news_rate_failures']) is not int
+                     or not 1 <= data['related_news_rate_failures'] <= 3))
             or ('last_completed_source_id' in data
                 and (not isinstance(data['last_completed_source_id'], str)
                      or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}',
@@ -234,6 +256,21 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
             }
             if (write_code == 0) != success or write_code not in {0, 2}:
                 raise RuntimeError('WRITER_OUTCOME_MISMATCH')
+            if (success and source.source_id == INTEREST_SOURCE_ID
+                    and getattr(source, 'scope', None) == INTEREST_RELATED_SCOPE
+                    and 'related_news_status' not in result):
+                raise RuntimeError('RELATED_NEWS_OUTCOME_MISMATCH')
+            if 'related_news_status' in result:
+                if (
+                    source.source_id != INTEREST_SOURCE_ID
+                    or getattr(source, 'scope', None) != INTEREST_RELATED_SCOPE
+                    or result['related_news_status'] not in {
+                        'DISABLED', 'AVAILABLE', 'EMPTY', 'UNAVAILABLE', 'RATE_LIMITED',
+                    }
+                    or ((result['related_news_status'] == 'RATE_LIMITED')
+                        != ('retry_not_before' in result))
+                ):
+                    raise RuntimeError('RELATED_NEWS_OUTCOME_MISMATCH')
             if source.source_id == IGDB_SOURCE_ID and success:
                 game_id = _confirmed_igdb_game(envelope['preview'], result)
             if source.source_id == SEARCHAPI_SOURCE_ID and success:
@@ -326,6 +363,7 @@ def main():
         # Only bounded diagnostic fields, never previews or raw stderr.
         print(json.dumps({key: result[key] for key in (
             'status', 'reason', 'candidate_identity', 'retry_not_before',
+            'related_news_status',
         ) if key in result}))
         success = result.get('status') in {
             'COMMITTED', 'SKIP_EXISTING_RELEASE', 'SKIP_NO_CANDIDATE',

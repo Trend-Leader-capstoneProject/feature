@@ -56,7 +56,10 @@ def check_direct_grants(
     check_table_grants(grants, expected.database, expected.current_user)
 
 
-def check_table_grants(grants: Iterable[str], database: str, current_user: str) -> None:
+def check_table_grants(
+    grants: Iterable[str], database: str, current_user: str, *,
+    related_articles: bool = False,
+) -> None:
     """Exact direct-grant grammar, shared by explicitly bound writer profiles."""
     user, _, host = current_user.partition("@")
     # MariaDB can render the same account with backticks or single quotes.
@@ -90,7 +93,10 @@ def check_table_grants(grants: Iterable[str], database: str, current_user: str) 
         if table in observed or len(privileges) != len(set(privileges)):
             raise IsolationError("GRANT_DUPLICATE")
         observed[table] = frozenset(privileges)
-    if not usage_seen or observed != TABLE_PRIVILEGES:
+    expected = dict(TABLE_PRIVILEGES)
+    if related_articles:
+        expected["trend_related_articles"] = frozenset({"SELECT", "INSERT"})
+    if not usage_seen or observed != expected:
         raise IsolationError("GRANT_PROFILE_MISMATCH")
 
 

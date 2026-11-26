@@ -99,6 +99,8 @@
 
 - **2026-11-26 Related News 선택 모듈 사용자 실측 완료**: `tests/trend_collection/test_searchapi_related_articles.py` **28 passed in 0.15s** (`c2a3482` 기준, 로컬 HEAD 원문 미보고). 이전 pytest 미실행 상태 대체. 해당 모듈 Ruff는 아직 미보고. **사용자 검증 안내 선호 확정**: 구현 후 필요한 테스트가 있으면 해당 작업 응답에 실행 디렉터리·Windows PowerShell 호환 집중 pytest/Jest/typecheck 및 변경 범위 Ruff 명령을 함께 제공한다. 테스트를 묶더라도 사용자에게 필요한 실행 명령을 누락하지 않고 이미 통과한 동일 범위의 불필요한 재실행은 피한다. 다음은 보호 rule/3회 요청 scope, Writer digest/DML·최소 권한, Scheduler 선택 429 처리 연계. 이번 턴에는 검증 결과 및 안내 원칙만 기록; 코드/DB/운영/merge 변경 없음.
 
+- **2026-11-26 Related News 선택 모듈 Ruff 사용자 PASS, Writer/Journal/Scheduler 연결**: 이전 28 PASS 보존. 별도 `SEARCHAPI_KR_INTEREST_RELATED_V1` 보호 approval source scope/`article_rules` 엄격 스키마(동일 source ID/identity/rotation). 기존 scope는 extra 필드 불허/뉴스0회; 신규 scope에서만 Writer의 독립 token으로 최대1회, 미승인/빈 rule/token 없음 시 호출0 및 정상 관측 유지. 기사 필드·순서 digest, 빈 배열 기존 digest 보존, freshness에서 scope/rule/hash/URL/slot/time 재검증. 기존 신규 트렌드 INSERT와 동일 transaction/Journal에 기사 INSERT, 중복 SKIP/실패 rollback/HOLD. 새 scope에서만 Writer exact GRANT `trend_related_articles` SELECT/INSERT, InnoDB·check_constraint_checks 검증. 선택 429는 완료 상태 분리, global cooldown/backoff, source 회전/IGDB cursor 보존, 별도 related_news_rate_failures streak를 다른 공급원 성공 후에도 보존; unknown/반복/Writer 실패 pending. 신규 집중 테스트 작성, 실제 pytest/Ruff 미실행. 기존 운영 profile/GRANT/DB/Timer/merge 변경 없음, 기사 권리·실제 운영 승인 별도, API/D-2 UI 미연결. 다음은 신규·변경 영향 테스트(Windows 및 Linux durable scheduler), 실제 격리 DB Writer 통합 확인, API/D-2 연결. 산출물 요청 유지.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.

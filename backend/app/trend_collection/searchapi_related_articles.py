@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-from unicodedata import normalize
+from unicodedata import category, normalize
 from urllib.parse import urlsplit
 
 from app.external_trends.normalizer import extract_candidate_hostname
@@ -70,17 +70,37 @@ def _valid_rule(rule: ArticleLinkRule) -> bool:
         and isinstance(rule.publisher, str)
         and 1 <= len(rule.publisher) <= 255
         and rule.publisher == rule.publisher.strip()
+        and not any(category(ch).startswith("C") for ch in rule.publisher)
         and isinstance(rule.evidence_ref, str)
         and 1 <= len(rule.evidence_ref.strip()) <= 512
+        and rule.evidence_ref.strip().upper() not in {"PASS", "TRUE", "TODO", "ALLOWED"}
         and type(rule.allow_title) is bool
     )
+
+
+def parse_article_rules(raw: object) -> tuple[ArticleLinkRule, ...]:
+    """Protected profile only; empty scope disables optional requests."""
+    if type(raw) is not list or len(raw) > 50:
+        raise ValueError("ARTICLE_RULES_INVALID")
+    rules = []
+    for entry in raw:
+        if type(entry) is not dict or set(entry) != {
+            "host", "path_prefix", "publisher", "evidence_ref", "allow_title",
+        }:
+            raise ValueError("ARTICLE_RULES_INVALID")
+        rule = ArticleLinkRule(**entry)
+        if not _valid_rule(rule) or rule in rules:
+            raise ValueError("ARTICLE_RULES_INVALID")
+        rules.append(rule)
+    return tuple(rules)
 
 
 def _canonical_url(url: str, rule: ArticleLinkRule) -> str | None:
     # The minimal scope intentionally excludes query-dependent article URLs.
     # No fetch or redirect resolution is performed for publisher links.
     if (
-        "?" in url or "#" in url or not url.startswith("https://")
+        not isinstance(url, str) or not 1 <= len(url) <= 2048
+        or "?" in url or "#" in url or not url.startswith("https://")
         or extract_candidate_hostname(url) != rule.host
     ):
         return None
@@ -161,6 +181,43 @@ def select_related_articles(
     )
 
 
+def validate_selected_articles(
+    articles: tuple[RelatedArticle, ...], *, topic: str,
+    observed: datetime, rules: tuple[ArticleLinkRule, ...],
+) -> None:
+    """Recheck persistable metadata against the approved scope."""
+    if type(articles) is not tuple or len(articles) > _MAX_ARTICLES:
+        raise ValueError("ARTICLE_SNAPSHOT_INVALID")
+    seen = set()
+    for order, article in enumerate(articles, 1):
+        if type(article) is not RelatedArticle or not isinstance(article.url, str):
+            raise ValueError("ARTICLE_SNAPSHOT_INVALID")
+        matches = [
+            rule for rule in rules
+            if _valid_rule(rule) and rule.publisher == article.publisher
+            and _canonical_url(article.url, rule) == article.url
+        ]
+        if (
+            len(matches) != 1 or type(article.selection_order) is not int
+            or article.selection_order != order or article.url in seen
+            or article.url_key != sha256(article.url.encode()).hexdigest()
+        ):
+            raise ValueError("ARTICLE_SNAPSHOT_INVALID")
+        if article.title is not None and (
+            not matches[0].allow_title or not isinstance(article.title, str)
+            or not 1 <= len(article.title) <= 255
+            or article.title != article.title.strip()
+            or any(category(ch).startswith("C") for ch in article.title)
+            or len(_topic_key(topic)) < 2
+            or _topic_key(topic) not in _topic_key(article.title)
+        ):
+            raise ValueError("ARTICLE_SNAPSHOT_INVALID")
+        stamp = datetime.fromisoformat(article.published_at_utc)
+        if stamp.utcoffset() is None or not timedelta(0) <= observed - stamp < WINDOW:
+            raise ValueError("ARTICLE_SNAPSHOT_INVALID")
+        seen.add(article.url)
+
+
 def fetch_related_articles(
     client, *, lead: TrendingLead, now: datetime,
     rules: tuple[ArticleLinkRule, ...] = (),
@@ -171,6 +228,8 @@ def fetch_related_articles(
     This helper does not itself activate that profile or perform any DB writes.
     """
     if not rules or not all(_valid_rule(rule) for rule in rules):
+        return RelatedNewsResult()
+    if not lead.news_token:
         return RelatedNewsResult()
     try:
         articles = select_related_articles(
