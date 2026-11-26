@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from app.trend_collection.godot_release_collector import (
     RELEASES,
@@ -198,6 +199,67 @@ def test_unknown_commit_never_reported_as_success(monkeypatch):
     conn.commit.side_effect = RuntimeError("lost response")
     assert supply._write(profile(), snapshot(), journal) == "HOLD"
     assert journal.finish.call_args.args[-1] == "COMMIT_UNKNOWN"
+
+
+@pytest.mark.parametrize(("method", "stage"), [
+    ("_verify_session", "SESSION"),
+    ("_category_id", "CATEGORY_LOCK"),
+    ("inspect_snapshot", "DUPLICATE_CHECK"),
+])
+def test_preclaim_hold_diagnostic_is_bounded(monkeypatch, method, stage):
+    conn, journal, insert = _mock_writer(monkeypatch)
+    error = OperationalError(
+        "sensitive SQL", {"password": "secret"}, Exception(1205, "secret text"),
+    )
+    getattr(supply, method).side_effect = error
+    diagnostic = {}
+    assert supply._write(
+        profile(), snapshot(), journal, diagnostic=diagnostic,
+    ) == "HOLD"
+    assert diagnostic == {
+        "reason": f"WRITER_{stage}_FAILED", "db_error_code": 1205,
+    }
+    journal.claim.assert_not_called()
+    journal.finish.assert_not_called()
+    conn.commit.assert_not_called()
+    insert.assert_not_called()
+
+
+@pytest.mark.parametrize(("failure", "stage", "journal_state"), [
+    ("insert", "PARENT_INSERT", "ROLLED_BACK"),
+    ("commit", "COMMIT", "COMMIT_UNKNOWN"),
+])
+def test_postclaim_diagnostic_preserves_journal_state(
+    monkeypatch, failure, stage, journal_state,
+):
+    conn, journal, insert = _mock_writer(monkeypatch)
+    operation = insert if failure == "insert" else conn.commit
+    operation.side_effect = RuntimeError("private upstream content")
+    diagnostic = {}
+    assert supply._write(
+        profile(), snapshot(), journal, diagnostic=diagnostic,
+    ) == "HOLD"
+    assert diagnostic == {"reason": f"WRITER_{stage}_FAILED"}
+    assert journal.finish.call_args.args[-1] == journal_state
+
+
+def test_run_writer_propagates_safe_hold_diagnostic(monkeypatch):
+    adapter = Mock()
+    adapter.verify.return_value = snapshot()
+    monkeypatch.setattr(supply, "_operational_adapter", Mock(return_value=adapter))
+    monkeypatch.setattr(supply, "now_utc", lambda: NOW)
+    monkeypatch.setattr(supply, "OperationalJournal", Mock())
+
+    def hold(*args, diagnostic):
+        diagnostic.update(reason="WRITER_CATEGORY_LOCK_FAILED", db_error_code=1205)
+        return "HOLD"
+
+    monkeypatch.setattr(supply, "_write", hold)
+    result = supply.run_writer(profile(), {"source_id": REPO, "preview": {}})
+    assert result == {
+        "status": "HOLD", "candidate_identity": snapshot().candidate_identity,
+        "reason": "WRITER_CATEGORY_LOCK_FAILED", "db_error_code": 1205,
+    }
 
 
 def test_operational_journal_reuse_is_separate_from_synthetic(tmp_path):

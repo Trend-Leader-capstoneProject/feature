@@ -363,5 +363,6 @@ def test_repository_lineage_is_loaded_without_alembic_env():
             "7e9d740c5df1",
             "a4d7c9e21f3b",
             "b7f2c81d9e04",
+            "d3a9f27c6b41",
         }
     )

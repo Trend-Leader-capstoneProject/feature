@@ -26,6 +26,12 @@ from app.trend_collection.publication_policy import (
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 
+SEARCHAPI_SOURCE_ID = "searchapi-kr-reviewed-news"
+SEARCHAPI_SCOPE = "SEARCHAPI_REVIEWED_NEWS_V1"
+INTEREST_SOURCE_ID = "searchapi-kr-interest"
+INTEREST_SCOPE = "SEARCHAPI_KR_INTEREST_V1"
+INTEREST_RELATED_SCOPE = "SEARCHAPI_KR_INTEREST_RELATED_V1"
+
 
 class SupplyBlocked(RuntimeError):
     """Bounded diagnostic only."""
@@ -113,11 +119,31 @@ class IgdbOperationalAdapter:
         return self._ready().verify(preview, now)
 
 
-# Static code registry, not an approval list. The IGDB entry is inert until
-# a protected approval profile selects it and role-specific credentials bind it.
+class SearchApiOperationalDescriptor:
+    """Inert registry entry; only the approved role binder can enable I/O."""
+
+    scope = SEARCHAPI_SCOPE
+
+    def collect_preview(self) -> dict | None:
+        raise SupplyBlocked("SEARCHAPI_ROLE_NOT_BOUND")
+
+    def verify(self, preview: dict, now: datetime) -> PersistableSnapshot:
+        raise SupplyBlocked("SEARCHAPI_ROLE_NOT_BOUND")
+
+
+class SearchInterestOperationalDescriptor(SearchApiOperationalDescriptor):
+    """Interest rights and credentials must be bound separately from news."""
+
+    scope = INTEREST_SCOPE
+
+
+# Static code registry, not an approval list. External adapters stay inert
+# until the protected profile selects them and the executing role is bound.
 ADAPTERS: dict[str, SourceAdapter] = {
     REPO: GodotAdapter(),
     IGDB_SOURCE_ID: IgdbOperationalAdapter(),
+    SEARCHAPI_SOURCE_ID: SearchApiOperationalDescriptor(),
+    INTEREST_SOURCE_ID: SearchInterestOperationalDescriptor(),
 }
 
 

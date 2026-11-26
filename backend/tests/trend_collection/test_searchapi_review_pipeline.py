@@ -1,0 +1,289 @@
+"""One real-shaped discovery-to-review path; all upstream I/O is fake."""
+
+from datetime import datetime, timezone
+from unittest.mock import Mock
+
+import pytest
+
+from app.trend_collection.searchapi_article_reader import ArticleReader
+from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
+from app.trend_collection.searchapi_evidence import ProposedFact
+from app.trend_collection.searchapi_review_pipeline import (
+    SearchApiReviewPipeline,
+)
+from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
+from app.trend_collection.supply_adapter import SupplyBlocked
+
+NOW = datetime(2026, 11, 23, 10, tzinfo=timezone.utc)
+YNA = "https://www.yna.co.kr/view/AKR20261123042700005"
+NEWSIS = "https://mobile.newsis.com/view/NISX20261123_0003878761"
+PUBLISHED = "2026-11-23T09:00:00Z"
+BODY = (
+    "굿데이 시즌2 제작 소식이 공개됐습니다. 제작진의 새 프로젝트에 "
+    "관한 내용이 발표되었으며 세부 일정은 추가 안내될 예정입니다. "
+    "이 본문은 자동 게시를 승인하지 않는 오프라인 테스트 문장입니다."
+)
+
+
+class FakeResponse:
+    status = 200
+    headers = {"Content-Type": "text/html; charset=utf-8"}
+
+    def __init__(self, url, body):
+        self._url = url
+        self._data = (
+            '<html><head><meta property="article:published_time" '
+            'content="2026-11-23T09:00:00+00:00"></head><body>'
+            f'<article><p>{body}</p><p>{body}</p></article>'
+            '</body></html>'
+        ).encode("utf-8")
+
+    def geturl(self):
+        return self._url
+
+    def read(self, limit):
+        return self._data[:limit]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class FakeSearchApi:
+    def __init__(self, *, no_supported_news=False):
+        self.trending_calls = 0
+        self.news_calls = []
+        self.no_supported_news = no_supported_news
+
+    def trending_now(self):
+        self.trending_calls += 1
+        return {
+            "search_parameters": {
+                "engine": "google_trends_trending_now",
+                "geo": "KR", "time": "past_24_hours",
+            },
+            "trends": [{
+                "query": "지드래곤",
+                "news_token": "fake-token",
+                "start_date": PUBLISHED,
+                "categories": ["entertainment"],
+                "is_active": True,
+            }],
+        }
+
+    def related_news(self, token):
+        self.news_calls.append(token)
+        urls = (
+            ("https://other.example.com/story", NEWSIS)
+            if self.no_supported_news else (YNA, NEWSIS)
+        )
+        return {
+            "search_parameters": {
+                "engine": "google_trends_trending_now_news",
+                "news_token": token,
+            },
+            "news": [
+                {
+                    "title": "굿데이 시즌2",
+                    "link": url, "source": "신문",
+                    "iso_date": PUBLISHED,
+                } for url in urls
+            ],
+        }
+
+
+def pipeline(*, no_supported_news=False):
+    api = FakeSearchApi(no_supported_news=no_supported_news)
+    opener = Mock()
+    opener.open.side_effect = [
+        FakeResponse(YNA, BODY),
+        FakeResponse(NEWSIS, BODY + " 기사별로 다른 내용입니다."),
+    ]
+    return SearchApiReviewPipeline(api, reader=ArticleReader(opener=opener)), (
+        api, opener,
+    )
+
+
+def _fact():
+    return ProposedFact(
+        "good-day-2-2027-h1-announcement", "ENTERTAINMENT",
+        (("굿데이",), ("시즌2",)),
+    )
+
+
+def test_one_candidate_flows_to_review_without_writer_or_publication():
+    coordinator, (api, opener) = pipeline()
+    candidate = coordinator.collect_preview(now=NOW)
+    assert candidate is not None
+    assert len(candidate.related_news) == 2
+    assert api.trending_calls == 1
+    assert api.news_calls == ["fake-token"]
+    assert opener.open.call_count == 0
+
+    review, identity = coordinator.review(candidate, _fact(), now=NOW)
+    assert review.status == "REVIEW_REQUIRED"
+    assert review.publish_authorization == "NONE"
+    assert identity is not None
+    assert identity.external_id == (
+        "searchapi-event:good-day-2-2027-h1-announcement"
+    )
+    assert identity.proposed_status == "HIDDEN"
+    assert identity.publish_authorization == "NONE"
+    assert opener.open.call_count == 2
+
+
+def test_review_is_single_use_without_new_requests():
+    coordinator, (_, opener) = pipeline()
+    candidate = coordinator.collect_preview(now=NOW)
+    assert candidate is not None
+    coordinator.review(candidate, _fact(), now=NOW)
+    result, identity = coordinator.review(candidate, _fact(), now=NOW)
+    assert result.status == "HOLD"
+    assert identity is None
+    assert opener.open.call_count == 2
+    with pytest.raises(RuntimeError, match="CYCLE_ALREADY_USED"):
+        coordinator.collect_preview(now=NOW)
+
+
+def test_unsupported_publisher_does_not_fabricate_review_candidate():
+    coordinator, (api, opener) = pipeline(no_supported_news=True)
+    assert coordinator.collect_preview(now=NOW) is None
+    assert api.trending_calls == 1
+    assert api.news_calls == ["fake-token"]
+    opener.open.assert_not_called()
+
+
+def test_wrong_root_is_rejected_without_reader_requests():
+    coordinator, (_, opener) = pipeline()
+    candidate = coordinator.collect_preview(now=NOW)
+    assert candidate is not None
+    invalid = ProposedFact(
+        "good-day-2-2027-h1-announcement", "GAME", (("굿데이",),),
+    )
+    result, identity = coordinator.review(candidate, invalid, now=NOW)
+    assert result.status == "HOLD"
+    assert identity is None
+    opener.open.assert_not_called()
+
+
+def test_uncovered_roots_take_priority_over_game_and_it():
+    coordinator, (api, opener) = pipeline()
+    payload = api.trending_now()
+    template = payload["trends"][0]
+    payload["trends"] = [
+        {**template, "query": "게임", "news_token": "game",
+         "categories": ["games"]},
+        {**template, "query": "기술", "news_token": "tech",
+         "categories": ["technology"]},
+        {**template, "query": "지난 음식", "news_token": "stale",
+         "categories": ["food_and_drink"],
+         "start_date": "2026-11-21T09:00:00Z"},
+        {**template, "query": "음식", "news_token": "food",
+         "categories": ["food_and_drink"]},
+    ]
+    api.trending_now = Mock(return_value=payload)
+    candidate = coordinator.collect_preview(now=NOW)
+    assert candidate is not None
+    assert candidate.lead.possible_root_codes == frozenset({"FOOD"})
+    assert api.news_calls == ["food"]
+    api.trending_now.assert_called_once_with()
+    opener.open.assert_not_called()
+
+
+@pytest.mark.parametrize("returned_token", [None, "different-token"])
+def test_unmatched_news_token_is_not_a_candidate(returned_token):
+    coordinator, (api, opener) = pipeline()
+    payload = api.related_news("fake-token")
+    payload["search_parameters"]["news_token"] = returned_token
+    api.related_news = Mock(return_value=payload)
+    with pytest.raises(SearchApiDiscoveryError, match="NEWS_TOKEN_MISMATCH"):
+        coordinator.collect_preview(now=NOW)
+    api.related_news.assert_called_once_with("fake-token")
+    opener.open.assert_not_called()
+
+
+def _automatic_pair(topic, first, second):
+    api = FakeSearchApi()
+    payload = api.trending_now()
+    payload["trends"][0]["categories"] = [topic]
+    api.trending_now = Mock(return_value=payload)
+    bodies = {
+        YNA: first + " 첫 번째 매체가 별도로 제공한 시험용 추가 설명입니다.",
+        NEWSIS: second + " 두 번째 매체의 별도 시험용 설명과 내용입니다.",
+    }
+
+    def reader_factory():
+        opener = Mock()
+        opener.open.side_effect = lambda request, **_: FakeResponse(
+            request.full_url, bodies[request.full_url],
+        )
+        return ArticleReader(opener=opener)
+
+    collector = AutomaticSearchApiAdapter(
+        api, reader_factory=reader_factory, clock=lambda: NOW,
+    )
+    writer = AutomaticSearchApiAdapter(reader_factory=reader_factory)
+    return collector, writer, api, bodies
+
+
+@pytest.mark.parametrize(("topic", "kind", "root", "child"), [
+    ("food_and_drink", "음료", "FOOD", "식품·음료"),
+    ("beauty_and_fashion", "신발", "FASHION", "신발"),
+    ("beauty_and_fashion", "향수", "BEAUTY", "향수"),
+    ("entertainment", "예능", "ENTERTAINMENT", "예능"),
+])
+def test_automatic_case_reaches_writer_snapshot_without_manual_case(
+    topic, kind, root, child,
+):
+    sentence = f"테스트사는 {kind} '새 상품'을 발표했다."
+    collector, writer, api, _ = _automatic_pair(topic, sentence, sentence)
+    preview = collector.collect_preview()
+    assert preview is not None
+    assert "fake-token" not in str(preview)
+    assert "새 상품" not in str(preview)
+    snapshot = writer.verify(preview, NOW)
+    assert snapshot.title == "테스트사 새 상품 발표 소식"
+    assert snapshot.parent_code == root
+    assert snapshot.child_name == child
+    assert snapshot.proposed_status == "ACTIVE"
+    assert snapshot.summary.startswith("두 매체가 ")
+    assert snapshot.candidate_identity == f"searchapi-event:{preview['case_key']}"
+    api.trending_now.assert_called_once_with()
+    assert api.news_calls == ["fake-token"]
+
+
+@pytest.mark.parametrize("second", [
+    "테스트사는 음료 '다른 상품'을 발표했다.",
+    "테스트사는 음료 '새 상품'을 발표하지 않았다.",
+    "테스트사는 음료 '새 상품'을 발표했다. 해당 보도는 오보였다.",
+])
+def test_automatic_case_skips_conflicting_or_disputed_report(second):
+    collector, _, _, _ = _automatic_pair(
+        "food_and_drink", "테스트사는 음료 '새 상품'을 발표했다.", second,
+    )
+    assert collector.collect_preview() is None
+
+
+def test_automatic_writer_rejects_changed_article_evidence():
+    sentence = "테스트사는 음료 '새 상품'을 발표했다."
+    collector, writer, _, bodies = _automatic_pair(
+        "food_and_drink", sentence, sentence,
+    )
+    preview = collector.collect_preview()
+    assert preview is not None
+    bodies[YNA] += " 원문이 변경되었습니다."
+    with pytest.raises(SupplyBlocked, match="NEWS_REVIEWED_EVIDENCE_CHANGED"):
+        writer.verify(preview, NOW)
+
+
+def test_automatic_writer_rejects_injected_presentation():
+    sentence = "테스트사는 음료 '새 상품'을 발표했다."
+    collector, writer, _, _ = _automatic_pair(
+        "food_and_drink", sentence, sentence,
+    )
+    preview = collector.collect_preview()
+    assert preview is not None
+    with pytest.raises(SupplyBlocked, match="INVALID_NEWS_PREVIEW"):
+        writer.verify({**preview, "title": "임의 제목"}, NOW)

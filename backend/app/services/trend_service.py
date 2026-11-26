@@ -12,6 +12,7 @@ from app.core.exceptions import (
 )
 from app.models.category import Category
 from app.models.trend import Trend
+from app.models.trend_related_article import TrendRelatedArticle
 from app.models.trend_source import TrendSource
 from app.repositories.category_repository import (
     CategoryRepository,
@@ -51,6 +52,12 @@ class TrendRepositoryProtocol(
         trend_ids: list[int],
     ) -> dict[int, TrendSource]:
         """Trend별 최신 Source를 일괄 조회한다."""
+        ...
+
+    def find_related_articles_by_trend_ids(
+        self, trend_ids: list[int],
+    ) -> dict[int, list[TrendRelatedArticle]]:
+        """Trend별 현재 표시 가능한 참고 기사를 일괄 조회한다."""
         ...
 
     def find_categories_by_trend_ids(
@@ -166,6 +173,10 @@ class TrendService:
             )
         )
 
+        articles_by_trend_id = (
+            self.trend_repository.find_related_articles_by_trend_ids(trend_ids)
+        )
+
         items = [
             build_trend_list_item(
                 trend=trend,
@@ -176,6 +187,7 @@ class TrendService:
                     trend.trend_id,
                     [],
                 ),
+                related_articles=articles_by_trend_id.get(trend.trend_id, []),
             )
             for trend in response_trends
         ]

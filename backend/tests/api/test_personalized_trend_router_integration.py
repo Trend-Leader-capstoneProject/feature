@@ -1170,6 +1170,7 @@ def test_personalized_trends_loads_sources_in_one_batch(
             # The trend page now contains an IGDB expiry EXISTS subquery.
             # Count source-loading statements, not the outer Trend SELECT.
             and not normalized_sql.startswith("select trends.")
+            and not normalized_sql.startswith("select trend_related_articles.")
         ):
             source_select_statements.append(statement)
 

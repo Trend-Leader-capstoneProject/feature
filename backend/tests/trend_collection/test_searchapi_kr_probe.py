@@ -1,0 +1,229 @@
+"""No key, network, DB or file writes in probe tests."""
+
+from datetime import datetime, timezone
+from unittest.mock import Mock
+
+import pytest
+
+from app.trend_collection.searchapi_discovery import (
+    SearchApiDiscoveryError,
+    TrendingLead,
+    parse_official_search_links,
+)
+from scripts.probe_searchapi_kr import (
+    choose_news_leads,
+    collect_official_report,
+    collect_report,
+    main,
+)
+
+NOW = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+
+
+def _lead(query, roots):
+    return TrendingLead(query, NOW, "a-token", frozenset(roots))
+
+
+def test_unambiguous_food_and_entertainment_prioritized():
+    leads = (_lead("ambiguous", ("BEAUTY", "FASHION")),
+             _lead("movie", ("ENTERTAINMENT",)),
+             _lead("food", ("FOOD",)))
+    assert [row.query for row in choose_news_leads(leads)] == ["food", "movie"]
+
+
+def test_empty_and_single_candidate():
+    assert choose_news_leads(()) == ()
+    assert len(choose_news_leads((_lead("food", ("FOOD",)),))) == 1
+
+
+def test_lead_limit_is_two():
+    leads = tuple(_lead(str(i), ("FOOD",)) for i in range(20))
+    assert len(choose_news_leads(leads)) == 2
+
+
+def test_zero_leads_consumes_only_trending_call():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now",
+            "geo": "KR", "time": "past_24_hours",
+        },
+        "trends": [],
+    }
+    result = collect_report(client, now=NOW)
+    assert result["status"] == "READ_ONLY_DISCOVERY"
+    assert result["publication_authorization"] == "NONE"
+    assert result["requests_executed"] == 1
+    client.related_news.assert_not_called()
+
+
+def test_two_leads_make_at_most_three_calls_without_publication():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now",
+            "geo": "KR", "time": "past_24_hours",
+        },
+        "trends": [
+            {"query": "식품", "start_date": "2026-11-22T11:00:00Z",
+             "news_token": "abc", "is_active": True,
+             "categories": ["food_and_drink"]},
+            {"query": "음악", "start_date": "2026-11-22T11:00:00Z",
+             "news_token": "def", "is_active": True,
+             "categories": ["entertainment"]},
+        ],
+    }
+    client.related_news.side_effect = lambda token: {
+        "search_parameters": {
+            "engine": "google_trends_trending_now_news",
+            "news_token": token,
+        },
+        "news": [{"title": "공식 발표", "source": "Official Source",
+                  "link": "https://example.org/official",
+                  "iso_date": "2026-11-22T11:00:00Z"}],
+    }
+    result = collect_report(client, now=NOW)
+    assert result["requests_executed"] == 3
+    assert result["news_queries"] == 2
+    assert result["raw_category_counts"]["food_and_drink"] == 1
+    assert result["eligible_leads"][0]["is_active"] is True
+    assert result["total_trends_returned"] == 2
+    assert result["active_trends_returned"] == 2
+    assert len(result["eligible_leads"]) == 2
+    assert result["eligible_leads"][0]["query"] == "식품"
+    assert "news_token" not in str(result)
+    assert client.related_news.call_count == 2
+    assert all(
+        "news_metadata_unverified" in item for item in result["candidates"]
+    )
+
+
+def test_no_flag_never_requests_credentials():
+    with pytest.raises(SystemExit):
+        main([])
+
+def test_mismatched_news_token_rejected():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now",
+                              "geo": "KR", "time": "past_24_hours"},
+        "trends": [{"query": "식품", "start_date": "2026-11-22T11:00:00Z",
+                    "news_token": "expected", "is_active": True,
+                    "categories": ["food_and_drink"]}],
+    }
+    client.related_news.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now_news",
+                              "news_token": "other"},
+        "news": [],
+    }
+    with pytest.raises(SearchApiDiscoveryError, match="NEWS_TOKEN_MISMATCH"):
+        collect_report(client, now=NOW)
+
+def test_four_eligible_leads_do_not_collapse_to_two_reported_leads():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now",
+            "geo": "KR", "time": "past_24_hours",
+        },
+        "trends": [
+            {"query": f"연예인{i}", "start_date": "2026-11-22T11:00:00Z",
+             "news_token": f"token{i}", "is_active": True,
+             "categories": ["entertainment"]}
+            for i in range(4)
+        ],
+    }
+    client.related_news.side_effect = lambda token: {
+        "search_parameters": {
+            "engine": "google_trends_trending_now_news",
+            "news_token": token,
+        },
+        "news": [],
+    }
+    result = collect_report(client, now=NOW)
+    assert result["total_trends_returned"] == 4
+    assert result["total_eligible_leads"] == 4
+    assert len(result["eligible_leads"]) == 4
+    assert [lead["query"] for lead in result["eligible_leads"]] == [
+        "연예인0", "연예인1", "연예인2", "연예인3",
+    ]
+    assert len(result["candidates"]) == 2
+    assert result["requests_executed"] == 3
+    assert "token0" not in str(result)
+    assert "token3" not in str(result)
+
+def test_active_lead_preferred_over_ended_when_same_category():
+    ended = TrendingLead("ended", NOW, "token1", frozenset({"FOOD"}), False)
+    active = TrendingLead("active", NOW, "token2", frozenset({"FOOD"}), True)
+    chosen = choose_news_leads((ended, active))
+    assert chosen[0].query == "active"
+    assert chosen[1].query == "ended"
+
+
+def _official_client():
+    client = Mock()
+    client.trending_now.return_value = {
+        "search_parameters": {
+            "engine": "google_trends_trending_now",
+            "geo": "KR", "time": "past_24_hours",
+        },
+        "trends": [
+            {"query": "작품2", "start_date": "2026-11-22T11:00:00Z",
+             "news_token": "private-token", "is_active": True,
+             "categories": ["entertainment"]},
+            {"query": "old", "start_date": "2026-11-20T11:00:00Z",
+             "news_token": "old-token", "is_active": True,
+             "categories": ["food_and_drink"]},
+        ],
+    }
+    client.related_news.return_value = {
+        "search_parameters": {"engine": "google_trends_trending_now_news",
+                              "news_token": "private-token"},
+        "news": [],
+    }
+    client.official_search.return_value = {
+        "search_parameters": {"engine": "google", "q": '"작품2" 공식 발표',
+                              "gl": "kr", "hl": "ko"},
+        "organic_results": [
+            {"link": "https://example.org/release"},
+            {"link": "https://www.google.com/goto?url=abc", "link_token": "abc"},
+            {"link": "https://127.0.0.1/private"},
+            {"link": "https://example.org/ignored"},
+        ],
+    }
+    return client
+
+
+def test_official_report_reuses_one_lead_and_three_calls():
+    client = _official_client()
+
+    def choose(leads):
+        assert [lead.query for lead in leads] == ["작품2"]
+        return 0
+
+    result = collect_official_report(client, now=NOW, choose=choose)
+    assert result["requests_executed"] == 3
+    assert result["publication_authorization"] == "NONE"
+    assert result["candidate"]["official_search_links_unverified"] == [
+        "https://example.org/release",
+    ]
+    assert "private-token" not in str(result)
+    client.related_news.assert_called_once_with("private-token")
+    client.official_search.assert_called_once_with("작품2")
+
+
+def test_official_report_cancel_stops_after_trending():
+    client = _official_client()
+    result = collect_official_report(client, now=NOW, choose=lambda _: None)
+    assert result["requests_executed"] == 1
+    assert result["candidate"] is None
+    client.related_news.assert_not_called()
+    client.official_search.assert_not_called()
+
+
+def test_official_search_response_mismatch_rejected():
+    client = _official_client()
+    with pytest.raises(SearchApiDiscoveryError, match="WRONG_OFFICIAL_SCOPE"):
+        parse_official_search_links(
+            client.official_search.return_value, topic="다른 작품",
+        )

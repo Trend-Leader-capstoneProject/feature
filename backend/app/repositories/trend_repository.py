@@ -19,8 +19,14 @@ from app.models.category import Category
 from app.models.db_enums import TrendSourcePlatform, TrendStatus
 from app.models.trend import Trend
 from app.models.trend_category_map import TrendCategoryMap
+from app.models.trend_related_article import TrendRelatedArticle
 from app.models.trend_source import TrendSource
 from app.trend_collection.igdb_retention_policy import MAX_POLICY_DAYS
+from app.trend_collection.searchapi_interest import (
+    SOURCE_URL as INTEREST_SOURCE_URL,
+    WINDOW as INTEREST_WINDOW,
+)
+from app.trend_collection.searchapi_related_articles import WINDOW as ARTICLE_WINDOW
 
 
 class TrendRepository:
@@ -35,15 +41,12 @@ class TrendRepository:
         self.db = db
         self._utc_now = utc_now or (lambda: datetime.now(UTC))
 
-    def _igdb_expiry_cutoff(self) -> datetime:
+    def _visibility_now(self) -> datetime:
         """The storage contract uses UTC timestamps without tzinfo in MariaDB."""
         now = self._utc_now()
         if not isinstance(now, datetime) or now.utcoffset() is None:
             raise ValueError("IGDB_VISIBILITY_CLOCK_INVALID")
-        return (
-            now.astimezone(UTC).replace(tzinfo=None)
-            - timedelta(days=MAX_POLICY_DAYS)
-        )
+        return now.astimezone(UTC).replace(tzinfo=None)
 
     @staticmethod
     def _expired_igdb_source(cutoff: datetime):
@@ -56,6 +59,19 @@ class TrendRepository:
             TrendSource.collected_at <= cutoff,
         )
 
+    def _expired_source(self, now: datetime | None = None):
+        if now is None:
+            now = self._visibility_now()
+        return or_(
+            self._expired_igdb_source(now - timedelta(days=MAX_POLICY_DAYS)),
+            and_(
+                TrendSource.platform == TrendSourcePlatform.ETC,
+                TrendSource.external_id.is_not(None),
+                TrendSource.external_id.startswith("searchapi-interest:"),
+                TrendSource.collected_at <= now - timedelta(hours=24),
+            ),
+        )
+
     def find_page(
         self,
         *,
@@ -66,17 +82,17 @@ class TrendRepository:
     ) -> list[Trend]:
         """정렬·Category·Cursor 조건을 적용한 Trend Page를 조회한다."""
 
-        expired_igdb = exists(
+        expired_source = exists(
             select(1).select_from(TrendSource).where(
                 TrendSource.trend_id == Trend.trend_id,
-                self._expired_igdb_source(self._igdb_expiry_cutoff()),
+                self._expired_source(),
             )
         )
         statement = select(
             Trend,
         ).where(
             Trend.status == TrendStatus.ACTIVE,
-            ~expired_igdb,
+            ~expired_source,
         )
 
         if category_ids is not None:
@@ -167,7 +183,7 @@ class TrendRepository:
                 ),
             ).where(
                 TrendSource.trend_id.in_(trend_ids),
-                ~self._expired_igdb_source(self._igdb_expiry_cutoff()),
+                ~self._expired_source(),
             )
             .subquery()
         )
@@ -198,6 +214,55 @@ class TrendRepository:
             for source in sources
         }
 
+
+    def find_related_articles_by_trend_ids(
+        self, trend_ids: list[int],
+    ) -> dict[int, list[TrendRelatedArticle]]:
+        """Batch read only currently visible reference links."""
+        if not trend_ids:
+            return {}
+        now = self._visibility_now()
+        # Reference links belong to the exact stored interest observation.
+        # They must not extend visibility or leak through an unrelated source.
+        article = TrendRelatedArticle
+        valid_observation = exists(
+            select(1).select_from(TrendSource).where(
+                TrendSource.trend_id == article.trend_id,
+                TrendSource.platform == TrendSourcePlatform.ETC,
+                TrendSource.external_id.startswith("searchapi-interest:"),
+                TrendSource.source_url == INTEREST_SOURCE_URL,
+                TrendSource.collected_at == article.collected_at,
+                TrendSource.collected_at > now - INTEREST_WINDOW,
+                TrendSource.collected_at <= now,
+            )
+        )
+        expired_source = exists(
+            select(1).select_from(TrendSource).where(
+                TrendSource.trend_id == Trend.trend_id,
+                self._expired_source(now),
+            )
+        )
+        statement = (
+            select(article)
+            .join(Trend, Trend.trend_id == article.trend_id)
+            .where(
+                article.trend_id.in_(trend_ids),
+                Trend.status == TrendStatus.ACTIVE,
+                valid_observation,
+                ~expired_source,
+                article.published_at > now - ARTICLE_WINDOW,
+                article.published_at <= article.collected_at,
+                article.collected_at <= now,
+                article.selection_order.in_((1, 2)),
+            )
+            .order_by(article.trend_id, article.selection_order)
+        )
+        result: dict[int, list[TrendRelatedArticle]] = {}
+        for row in self.db.scalars(statement).all():
+            group = result.setdefault(row.trend_id, [])
+            if len(group) < 2:
+                group.append(row)
+        return result
 
     def find_categories_by_trend_ids(
         self,

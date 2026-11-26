@@ -1,13 +1,16 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from app.models.category import Category
 from app.models.trend import Trend
+from app.models.trend_related_article import TrendRelatedArticle
 from app.models.trend_source import TrendSource
 from app.schemas.trend_schema import (
     TrendCategoryItem,
     TrendCategoryParent,
     TrendLatestSource,
     TrendListItem,
+    TrendRelatedArticleItem,
 )
 
 
@@ -18,6 +21,7 @@ def build_trend_list_item(
     category_pairs: list[
         tuple[Category, Category]
     ],
+    related_articles: Sequence[TrendRelatedArticle] = (),
 ) -> TrendListItem:
     """Trend ORM 조회 결과를 공통 목록 응답 항목으로 조립한다."""
 
@@ -45,6 +49,15 @@ def build_trend_list_item(
         ),
         categories=categories,
         latest_source=source,
+        related_articles=[
+            TrendRelatedArticleItem(
+                publisher=article.publisher,
+                title=article.title,
+                url=article.article_url,
+                published_at=_as_utc_datetime(article.published_at),
+            )
+            for article in related_articles
+        ],
     )
 
 

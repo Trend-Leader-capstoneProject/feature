@@ -195,6 +195,10 @@ class PersonalizedTrendService:
             )
         )
 
+        articles_by_trend_id = (
+            self.trend_repository.find_related_articles_by_trend_ids(trend_ids)
+        )
+
         items = [
             build_trend_list_item(
                 trend=trend,
@@ -205,6 +209,7 @@ class PersonalizedTrendService:
                     trend.trend_id,
                     [],
                 ),
+                related_articles=articles_by_trend_id.get(trend.trend_id, []),
             )
             for trend in response_trends
         ]

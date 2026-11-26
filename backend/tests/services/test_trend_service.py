@@ -124,6 +124,7 @@ def make_service() -> tuple[
     trend_repository_mock.find_page.return_value = []
     trend_repository_mock.find_latest_sources_by_trend_ids.return_value = {}
     trend_repository_mock.find_categories_by_trend_ids.return_value = {}
+    trend_repository_mock.find_related_articles_by_trend_ids.return_value = {}
 
     service = TrendService(
         category_repository=cast(
@@ -173,6 +174,7 @@ def test_list_trends_returns_empty_page_without_batch_queries() -> None:
 
     trend_repository_mock.find_latest_sources_by_trend_ids.assert_not_called()
     trend_repository_mock.find_categories_by_trend_ids.assert_not_called()
+    trend_repository_mock.find_related_articles_by_trend_ids.assert_not_called()
 
 
 def test_list_trends_uses_limit_plus_one_and_last_returned_item_for_cursor() -> None:
@@ -276,6 +278,10 @@ def test_list_trends_uses_limit_plus_one_and_last_returned_item_for_cursor() -> 
             102,
         ]
     )
+    trend_repository_mock.find_related_articles_by_trend_ids.assert_called_once_with(
+        [103, 102],
+    )
+    assert all(item.related_articles == [] for item in result.items)
 
 
 def test_list_trends_returns_nullable_fields_and_missing_source() -> None:

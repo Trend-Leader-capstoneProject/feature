@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Connection
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
@@ -33,8 +34,22 @@ from app.trend_collection.publication_policy import (
     PersistableSnapshot,
     PopularitySnapshot,
 )
+from app.trend_collection.searchapi_client import SearchApiClient, SearchApiClientError
+from app.trend_collection.searchapi_discovery import SearchApiDiscoveryError
+from app.trend_collection.searchapi_interest import (
+    InterestSnapshot,
+    SearchInterestAdapter,
+)
+from app.trend_collection.searchapi_related_articles import (
+    ArticleLinkRule,
+    parse_article_rules,
+)
+from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    INTEREST_RELATED_SCOPE,
+    INTEREST_SOURCE_ID,
+    SEARCHAPI_SOURCE_ID,
     IgdbOperationalAdapter,
     SupplyBlocked,
     bind_snapshot,
@@ -74,6 +89,7 @@ class ApprovedSource:
     source_id: str
     scope: str
     rights_ref: str
+    article_rules: tuple[ArticleLinkRule, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +109,14 @@ class ApprovedProfile:
     approved_by: str
     g5_ref: str
     g6_ref: str
+
+    @property
+    def related_articles_enabled(self):
+        return any(
+            source.source_id == INTEREST_SOURCE_ID
+            and source.scope == INTEREST_RELATED_SCOPE
+            for source in self.sources
+        )
 
     @property
     def username(self):
@@ -130,17 +154,30 @@ def parse_profile(raw, now: datetime) -> ApprovedProfile:
         raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
     approved = []
     for entry in sources:
-        if (type(entry) is not dict or set(entry) != {
-            "source_id", "scope", "rights", "rights_ref",
-        }):
+        if type(entry) is not dict:
+            raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
+        related = (
+            entry.get("source_id") == INTEREST_SOURCE_ID
+            and entry.get("scope") == INTEREST_RELATED_SCOPE
+        )
+        expected_keys = {"source_id", "scope", "rights", "rights_ref"}
+        if related:
+            expected_keys.add("article_rules")
+        if set(entry) != expected_keys:
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
         source = entry["source_id"]
         if (not isinstance(source, str) or source not in ADAPTERS
-                or entry["scope"] != ADAPTERS[source].scope
+                or (not related and entry["scope"] != ADAPTERS[source].scope)
                 or entry["rights"] != RIGHTS
                 or any(item.source_id == source for item in approved)):
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
-        approved.append(ApprovedSource(source, entry["scope"], entry["rights_ref"]))
+        try:
+            rules = parse_article_rules(entry["article_rules"]) if related else ()
+        except ValueError:
+            raise SupplyBlocked("ARTICLE_RULES_INVALID") from None
+        approved.append(ApprovedSource(
+            source, entry["scope"], entry["rights_ref"], rules,
+        ))
     values = {key: raw[key] for key in keys}
     values["sources"] = tuple(approved)
     profile = ApprovedProfile(**values)
@@ -230,10 +267,60 @@ def _igdb_query(role: str):
         raise SupplyBlocked("IGDB_CREDENTIALS_INVALID") from None
 
 
+def _searchapi_client(role: str = "collect"):
+    """Read only the current role's root-owned, group-readable key file."""
+    if role not in {"collect", "write"}:
+        raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
+    path = CONTROL / f"searchapi-{role}-credentials.json"
+    try:
+        with _root_file(path, secret=True) as stream:
+            info = os.fstat(stream.fileno())
+            if (info.st_gid != os.getegid()
+                    or stat.S_IMODE(info.st_mode) != 0o640):
+                raise SupplyBlocked("SEARCHAPI_CREDENTIAL_SCOPE_INVALID")
+            credentials = _json(_bounded(stream))
+    except (FileNotFoundError, PermissionError):
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_UNAVAILABLE") from None
+    if type(credentials) is not dict or set(credentials) != {"api_key"}:
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_INVALID")
+    try:
+        return SearchApiClient(credentials["api_key"])
+    except SearchApiClientError:
+        raise SupplyBlocked("SEARCHAPI_CREDENTIALS_INVALID") from None
+
+
+def _interest_topics():
+    """Read the administrator's common, non-secret approved topic catalog."""
+    try:
+        with _root_file(CONTROL / "searchapi-interest-topics.json") as stream:
+            topics = _json(_bounded(stream))
+    except (FileNotFoundError, PermissionError):
+        raise SupplyBlocked("INTEREST_CATALOG_UNAVAILABLE") from None
+    if type(topics) is not dict or not 1 <= len(topics) <= 100:
+        raise SupplyBlocked("INTEREST_CATALOG_INVALID")
+    if any(type(value) is not list or len(value) != 2 for value in topics.values()):
+        raise SupplyBlocked("INTEREST_CATALOG_INVALID")
+    return {key: tuple(value) for key, value in topics.items()}
+
+
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
         return IgdbOperationalAdapter(_igdb_query(role))
+    if source.source_id == INTEREST_SOURCE_ID:
+        if role not in {"collect", "write"}:
+            raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
+        return SearchInterestAdapter(
+            _searchapi_client(role), topics=_interest_topics(),
+            allow_missing_news_token=source.scope == INTEREST_RELATED_SCOPE,
+        )
+    if source.source_id == SEARCHAPI_SOURCE_ID:
+        if role == "collect":
+            return AutomaticSearchApiAdapter(_searchapi_client())
+        if role == "write":
+            # The Writer re-reads the original pages; it never needs the key.
+            return AutomaticSearchApiAdapter()
+        raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
     return ADAPTERS[source.source_id]
 
 
@@ -324,20 +411,31 @@ def _verify_session(conn: Connection, profile: ApprovedProfile):
     if ((database, account, role) != (profile.database, profile.current_user, None)
             or not isinstance(version, str) or "mariadb" not in version.lower()):
         raise SupplyBlocked("WRITER_SESSION_MISMATCH")
-    check_table_grants(conn.exec_driver_sql("SHOW GRANTS").scalars().all(),
-                       profile.database, profile.current_user)
+    check_table_grants(
+        conn.exec_driver_sql("SHOW GRANTS").scalars().all(),
+        profile.database, profile.current_user,
+        related_articles=profile.related_articles_enabled,
+    )
     if conn.exec_driver_sql("SHOW GRANTS FOR PUBLIC").all():
         raise SupplyBlocked("PUBLIC_GRANTS_PRESENT")
+    tables = ["categories", "trends", "trend_sources", "trend_category_map"]
+    if profile.related_articles_enabled:
+        tables.append("trend_related_articles")
+    # Only static table names; never input values.
+    names = ",".join(f"'{name}'" for name in tables)
     engines = conn.exec_driver_sql(
         "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
-        "('categories','trends','trend_sources','trend_category_map')"
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (" + names + ")"
     ).all()
-    if dict(engines) != {name: "InnoDB" for name in (
-        "categories", "trends", "trend_sources", "trend_category_map",
-    )} or tuple(conn.exec_driver_sql(
-        "SELECT @@session.foreign_key_checks, @@session.unique_checks"
-    ).one()) != (1, 1):
+    if dict(engines) != {name: "InnoDB" for name in tables} or tuple(
+        conn.exec_driver_sql(
+            "SELECT @@session.foreign_key_checks, @@session.unique_checks"
+        ).one()
+    ) != (1, 1):
+        raise SupplyBlocked("WRITER_STORAGE_MISMATCH")
+    if profile.related_articles_enabled and conn.exec_driver_sql(
+        "SELECT @@session.check_constraint_checks"
+    ).scalar_one() != 1:
         raise SupplyBlocked("WRITER_STORAGE_MISMATCH")
 
 
@@ -370,7 +468,43 @@ def inspect_snapshot(conn: Connection, snapshot: PersistableSnapshot) -> str:
     return "NEW"
 
 
-def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> str:
+def _insert_related_articles(
+    conn: Connection, trend_id: int, snapshot: InterestSnapshot,
+):
+    """The caller owns the transaction and has checked the approved snapshot."""
+    for article in snapshot.related_articles:
+        conn.execute(text(
+            "INSERT INTO trend_related_articles "
+            "(trend_id, article_url, url_key, publisher, title, published_at, "
+            "collected_at, selection_order) VALUES "
+            "(:id, :url, :key, :publisher, :title, :published, :collected, :slot)"
+        ), {
+            "id": trend_id, "url": article.url, "key": article.url_key,
+            "publisher": article.publisher, "title": article.title,
+            "published": utc(article.published_at_utc).replace(tzinfo=None),
+            "collected": utc(snapshot.observed_at_utc).replace(tzinfo=None),
+            "slot": article.selection_order,
+        })
+
+
+def _record_writer_failure(
+    diagnostic: dict[str, str | int] | None, stage: str, exc: Exception,
+) -> None:
+    """Report only a static stage and bounded driver error number."""
+    if diagnostic is None:
+        return
+    diagnostic.clear()
+    diagnostic["reason"] = f"WRITER_{stage}_FAILED"
+    if isinstance(exc, DBAPIError):
+        args = getattr(exc.orig, "args", ())
+        if args and type(args[0]) is int and 1 <= args[0] <= 65535:
+            diagnostic["db_error_code"] = args[0]
+
+
+def _write(
+    profile: ApprovedProfile, snapshot: PersistableSnapshot, journal, *,
+    diagnostic: dict[str, str | int] | None = None,
+) -> str:
     """Caller holds control lock and has independently verified source scope."""
     if (snapshot.profile_id != PROFILE or snapshot.policy_version != VERSION
             or snapshot.target != profile.target or snapshot.proposed_status != "ACTIVE"
@@ -384,42 +518,62 @@ def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> 
     claimed = False
     state = "COMMIT_UNKNOWN"
     result = "HOLD"
+    stage = "DB_CONNECT"
     try:
         with engine.connect() as conn:
+            stage = "SESSION"
             _verify_session(conn, profile)
+            stage = "TRANSACTION"
             conn.rollback()
             conn.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             conn.exec_driver_sql("START TRANSACTION")
             if conn.exec_driver_sql("SELECT @@in_transaction").scalar_one() != 1:
                 raise SupplyBlocked("TRANSACTION_NOT_ACTIVE")
             # Parent and child locks stay in the same transaction until commit.
+            stage = "CATEGORY_LOCK"
             category_id = _category_id(conn, snapshot.parent_code, snapshot.child_name,
                                        lock=True)
+            stage = "DUPLICATE_CHECK"
             if inspect_snapshot(conn, snapshot) == "SKIP_EXISTING_RELEASE":
+                stage = "DUPLICATE_ROLLBACK"
                 conn.rollback()
+                stage = "CONNECTION_CLOSE"
                 return "SKIP_EXISTING_RELEASE"
+            stage = "JOURNAL_CLAIM"
             journal.claim(batch_id, digest, attempt)
             claimed = True
             try:
+                stage = "SESSION_RECHECK"
                 _verify_session(conn, profile)
                 if conn.exec_driver_sql("SELECT @@in_transaction").scalar_one() != 1:
                     raise SupplyBlocked("TRANSACTION_NOT_ACTIVE")
+                stage = "SNAPSHOT_RECHECK"
                 _assert_current(profile, snapshot)
-                insert_trend_item(
+                stage = "PARENT_INSERT"
+                trend_id = insert_trend_item(
                     conn, snapshot, category_id=category_id,
                     collected_at=utc(snapshot.observed_at_utc).replace(tzinfo=None),
                     summary=snapshot.summary, is_primary=True,
                     status="ACTIVE", platform=snapshot.platform,
                 )
+                if type(snapshot) is InterestSnapshot and snapshot.related_articles:
+                    stage = "RELATED_INSERT"
+                    _insert_related_articles(conn, trend_id, snapshot)
+                stage = "PRECOMMIT_CHECK"
                 _assert_current(profile, snapshot)
-            except Exception:
+            except Exception as exc:
+                _record_writer_failure(diagnostic, stage, exc)
+                stage = "ROLLBACK"
                 conn.rollback()
                 state = "ROLLED_BACK"
             else:
+                stage = "COMMIT"
                 conn.commit()
                 state, result = "COMMITTED", "COMMITTED"
-    except Exception:
+            stage = "CONNECTION_CLOSE"
+    except Exception as exc:
         # Any error after claiming, including lost commit response, stops replay.
+        _record_writer_failure(diagnostic, stage, exc)
         state, result = "COMMIT_UNKNOWN", "HOLD"
     finally:
         engine.dispose()
@@ -433,12 +587,28 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
             or not isinstance(envelope["source_id"], str)):
         raise SupplyBlocked("SOURCE_ENVELOPE_MISMATCH")
     source = profile.source(envelope["source_id"])
-    snapshot = _operational_adapter(source, "write").verify(
-        envelope["preview"], now_utc(),
-    )
+    adapter = _operational_adapter(source, "write")
+    news = None
+    if (source.source_id == INTEREST_SOURCE_ID
+            and source.scope == INTEREST_RELATED_SCOPE):
+        snapshot, news = adapter.verify_with_news(
+            envelope["preview"], now_utc(), rules=source.article_rules,
+        )
+    else:
+        snapshot = adapter.verify(envelope["preview"], now_utc())
     bound = bind_snapshot(snapshot, policy=VERSION, target=profile.target)
-    result = _write(profile, bound, OperationalJournal(profile))
-    return {"status": result, "candidate_identity": snapshot.candidate_identity}
+    diagnostic: dict[str, str | int] = {}
+    result = _write(
+        profile, bound, OperationalJournal(profile), diagnostic=diagnostic,
+    )
+    outcome = {"status": result, "candidate_identity": snapshot.candidate_identity}
+    if result == "HOLD":
+        outcome.update(diagnostic)
+    if news is not None:
+        outcome["related_news_status"] = news.status
+        if news.status == "RATE_LIMITED":
+            outcome["retry_not_before"] = news.retry_not_before
+    return outcome
 
 
 def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
@@ -455,7 +625,9 @@ def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
     else:
         preview = adapter.collect_preview()
     if preview is None:
-        if source.source_id != IGDB_SOURCE_ID:
+        if source.source_id not in {
+            IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
+        }:
             raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
         return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
     if type(preview) is not dict:
@@ -488,7 +660,10 @@ def main() -> int:
     except RateLimited as exc:
         result = {"status": "HOLD", "reason": "RATE_LIMITED",
                   "retry_not_before": exc.retry_not_before}
-    except (CollectionError, SupplyBlocked, JournalBlocked, IgdbBlocked) as exc:
+    except (
+        CollectionError, SupplyBlocked, JournalBlocked, IgdbBlocked,
+        SearchApiClientError, SearchApiDiscoveryError,
+    ) as exc:
         result = {"status": "HOLD", "reason": str(exc)}
     except Exception:
         # Do not print raw config, SQL, credentials or upstream content.
