@@ -105,6 +105,8 @@
 
 - **2026-11-26 목록 API 검증 완료 및 C+D-2 Frontend 구현**: 사용자 API 변경 영향 pytest **63 passed in 4.85s**, Ruff 점검 후 커밋·푸시 완료 보고. 최신 `e7cc5c9`에서 이전 `a746aba` 대비 trend_repository.py Ruff 정리 1파일 확인, 보존. 공통 TrendCard/TrendSourceSection 및 TrendRelatedArticle 타입 확장(구 API 필드 누락 허용). 정확한 관심도 출처의 기사 1~2건이면 매체·발행시각·조건부 제목/직접 링크, 관련 정보 검색/관측 출처 유지, 빈/잘못된 배열은 뉴스 검색 fallback. UI 방어: canonical HTTPS URL 형태, 중복/최대2, 메타데이터 검사; 서버 권리 및 TTL 판단 대체 아님. 다른 공급원 기존 버튼 유지. Jest 신규 10건 작성, 실제 typecheck/Jest/Expo 미실행. Windows Writer 134 PASS/22 SKIP 사유 및 Linux scheduler 검증 잔여, 실제 기사 이용 근거/운영 승인·Migration/Writer GRANT/profile/Timer/배포/merge 미변경. 최종 산출물 반영 요청 유지. 다음은 Frontend 집중/전체 검증, Linux SKIP 해소 및 운영 적용 계획(기존 승인 만료 확인).
 
+- **2026-11-26 C+D-2 Frontend Jest 검증 완료**: 사용자 실측 **32 suites / 224 tests PASS** (`1461606` 기준, 로컬 HEAD 원문 미보고). 신규 10개 포함 전체 Jest 통과. 이번 typecheck 결과는 별도 미보고(이전 C+D-1 typecheck PASS 유지, 최신 C+D-2 PASS로 간주 금지). 구현 범위 완료, 실제 운영 검증/통합 미완료. 최신 dev `2be6276`, PR #140 draft/mergeable 확인. 다음은 기존 비운영 WSL staging에서 POSIX Scheduler + 신규 관련 기사 Writer 단위/상태 테스트(통합 DB 테스트 제외) 실행; Windows 134 PASS/22 SKIP와 중복 합산 금지, SKIP 상세 확인 및 실제 격리 DB DML 통과 여부 확인. 운영 scope/기사 링크 권리·실제 승인 만료 2026-11-27 13:50 KST 확인, 신규 Migration 먼저→API→보호 실행본/최소 GRANT/profile→실제 공급/Expo/Timer. 현재 운영 DB/Timer/승인/배포/merge 변경 없음. 최종 ERD 등 산출물 반영 유지. 이번에는 검증 결과만 기록.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
