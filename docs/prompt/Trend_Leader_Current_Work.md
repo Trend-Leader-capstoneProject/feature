@@ -97,6 +97,8 @@
 
 - **2026-11-26 ORM/Migration 검증 완료 및 Related News 선택 모듈 1차 구현**: 사용자 수정본 `d329817` 대상 집중 pytest **10 passed in 1.99s**, `ruff check tests/repositories/test_trend_related_article.py` **All checks passed!** 실측. 격리 DB Migration/ORM/제약/CASCADE/lineage 완료, 이전 3 FAIL 대체. 신규 `searchapi_related_articles.py` 순수 선정 및 선택 조회 helper: 기존 Client/parser 재사용, trusted rule(host/직접 경로 prefix/매체/이용 근거 ref, 제목 별도 기본 false), token 일치, NFC·공백 제거·casefold 제목 관련성, 48h 미만·미래 제외, 정확 HTTPS URL/경로/중복, 최대 2·매체 다양성 우선, canonical URL SHA-256, 제목 기본 NULL. P0는 query/fragment/encoded path 전체 제외(권리/redirect 경계 보수적, 적격률 저하 가능); 권리 rule은 실제 근거 확인을 대신하지 않음. 승인 없음→요청 0, 선택 호출 최대1, 실패→빈 배열, 429 deadline(알 수 없음 None 포함) 별도 반환. 테스트 28개 작성, 실제 pytest/Ruff 미실행. 아직 운영 adapter/Writer/Scheduler/profile/DB/API 미연결, 기존 관심도 경로와 2회 예산 변경 없음. 다음은 실제 보호 rule/3회 scope 연계 및 Writer digest·DML·권한·429 완료/회전 처리, API/D-2 연결 후 변경 영향 묶음 검증. 운영 변경·merge 없음, 산출물 반영 유지.
 
+- **2026-11-26 Related News 선택 모듈 사용자 실측 완료**: `tests/trend_collection/test_searchapi_related_articles.py` **28 passed in 0.15s** (`c2a3482` 기준, 로컬 HEAD 원문 미보고). 이전 pytest 미실행 상태 대체. 해당 모듈 Ruff는 아직 미보고. **사용자 검증 안내 선호 확정**: 구현 후 필요한 테스트가 있으면 해당 작업 응답에 실행 디렉터리·Windows PowerShell 호환 집중 pytest/Jest/typecheck 및 변경 범위 Ruff 명령을 함께 제공한다. 테스트를 묶더라도 사용자에게 필요한 실행 명령을 누락하지 않고 이미 통과한 동일 범위의 불필요한 재실행은 피한다. 다음은 보호 rule/3회 요청 scope, Writer digest/DML·최소 권한, Scheduler 선택 429 처리 연계. 이번 턴에는 검증 결과 및 안내 원칙만 기록; 코드/DB/운영/merge 변경 없음.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
