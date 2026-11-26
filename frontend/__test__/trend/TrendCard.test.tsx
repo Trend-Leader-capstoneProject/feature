@@ -366,6 +366,95 @@ describe("TrendCard", () => {
     expect(onOpenSource).toHaveBeenCalledWith(url);
   });
 
+  const interestSource = {
+    source_id: 1,
+    platform: "ETC" as const,
+    source_title: null,
+    source_url: "https://trends.google.com/trending?geo=KR&hl=ko&hours=24",
+  };
+  const reference = {
+    publisher: "Fixture A",
+    title: null,
+    url: "https://example.com/article/1",
+    published_at: "2026-11-26T01:00:00Z",
+  };
+
+  test("관련 기사 2개를 API 순서대로 표시하며 직접 URL을 연다", async () => {
+    const onOpenSource = jest.fn();
+    const second = {
+      ...reference, publisher: "Fixture B", title: "허용된 제목",
+      url: "https://example.org/article/2",
+    };
+    await render(<TrendCard onOpenSource={onOpenSource} trend={createTrend({
+      latest_source: interestSource,
+      related_articles: [reference, second],
+    })} />);
+    expect(screen.getByText("관련 뉴스")).toBeTruthy();
+    expect(screen.getByText("허용된 제목")).toBeTruthy();
+    expect(screen.getByText(/^Fixture A · /)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "관련 뉴스 검색" })).toBeNull();
+    const buttons = screen.getAllByRole("button", { name: /기사 보기 [12]$/ });
+    expect(buttons).toHaveLength(2);
+    await fireEvent.press(buttons[0]);
+    await fireEvent.press(buttons[1]);
+    await fireEvent.press(screen.getByRole("button", { name: "관련 정보 검색" }));
+    await fireEvent.press(screen.getByRole("button", { name: "관측 출처 보기" }));
+    expect(onOpenSource.mock.calls).toEqual([
+      [reference.url],
+      [second.url],
+      [`https://www.google.com/search?hl=ko&q=${encodeURIComponent(createTrend().title)}`],
+      [interestSource.source_url],
+    ]);
+  });
+
+  test.each([
+    { articles: [] },
+    { articles: [{ ...reference, url: "javascript:alert(1)" }] },
+    { articles: [{ ...reference, url: "https://example.com@evil.test/article/1" }] },
+    { articles: [{ ...reference, url: "https://127.0.0.1/article/1" }] },
+    { articles: [{ ...reference, url: "https://example.com/article/1?redirect=1" }] },
+    { articles: [{ ...reference, published_at: "invalid" }] },
+  ])("기사 없음 또는 잘못된 기사 배열은 뉴스 검색으로 대체한다: %j", async ({ articles }) => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend({
+      latest_source: interestSource,
+      related_articles: articles,
+    })} />);
+    expect(screen.getByRole("button", { name: "관련 뉴스 검색" })).toBeTruthy();
+    expect(screen.queryByText("관련 뉴스")).toBeNull();
+  });
+
+  test("정상 기사 하나만 있어도 직접 링크를 제공하고 중복과 초과 건은 제외한다", async () => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend({
+      latest_source: interestSource,
+      related_articles: [
+        reference,
+        { ...reference },
+        { ...reference, url: "https://example.com/article/2" },
+        { ...reference, url: "https://example.com/article/3" },
+      ],
+    })} />);
+    expect(screen.getAllByRole("button", { name: /기사 보기 [12]$/ })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "관련 뉴스 검색" })).toBeNull();
+  });
+
+  test("기사 1건은 뉴스 검색 없이 제목 없는 직접 링크를 제공한다", async () => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend({
+      latest_source: interestSource,
+      related_articles: [reference],
+    })} />);
+    expect(screen.getByRole("button", { name: "Fixture A 기사 보기 1" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "관련 뉴스 검색" })).toBeNull();
+  });
+
+  test("다른 공급원의 관련 기사 필드는 무시하고 기존 원문 버튼을 유지한다", async () => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend({
+      latest_source: { ...interestSource, source_url: "https://www.igdb.com/games/free-fire" },
+      related_articles: [reference],
+    })} />);
+    expect(screen.queryByText("관련 뉴스")).toBeNull();
+    expect(screen.getByRole("button", { name: "원문 보기" })).toBeTruthy();
+  });
+
   test("Personalized TrendCard는 순번 없이 기존 콘텐츠를 표시한다", async () => {
     await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend()} />);
 

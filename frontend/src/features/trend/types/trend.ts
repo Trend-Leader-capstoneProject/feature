@@ -31,6 +31,13 @@ export interface TrendLatestSource {
   source_url: string;
 }
 
+export interface TrendRelatedArticle {
+  publisher: string;
+  title: string | null;
+  url: string;
+  published_at: string;
+}
+
 export interface TrendListItem {
   trend_id: number;
   title: string;
@@ -45,6 +52,8 @@ export interface TrendListItem {
 
   categories: TrendCategoryItem[];
   latest_source: TrendLatestSource | null;
+  // Older API responses may omit this additive field.
+  related_articles?: TrendRelatedArticle[];
 }
 
 export interface TrendListData {
