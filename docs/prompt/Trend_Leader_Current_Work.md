@@ -107,6 +107,8 @@
 
 - **2026-11-26 C+D-2 Frontend Jest 검증 완료**: 사용자 실측 **32 suites / 224 tests PASS** (`1461606` 기준, 로컬 HEAD 원문 미보고). 신규 10개 포함 전체 Jest 통과. 이번 typecheck 결과는 별도 미보고(이전 C+D-1 typecheck PASS 유지, 최신 C+D-2 PASS로 간주 금지). 구현 범위 완료, 실제 운영 검증/통합 미완료. 최신 dev `2be6276`, PR #140 draft/mergeable 확인. 다음은 기존 비운영 WSL staging에서 POSIX Scheduler + 신규 관련 기사 Writer 단위/상태 테스트(통합 DB 테스트 제외) 실행; Windows 134 PASS/22 SKIP와 중복 합산 금지, SKIP 상세 확인 및 실제 격리 DB DML 통과 여부 확인. 운영 scope/기사 링크 권리·실제 승인 만료 2026-11-27 13:50 KST 확인, 신규 Migration 먼저→API→보호 실행본/최소 GRANT/profile→실제 공급/Expo/Timer. 현재 운영 DB/Timer/승인/배포/merge 변경 없음. 최종 ERD 등 산출물 반영 유지. 이번에는 검증 결과만 기록.
 
+- **2026-11-26 C+D-2 Frontend 최종 코드 검증 완료**: 사용자 최신 typecheck 정상 통과 보고, 직전 32 suites/224 Jest PASS와 함께 Frontend 검증 완료(코드 기준 `1461606`, 후속 `08cd83a` 문서만). 추가 Frontend 테스트 반복 불필요. 다음은 기존 WSL 비운영 staging/기존 venv 재사용, 최신 코드 archive에서 Linux Scheduler 및 신규 Writer 비DB 테스트만 실행; 실제 격리 DB DML 테스트의 Windows PASS 여부 및 SKIP 사유 확인. 실제 운영 변경/승인/merge 없음. 산출물 반영 유지.
+
 ## 최신 통합 상태 및 다음 작업 (2026-11-21)
 
 - **PR #137 병합 완료**: `feat/igdb-auto-supply` → `dev`, 검증된 feature HEAD `8668956cd471d34a241bfa0528f8ee9937f52c1d`, merge commit `de08d2f3f7e0586deebd0683cab935e15b7c572a`. 이번 병합은 소스코드 통합이지 운영 배포가 아니다.
