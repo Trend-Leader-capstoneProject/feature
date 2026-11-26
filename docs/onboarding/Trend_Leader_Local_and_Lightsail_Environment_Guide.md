@@ -192,6 +192,14 @@ $env:MIGRATION_DB_PASSWORD_FILE = '<protected-absolute-path>'
 - 최종 b7f2c81d9e04, 17개 테이블, 사용자 4명 보존, 프로필 4개 Backfill, 변경 대상 외 기존 데이터 보존이 보고되었다. 사용자는 이후 실기기 신규 기능 검증을 수행했다. 전체 회귀 테스트 및 개별 인증 경로 모두의 PASS를 의미하지 않는다.
 - 3308 복구 DB 및 3311 임시 환경은 정리 후보이며 삭제 완료가 확인되지 않았다. 실제 백업·Evidence·Secret은 보호된 Git 외부 위치에 유지한다. 원본 데이터/Secret을 문서 저장소에 커밋하지 않는다.
 
+### 4.5 Related News 적용 순서 (2026-11-26, PR #140)
+
+- 목표 Revision `d3a9f27c6b41`, 이전 Revision `b7f2c81d9e04`. 신규 `trend_related_articles`만 생성하는 additive Migration. 기존 카드/출처/회원 데이터 보존, 백필 없음. 실제 로컬 적용은 사용자 승인 범위의 3309에 한정하며 기존 보호 백업·전용 Migration 계정 및 대상 신원을 확인한다.
+- 새 목록 API는 비어 있지 않은 목록에서 신규 테이블을 Batch 조회하므로 **Migration → 실제 API Runtime 계정의 신규 테이블 SELECT 확인 → Backend 실행본 갱신 → API/Expo 검증** 순서를 지킨다. API 계정 권한 부족 시 해당 테이블 SELECT만 관리자 권한으로 추가하며, 기존 Writer V1에는 신규 기사 테이블 권한을 추가하지 않는다.
+- 현재 허용된 로컬 정책은 C+D-1 및 기존 2회 요청 scope. C+D-2는 코드/테스트 유지, 관련 기사 이용 근거와 별도 운영 승인 전 추가 News API 호출 및 신규 Writer scope/GRANT 발행 금지. 기존 승인·Journal·Scheduler state/cursor를 초기화하지 않는다.
+- Lightsail은 실제 대상·DB Revision·릴리스 이미지·권한 및 보호 운영 Migration 승인 별도 확인. 현재 migration_guard APPLY 차단을 우회하지 않는다. 로컬 DB 백업이나 승인 파일을 그대로 클라우드에 복사하지 않는다.
+- APK는 `frontend/eas.json`의 기존 `exhibition`(preview 환경, 내부 배포 APK) 프로필을 유지한다. 실제 승인된 HTTPS API 주소(`EXPO_PUBLIC_API_BASE_URL=https://<approved-domain>/api`)를 EAS preview 환경에서 확인하고, 패키지 ID·서명/기존 인증 계약 유지. 새 APK의 `related_articles` 누락 호환 및 새 API의 additive 배열로 버전 차이 완화, 신규 UI는 재빌드 필요. DB와 HTTPS API 검증 후 APK 빌드·설치·로그인/전체·개인화/외부 링크 실기기 확인. 실제 빌드/배포 성공을 사전 보장하지 않음.
+
 ## 5. AWS Lightsail 배포에서 달라지는 판단
 
 dev 병합과 AWS 배포는 서로 다른 승인 작업이다. 실제 배포 대상에서 다음을 확인한다.
