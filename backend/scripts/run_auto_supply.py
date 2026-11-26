@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Connection
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
@@ -486,7 +487,24 @@ def _insert_related_articles(
         })
 
 
-def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> str:
+def _record_writer_failure(
+    diagnostic: dict[str, str | int] | None, stage: str, exc: Exception,
+) -> None:
+    """Report only a static stage and bounded driver error number."""
+    if diagnostic is None:
+        return
+    diagnostic.clear()
+    diagnostic["reason"] = f"WRITER_{stage}_FAILED"
+    if isinstance(exc, DBAPIError):
+        args = getattr(exc.orig, "args", ())
+        if args and type(args[0]) is int and 1 <= args[0] <= 65535:
+            diagnostic["db_error_code"] = args[0]
+
+
+def _write(
+    profile: ApprovedProfile, snapshot: PersistableSnapshot, journal, *,
+    diagnostic: dict[str, str | int] | None = None,
+) -> str:
     """Caller holds control lock and has independently verified source scope."""
     if (snapshot.profile_id != PROFILE or snapshot.policy_version != VERSION
             or snapshot.target != profile.target or snapshot.proposed_status != "ACTIVE"
@@ -500,27 +518,38 @@ def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> 
     claimed = False
     state = "COMMIT_UNKNOWN"
     result = "HOLD"
+    stage = "DB_CONNECT"
     try:
         with engine.connect() as conn:
+            stage = "SESSION"
             _verify_session(conn, profile)
+            stage = "TRANSACTION"
             conn.rollback()
             conn.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             conn.exec_driver_sql("START TRANSACTION")
             if conn.exec_driver_sql("SELECT @@in_transaction").scalar_one() != 1:
                 raise SupplyBlocked("TRANSACTION_NOT_ACTIVE")
             # Parent and child locks stay in the same transaction until commit.
+            stage = "CATEGORY_LOCK"
             category_id = _category_id(conn, snapshot.parent_code, snapshot.child_name,
                                        lock=True)
+            stage = "DUPLICATE_CHECK"
             if inspect_snapshot(conn, snapshot) == "SKIP_EXISTING_RELEASE":
+                stage = "DUPLICATE_ROLLBACK"
                 conn.rollback()
+                stage = "CONNECTION_CLOSE"
                 return "SKIP_EXISTING_RELEASE"
+            stage = "JOURNAL_CLAIM"
             journal.claim(batch_id, digest, attempt)
             claimed = True
             try:
+                stage = "SESSION_RECHECK"
                 _verify_session(conn, profile)
                 if conn.exec_driver_sql("SELECT @@in_transaction").scalar_one() != 1:
                     raise SupplyBlocked("TRANSACTION_NOT_ACTIVE")
+                stage = "SNAPSHOT_RECHECK"
                 _assert_current(profile, snapshot)
+                stage = "PARENT_INSERT"
                 trend_id = insert_trend_item(
                     conn, snapshot, category_id=category_id,
                     collected_at=utc(snapshot.observed_at_utc).replace(tzinfo=None),
@@ -528,16 +557,23 @@ def _write(profile: ApprovedProfile, snapshot: PersistableSnapshot, journal) -> 
                     status="ACTIVE", platform=snapshot.platform,
                 )
                 if type(snapshot) is InterestSnapshot and snapshot.related_articles:
+                    stage = "RELATED_INSERT"
                     _insert_related_articles(conn, trend_id, snapshot)
+                stage = "PRECOMMIT_CHECK"
                 _assert_current(profile, snapshot)
-            except Exception:
+            except Exception as exc:
+                _record_writer_failure(diagnostic, stage, exc)
+                stage = "ROLLBACK"
                 conn.rollback()
                 state = "ROLLED_BACK"
             else:
+                stage = "COMMIT"
                 conn.commit()
                 state, result = "COMMITTED", "COMMITTED"
-    except Exception:
+            stage = "CONNECTION_CLOSE"
+    except Exception as exc:
         # Any error after claiming, including lost commit response, stops replay.
+        _record_writer_failure(diagnostic, stage, exc)
         state, result = "COMMIT_UNKNOWN", "HOLD"
     finally:
         engine.dispose()
@@ -561,8 +597,13 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
     else:
         snapshot = adapter.verify(envelope["preview"], now_utc())
     bound = bind_snapshot(snapshot, policy=VERSION, target=profile.target)
-    result = _write(profile, bound, OperationalJournal(profile))
+    diagnostic: dict[str, str | int] = {}
+    result = _write(
+        profile, bound, OperationalJournal(profile), diagnostic=diagnostic,
+    )
     outcome = {"status": result, "candidate_identity": snapshot.candidate_identity}
+    if result == "HOLD":
+        outcome.update(diagnostic)
     if news is not None:
         outcome["related_news_status"] = news.status
         if news.status == "RATE_LIMITED":

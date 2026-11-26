@@ -361,10 +361,15 @@ def main():
                 raise RuntimeError('SCHEDULER_STATE_INVALID')
             result = cycle(profile, state_path, load_state(state_path, read_record))
         # Only bounded diagnostic fields, never previews or raw stderr.
-        print(json.dumps({key: result[key] for key in (
+        output = {key: result[key] for key in (
             'status', 'reason', 'candidate_identity', 'retry_not_before',
             'related_news_status',
-        ) if key in result}))
+        ) if key in result}
+        error_code = result.get('db_error_code')
+        if (result.get('status') == 'HOLD' and type(error_code) is int
+                and 1 <= error_code <= 65535):
+            output['db_error_code'] = error_code
+        print(json.dumps(output))
         success = result.get('status') in {
             'COMMITTED', 'SKIP_EXISTING_RELEASE', 'SKIP_NO_CANDIDATE',
         }
