@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from app.models.trend import Trend
 from app.models.trend_related_article import TrendRelatedArticle
-
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import RateLimited
 from app.trend_collection.publication_policy import _digest
