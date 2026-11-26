@@ -13,10 +13,10 @@ from app.trend_collection.searchapi_discovery import (
 )
 from scripts.audit_searchapi_history import (
     HistoryReadBlocked,
+    _read_json,
     _safe_result_url,
     _select_history_entry,
     recover_history,
-    _read_json,
 )
 
 NOW = datetime(2026, 11, 23, 12, tzinfo=timezone.utc)

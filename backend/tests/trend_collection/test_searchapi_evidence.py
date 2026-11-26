@@ -1,11 +1,11 @@
 """No network, DB, publication or arbitrary SearchApi calls."""
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
-from datetime import datetime, timedelta, timezone
 
 from app.trend_collection.searchapi_discovery import NewsLead, TrendingLead
 from app.trend_collection.searchapi_evidence import (
