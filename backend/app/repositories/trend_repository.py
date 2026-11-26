@@ -22,8 +22,10 @@ from app.models.trend_category_map import TrendCategoryMap
 from app.models.trend_related_article import TrendRelatedArticle
 from app.models.trend_source import TrendSource
 from app.trend_collection.igdb_retention_policy import MAX_POLICY_DAYS
-from app.trend_collection.searchapi_interest import SOURCE_URL as INTEREST_SOURCE_URL
-from app.trend_collection.searchapi_interest import WINDOW as INTEREST_WINDOW
+from app.trend_collection.searchapi_interest import (
+    SOURCE_URL as INTEREST_SOURCE_URL,
+    WINDOW as INTEREST_WINDOW,
+)
 from app.trend_collection.searchapi_related_articles import WINDOW as ARTICLE_WINDOW
 
 
