@@ -107,6 +107,7 @@ def make_service() -> tuple[
     trend_repository_mock = Mock(
         spec=TrendRepository,
     )
+    trend_repository_mock.find_related_articles_by_trend_ids.return_value = {}
 
     service = PersonalizedTrendService(
         category_repository=cast(
@@ -429,6 +430,7 @@ def test_list_personalized_trends_returns_single_trend_item() -> None:
     assert item.summary == "테스트 요약"
     assert item.thumbnail_url is None
     assert item.latest_source is None
+    assert item.related_articles == []
     assert item.categories == []
 
     assert item.last_collected_at == (

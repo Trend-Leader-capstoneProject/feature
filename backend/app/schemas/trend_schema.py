@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.db_enums import (
     CategoryCode,
@@ -33,6 +33,15 @@ class TrendLatestSource(BaseModel):
     source_url: str
 
 
+class TrendRelatedArticleItem(BaseModel):
+    """Optional reading reference, not evidence of a verified event."""
+
+    publisher: str
+    title: str | None
+    url: str
+    published_at: datetime
+
+
 class TrendListItem(BaseModel):
     """전체 Trend 목록의 개별 Trend 항목."""
 
@@ -43,6 +52,9 @@ class TrendListItem(BaseModel):
     last_collected_at: datetime
     categories: list[TrendCategoryItem]
     latest_source: TrendLatestSource | None
+    related_articles: list[TrendRelatedArticleItem] = Field(
+        default_factory=list, max_length=2,
+    )
 
 class TrendListData(BaseModel):
     """Cursor 기반 Trend 목록 조회 결과."""
