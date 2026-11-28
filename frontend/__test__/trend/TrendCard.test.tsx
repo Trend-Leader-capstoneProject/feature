@@ -243,9 +243,10 @@ describe("TrendCard", () => {
         uri: "https://example.com/thumbnail.jpg",
       },
     );
+    expect(screen.queryByLabelText("카테고리 썸네일: 게임")).toBeNull();
   });
 
-  test("thumbnail_url이 null이면 Thumbnail 영역을 만들지 않는다", async () => {
+  test("thumbnail_url이 null이면 첫 번째 표시 카테고리의 자체 썸네일을 사용한다", async () => {
     await render(
       <TrendCard
         displayNumber={1}
@@ -259,9 +260,10 @@ describe("TrendCard", () => {
     expect(
       screen.queryByLabelText("AI 스마트폰 신제품 공개 썸네일"),
     ).toBeNull();
+    expect(screen.getByLabelText("카테고리 썸네일: 게임")).toBeTruthy();
   });
 
-  test("Thumbnail 로딩에 실패하면 이미지 영역을 제거한다", async () => {
+  test("Thumbnail 로딩에 실패하면 카테고리 썸네일로 대체한다", async () => {
     await render(
       <TrendCard
         displayNumber={1}
@@ -280,7 +282,60 @@ describe("TrendCard", () => {
       expect(
         screen.queryByLabelText("AI 스마트폰 신제품 공개 썸네일"),
       ).toBeNull();
+      expect(screen.getByLabelText("카테고리 썸네일: 게임")).toBeTruthy();
     });
+  });
+
+  test.each([
+    ["FASHION", "패션"],
+    ["FOOD", "음식"],
+    ["IT_DIGITAL", "IT/디지털"],
+    ["ENTERTAINMENT", "엔터테인먼트"],
+    ["BEAUTY", "뷰티"],
+    ["GAME", "게임"],
+  ] as const)("카테고리 코드 %s에 대응하는 자체 썸네일을 표시한다", async (code, label) => {
+    const trend = createTrend();
+    await render(<TrendCard onOpenSource={jest.fn()} trend={{
+      ...trend,
+      categories: [{
+        ...trend.categories[0],
+        parent: { ...trend.categories[0].parent, category_code: code },
+      }],
+    }} />);
+    expect(screen.getByLabelText(`카테고리 썸네일: ${label}`)).toBeTruthy();
+  });
+
+  test("카테고리가 없으면 일반 트렌드 썸네일을 표시한다", async () => {
+    await render(<TrendCard onOpenSource={jest.fn()} trend={createTrend({ categories: [] })} />);
+    expect(screen.getByLabelText("카테고리 썸네일: 트렌드")).toBeTruthy();
+  });
+
+  test("코드 없는 카테고리는 건너뛰고 다음 표시 카테고리를 선택한다", async () => {
+    const trend = createTrend();
+    const [first, second] = trend.categories;
+    await render(<TrendCard onOpenSource={jest.fn()} trend={{
+      ...trend,
+      categories: [
+        { ...first, parent: { ...first.parent, category_code: null } },
+        second,
+      ],
+    }} />);
+    expect(screen.getByLabelText("카테고리 썸네일: IT/디지털")).toBeTruthy();
+  });
+
+  test("기존 이미지 URL이 변경되면 이전 로딩 실패와 무관하게 새 이미지를 표시한다", async () => {
+    const onOpenSource = jest.fn();
+    const trend = createTrend({ thumbnail_url: "https://example.com/broken.jpg" });
+    const result = await render(<TrendCard onOpenSource={onOpenSource} trend={trend} />);
+    await fireEvent(screen.getByLabelText(`${trend.title} 썸네일`), "error");
+    expect(screen.getByLabelText("카테고리 썸네일: 게임")).toBeTruthy();
+
+    const newUrl = "https://example.com/new.jpg";
+    await result.rerender(<TrendCard onOpenSource={onOpenSource} trend={{
+      ...trend, thumbnail_url: newUrl,
+    }} />);
+    expect(screen.getByLabelText(`${trend.title} 썸네일`)).toHaveProp("source", { uri: newUrl });
+    expect(screen.queryByLabelText("카테고리 썸네일: 게임")).toBeNull();
   });
 
   test("SearchApi 기사형 데이터는 기존 카드의 카테고리·원문 버튼으로 표시한다", async () => {
