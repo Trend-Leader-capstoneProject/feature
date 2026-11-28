@@ -1,8 +1,12 @@
 import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useRef, useState } from "react";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useNavigationTransitionGuard } from "../../account/hooks/useNavigationTransitionGuard";
 import {
   FlatList,
   Image,
+  Pressable,
   Text,
   View,
   type ListRenderItemInfo,
@@ -29,7 +33,30 @@ import { useTrends } from "../hooks/useTrends";
 import type { TrendListItem } from "../types/trend";
 import { openTrendSourceUrl } from "../utils/openTrendSourceUrl";
 
-export function LatestTrendScreen() {
+type LatestTrendScreenProps = {
+  onOpenSettings?: () => void;
+  settingsDisabled?: boolean;
+};
+
+type LatestTrendNavigation = NativeStackNavigationProp<{
+  LatestTrend: undefined;
+  AppSettings: undefined;
+}, "LatestTrend">;
+
+// Both public and authenticated stacks register these two routes.
+export function LatestTrendRoute() {
+  const navigation = useNavigation<LatestTrendNavigation>();
+  const { run, disabled } = useNavigationTransitionGuard(navigation);
+  return <LatestTrendScreen
+    onOpenSettings={() => run(() => navigation.navigate("AppSettings"))}
+    settingsDisabled={disabled}
+  />;
+}
+
+export function LatestTrendScreen({
+  onOpenSettings,
+  settingsDisabled = false,
+}: LatestTrendScreenProps = {}) {
   const { styles } = useStyles();
   const [selectedRootCategoryId, setSelectedRootCategoryId] = useState<
     number | null
@@ -233,7 +260,23 @@ export function LatestTrendScreen() {
           style={styles.brandLogo}
         />
 
-        <View style={styles.headerSlot} />
+        {onOpenSettings ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="앱 설정"
+            accessibilityState={{ disabled: settingsDisabled }}
+            disabled={settingsDisabled}
+            onPress={onOpenSettings}
+            style={[styles.headerSlot, styles.settingsButton]}
+          >
+            <Image
+              accessible={false}
+              resizeMode="contain"
+              source={appImages.settingsIcon}
+              style={styles.settingsIcon}
+            />
+          </Pressable>
+        ) : <View style={styles.headerSlot} />}
       </View>
 
       <View style={styles.intro}>
@@ -271,6 +314,17 @@ const useStyles = createThemedStyles((colors) => ({
   headerSlot: {
     width: sizes.touchTarget,
     height: sizes.touchTarget,
+  },
+
+  settingsButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  settingsIcon: {
+    width: 28,
+    height: 28,
+    tintColor: colors.textLink,
   },
 
   brandLogo: {
