@@ -11,8 +11,7 @@ import pytest
 
 from app.trend_collection.searchapi_interest import SearchInterestAdapter
 from app.trend_collection.supply_adapter import SupplyBlocked
-from scripts import auto_supply_control as control
-from scripts import run_auto_supply as supply
+from scripts import auto_supply_control as control, run_auto_supply as supply
 from scripts.auto_supply_control import INTEREST_SOURCE_ID, next_state
 
 NOW = datetime(2026, 11, 28, 5, tzinfo=timezone.utc)
