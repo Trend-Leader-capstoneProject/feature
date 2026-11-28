@@ -1,12 +1,14 @@
 """Operational connection tests; no live HTTP or MariaDB credentials."""
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import (
     RELEASES,
     REPO,
@@ -15,6 +17,8 @@ from app.trend_collection.godot_release_collector import (
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 from app.trend_collection.supply_adapter import (
+    GODOT_ICON_URL,
+    GODOT_IMAGE_SCOPE,
     GodotAdapter,
     SupplyBlocked,
     bind_snapshot,
@@ -305,3 +309,40 @@ def test_new_adapter_does_not_change_writer(monkeypatch):
     assert writer.call_args.args[2] is journal_factory.return_value
     with pytest.raises(SupplyBlocked):
         approved.source(None)
+
+
+def test_godot_icon_is_source_scoped_and_written_in_same_transaction(monkeypatch):
+    raw = profile_data()
+    raw["sources"][0]["scope"] = GODOT_IMAGE_SCOPE
+    approved = supply.parse_profile(raw, NOW)
+    source = approved.source(REPO)
+    assert supply._operational_adapter(source, "collect") is supply.ADAPTERS[REPO]
+    assert isinstance(supply._operational_adapter(source, "write"), GodotAdapter)
+    verified = GodotAdapter(lambda _: RAW, include_icon=True).verify(candidate(), NOW)
+    item = bind_snapshot(verified, policy=supply.VERSION, target=approved.target)
+    assert item.thumbnail_url == GODOT_ICON_URL
+    assert item.content_digest != snapshot().content_digest
+    validate_snapshot_freshness(approved, item, NOW)
+    with pytest.raises(SupplyBlocked, match="THUMBNAIL_SCOPE_NOT_APPROVED"):
+        validate_snapshot_freshness(profile(), item, NOW)
+    with pytest.raises(SupplyBlocked, match="THUMBNAIL_SNAPSHOT_INVALID"):
+        validate_snapshot_freshness(
+            approved, replace(item, thumbnail_url="https://example.invalid/x"), NOW,
+        )
+    conn, journal, insert = _mock_writer(monkeypatch)
+    assert supply._write(approved, item, journal) == "COMMITTED"
+    assert insert.call_args.kwargs["thumbnail_url"] == GODOT_ICON_URL
+    conn.commit.assert_called_once()
+    assert journal.finish.call_args.args[-1] == "COMMITTED"
+
+
+def test_image_scope_does_not_update_existing_trend(monkeypatch):
+    raw = profile_data()
+    raw["sources"][0]["scope"] = GODOT_IMAGE_SCOPE
+    approved = supply.parse_profile(raw, NOW)
+    item = replace(snapshot(), thumbnail_url=GODOT_ICON_URL)
+    conn, journal, insert = _mock_writer(monkeypatch, duplicate="SKIP_EXISTING_RELEASE")
+    assert supply._write(approved, item, journal) == "SKIP_EXISTING_RELEASE"
+    insert.assert_not_called()
+    journal.claim.assert_not_called()
+    conn.commit.assert_not_called()
