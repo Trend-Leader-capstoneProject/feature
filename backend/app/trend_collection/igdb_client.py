@@ -39,7 +39,7 @@ GAME_QUERY = re.compile(
 
 IMAGE_GAME_QUERY = re.compile(
     re.escape(f"fields {GAME_IMAGE_FIELDS}; where id = (")
-    + r"([1-9][0-9]{0,19}(?:,[1-9][0-9]{0,19}){0,19})\); limit ([1-9][0-9]?);"
+    + r"([1-9][0-9]{0,19})\); limit (1);"
 )
 
 
