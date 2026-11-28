@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 
 from app.trend_collection.igdb_adapter import (
+    COVER_URL,
     SCOPE,
     SOURCE_ID,
     VISITS_ID,
@@ -21,7 +22,9 @@ from app.trend_collection.publication_policy import (
 UNBOUND = "UNBOUND_OPERATIONAL"
 
 
-def project_verified_popularity(verified: dict) -> PopularitySnapshot:
+def project_verified_popularity(
+    verified: dict, *, include_cover=False,
+) -> PopularitySnapshot:
     """Call only on IgdbReviewAdapter.verify_review's rebuilt output.
 
     This is a value projection, not proof of rights or authorization.
@@ -40,6 +43,12 @@ def project_verified_popularity(verified: dict) -> PopularitySnapshot:
     if (source["external_id"] != identity or source["platform"] != "ETC"
             or source["source_url"] is None):
         raise IgdbBlocked("INVALID_VERIFIED_PREVIEW")
+    thumbnail = verified.get("thumbnail_url")
+    if thumbnail is not None and (
+        not include_cover or not isinstance(thumbnail, str)
+        or COVER_URL.fullmatch(thumbnail) is None
+    ):
+        raise IgdbBlocked("INVALID_VERIFIED_THUMBNAIL")
     return PopularitySnapshot(
         profile_id=PROFILE,
         policy_version=POLICY_VERSION,
@@ -65,6 +74,7 @@ def project_verified_popularity(verified: dict) -> PopularitySnapshot:
         rank=verified["rank"],
         metric_id=VISITS_ID,
         proposed_status="ACTIVE",
+        thumbnail_url=thumbnail,
     )
 
 
@@ -73,8 +83,9 @@ class IgdbSnapshotBridge:
 
     scope = SCOPE
 
-    def __init__(self, query: Query):
+    def __init__(self, query: Query, *, include_cover=False):
         self._review = IgdbReviewAdapter(query)
+        self._include_cover = include_cover is True
 
     def collect_preview(self, *, after_game_id=None):
         return self._review.collect_review(
@@ -82,5 +93,7 @@ class IgdbSnapshotBridge:
         )
 
     def verify(self, preview, now: datetime) -> PopularitySnapshot:
-        verified = self._review.verify_review(preview, now)
-        return project_verified_popularity(verified)
+        verified = self._review.verify_review(
+            preview, now, include_cover=self._include_cover,
+        )
+        return project_verified_popularity(verified, include_cover=self._include_cover)
