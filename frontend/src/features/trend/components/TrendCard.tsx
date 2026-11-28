@@ -10,18 +10,10 @@ import { TrendSourceSection } from "./TrendSourceSection";
 
 const THUMBNAIL_SIZE = 96;
 
-// Presentation-only reference to the official press-kit icon; not release artwork.
+// Presentation-only attribution for the API-provided official press-kit icon.
 // https://godotengine.org/press/ — Andrea Calabró, CC BY 4.0.
 const GODOT_ICON_URL = "https://godotengine.org/assets/press/icon_color.png";
 const GODOT_LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/";
-const GODOT_RELEASE_URL = /^https:\/\/github\.com\/godotengine\/godot-builds\/releases\/tag\/[0-9]+\.[0-9]+(?:\.[0-9]+)?-(?:stable|beta[0-9]+|rc[0-9]+|dev[0-9]+)$/;
-
-function getOfficialThumbnail(trend: TrendListItem): string | null {
-  const source = trend.latest_source;
-  return source?.platform === "ETC" &&
-    GODOT_RELEASE_URL.test(source.source_url) ? GODOT_ICON_URL : null;
-}
-
 type CategoryThumbnail = {
   icon: string;
   label: string;
@@ -89,10 +81,8 @@ export function TrendCard({
     null,
   );
 
-  const officialThumbnail = trend.thumbnail_url === null
-    ? getOfficialThumbnail(trend)
-    : null;
-  const thumbnailUrl = trend.thumbnail_url ?? officialThumbnail;
+  const thumbnailUrl = trend.thumbnail_url;
+  const isGodotIcon = thumbnailUrl === GODOT_ICON_URL;
 
   const shouldShowThumbnail =
     thumbnailUrl !== null && failedThumbnailUrl !== thumbnailUrl;
@@ -123,7 +113,7 @@ export function TrendCard({
             onError={() => {
               setFailedThumbnailUrl(thumbnailUrl);
             }}
-            resizeMode={officialThumbnail === null ? "cover" : "contain"}
+            resizeMode={isGodotIcon ? "contain" : "cover"}
             source={{
               uri: thumbnailUrl,
             }}
@@ -151,7 +141,7 @@ export function TrendCard({
         )}
       </View>
 
-      {shouldShowThumbnail && officialThumbnail === GODOT_ICON_URL && (
+      {shouldShowThumbnail && isGodotIcon && (
         <Pressable accessibilityRole="link"
           accessibilityLabel="Godot 이미지 라이선스 확인"
           onPress={() => onOpenSource(GODOT_LICENSE_URL)}>
