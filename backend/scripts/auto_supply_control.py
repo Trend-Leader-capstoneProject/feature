@@ -49,7 +49,9 @@ def atomic_json(path, value, mode=0o600):
 def _preserve_rotation(updated, previous, *, source_id=None,
                        completed=False, game_id=None, case_key=None):
     """Keep cursor state coupled to the durable scheduler record."""
-    for key in ('last_completed_source_id', 'igdb_last_game_id', 'interest_last_case_key'):
+    for key in (
+        'last_completed_source_id', 'igdb_last_game_id', 'interest_last_case_key',
+    ):
         if key in previous:
             updated[key] = previous[key]
     if source_id is not None and completed:
@@ -144,7 +146,9 @@ def load_state(path, read_record):
                                      data['last_completed_source_id']) is None))
             or ('interest_last_case_key' in data
                 and (not isinstance(data['interest_last_case_key'], str)
-                     or re.fullmatch(r'[a-f0-9]{64}', data['interest_last_case_key']) is None))
+                     or re.fullmatch(
+                         r'[a-f0-9]{64}', data['interest_last_case_key'],
+                     ) is None))
             or ('igdb_last_game_id' in data
                 and (type(data['igdb_last_game_id']) is not int
                      or not 1 <= data['igdb_last_game_id'] < 10**20))):

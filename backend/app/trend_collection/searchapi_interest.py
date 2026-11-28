@@ -225,7 +225,10 @@ class SearchInterestAdapter:
             or preview["source_id"] != SOURCE_ID or preview["scope"] != self.scope
             or not isinstance(preview["query"], str)
             or (not self._hybrid and preview["query"] not in self._topics)
-            or (self._hybrid and preview["classification_policy_ref"] != self._policy_ref)
+            or (
+                self._hybrid
+                and preview["classification_policy_ref"] != self._policy_ref
+            )
             or preview["case_key"] != _case_key(preview["query"])
         ):
             raise SupplyBlocked("INTEREST_PREVIEW_INVALID")
@@ -271,7 +274,10 @@ class SearchInterestAdapter:
             candidate_identity=identity,
             evidence_ref=_digest({
                 "scope": self.scope, "query": lead.query,
-                **({"classification_policy_ref": self._policy_ref} if self._hybrid else {}),
+                **(
+                    {"classification_policy_ref": self._policy_ref}
+                    if self._hybrid else {}
+                ),
                 "started_at": lead.started_at_utc.isoformat(),
                 "observed_at": now.isoformat(),
                 "category": [parent, child],
