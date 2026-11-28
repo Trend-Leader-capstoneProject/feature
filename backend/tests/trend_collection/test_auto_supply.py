@@ -225,6 +225,28 @@ def test_preclaim_hold_diagnostic_is_bounded(monkeypatch, method, stage):
     insert.assert_not_called()
 
 
+def test_db_connect_2003_precedes_claim_and_dml(monkeypatch):
+    conn, journal, insert = _mock_writer(monkeypatch)
+    engine = supply._make_engine.return_value
+    engine.connect.side_effect = OperationalError(
+        None, None, Exception(2003, "private connection details"),
+    )
+    diagnostic = {}
+    assert supply._write(
+        profile(), snapshot(), journal, diagnostic=diagnostic,
+    ) == "HOLD"
+    assert diagnostic == {
+        "reason": "WRITER_DB_CONNECT_FAILED", "db_error_code": 2003,
+    }
+    journal.check_ready.assert_called_once_with()
+    journal.claim.assert_not_called()
+    journal.finish.assert_not_called()
+    conn.exec_driver_sql.assert_not_called()
+    conn.commit.assert_not_called()
+    insert.assert_not_called()
+    engine.dispose.assert_called_once_with()
+
+
 @pytest.mark.parametrize(("failure", "stage", "journal_state"), [
     ("insert", "PARENT_INSERT", "ROLLED_BACK"),
     ("commit", "COMMIT", "COMMIT_UNKNOWN"),
