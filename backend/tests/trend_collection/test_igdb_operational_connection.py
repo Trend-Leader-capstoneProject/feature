@@ -306,6 +306,9 @@ def test_cover_query_is_not_permitted_by_legacy_client():
         _validate_query("games", body)
     _validate_query("games", body, include_cover=True)
     with pytest.raises(IgdbClientError, match="IGDB_QUERY_NOT_ALLOWED"):
+        _validate_query("games", body.replace("(1); limit 1", "(1,2); limit 2"),
+                        include_cover=True)
+    with pytest.raises(IgdbClientError, match="IGDB_QUERY_NOT_ALLOWED"):
         _validate_query("games", body.replace("cover.image_id", "cover.*"),
                         include_cover=True)
     with pytest.raises(SupplyBlocked, match="IGDB_EXECUTION_ROLE_INVALID"):
