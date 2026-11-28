@@ -1,9 +1,16 @@
 # Trend Leader — 현재 작업 인수인계 (단일 갱신 문서)
 
-> 2026-11-24 KST | AI-Led Delivery Mode | 재평가 핵심 기능: 실제 자동 데이터 공급.
-> 최근 통합 기준: PR #139 merge commit 3a0a42a28296989d5a1c4d2f11986a2c74907b76. 최신 dev HEAD는 재개 시 조회한다.
-> 현재 작업: IGDB 로컬 수직 E2E 및 Timer 예약 완료, PR #139 dev 병합 완료. PR #140 SearchApi 운영 연결 진행 중. 실제 SearchApi 게시·운영 배포 별도 승인.
+> 2026-11-28 KST | AI-Led Delivery Mode | 비상업 대학 졸업작품 시연 전용(재평가 종료 또는 늦어도 2026-12-15 23:59 KST까지).
+> 최근 통합 기준: PR #140 merge commit ca1a0e004fda1d03895e906e4a58257df3f07e18. 최신 dev HEAD는 재개 시 조회한다.
+> 현재 작업: STEP 8 Lightsail 배포·더미 정리 완료, STEP 9-A 기존 C+D-1 유지/D-2 시연 운영 활성화 보류, STEP 9-B 카테고리 자체 썸네일, 이후 STEP 10 APK 재빌드·최종 실기기 검증. 운영 변경·dev merge 별도 승인.
 > 역할: 진행 상태 및 다음 작업의 인덱스. 승인 증거/설계 계약 자체를 대체하지 않음.
+
+## 최신 시연 인수인계 (2026-11-28, 이전 진행 기록보다 우선)
+
+- STEP 8-A~F 사용자 제공 완료 보고: 운영 백업/복원 검증, DB additive Migration d3a9f27c6b41, 최신 Backend 배포, 자동 공급 운영환경, 최초 IGDB Free Fire COMMITTED 및 Timer, 더미 31건 지정 삭제(33→2). Trend ID 2/33, 관련 실데이터/Journal/Timer/썸네일 파일 보존. 정리 당시 related_articles 0건. 신규 정리 전 백업 SHA-256 67ef22125a481501c13d8e36ae7ff9f0a202eff07ae0a0829d9f9239b7457be2; 해당 신규 백업 복원 미실행(8-A 별도 복원 증거 유지). 삭제·배포·Migration 반복 금지.
+- STEP 9-A-1 사용자 실측 2026-11-28 13:53 KST: DB healthy, 운영 컨테이너 Up, Timer 다음 14:57:15 KST, service Result=success, profile enabled/lightsail, 기존 IGDB/Godot/SearchApi V1 및 article_rules 0건, valid_until 2026-12-15 23:59 KST, pending=false, rate_failures=0, last_completed_source_id=searchapi-kr-interest. 신규 반복 COMMITTED 자체는 아직 미확인. 기존 Timer/쿨다운/운영 데이터 보존.
+- STEP 9-A 사용자 결정 2026-11-28: 비상업 졸업작품 시연에 한정하여 기존 시그널2 C+D-1(관심도 관측 + 관련 정보/뉴스 검색 링크 + 관측 출처) 유지. D-2 기존 구현·검증·Schema/API 및 FROZEN 기술 계약 보존, 직접 기사 운영 활성화만 시연 범위에서 보류. 추가 언론사 권리 검토/News 요청/Writer GRANT/운영 scope 변경 없음. 비상업 목적이 포괄적 권리 허용이라는 의미는 아님. STEP 9-A 범위 조정 종료, 별도 운영 변경 불필요.
+- STEP 9-B 사용자 A안 채택: 공통 TrendCard에서 정상 기존 thumbnail_url 우선, NULL/이미지 오류 시 현재 API 표시 순서상 첫 지원 대분류의 자체 아이콘·색상·라벨, 미분류 일반 fallback. API는 대표 카테고리 필드를 반환하지 않으므로 표시 순서를 대표 카테고리로 해석하지 않는다. React Native 기존 컴포넌트/테마만 사용, 신규 패키지/외부 이미지/DB/Backend/운영 변경 없음. feat/exhibition-category-thumbnail에서 코드·집중 테스트 작성, 실제 Jest/typecheck 및 Android 화면 확인 필요(미실행). STEP 10은 검증·통합 후 최종 APK, 핵심 흐름·링크·썸네일 및 산출물 검증.
 
 ## 새 채팅 재개 규칙
 
