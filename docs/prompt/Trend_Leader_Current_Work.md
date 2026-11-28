@@ -165,6 +165,12 @@
 - [과거 2026-11-19 시점 계획 — 대체됨] 다음 P0: Stage 2 PR 최종 통합 승인 대기(사용자 일반 회귀/Ruff 및 비활성 경로 배치·철회 PASS 확보; 운영 활성화와 구분). 실제 운영 전 다른 Trend 쓰기 경로 배제 확인, 기존 권리 근거/G5 증거 정리 및 G6 별도 승인, 단회 실제 데이터 등록 → API → APK 원문 링크 → 6시간 정기 실행. 기존 시험·환경 재준비 불필요; 신규 합성 PoC·새 Schema/API/인프라/Worktree 추가 지양. 실제 운영 활성화 전 HOLD 유지.
 - E2E 완료 기준: (1) Scheduler 무인 실행, (2) 실제 외부 신규 정보 자동 수집, (3) 허용된 정보 자동 DB 저장, (4) 기존 FastAPI 조회, (5) 실제 APK TrendCard 표시, (6) 원문 보기 버튼에서 실제 공식 원출처 이동, (7) 반복 실행에도 중복 카드 없음. 최초 수직 통합 이후 6시간 정기 실행 실증, 독립 실행 3회 이상 및 최소 3개 대분류·관심도 신호 확보(프로젝트 제안 목표, 공식 평가 합격 기준 아님). 크롤링/API 비교 근거 유지. 실제 E2E 증거 전 완료 선언 금지.
 
+## STEP 9-C — 공급 다양성 개선 (2026-11-28, 별도 작업 브랜치)
+
+- 사용자 승인 9-C-2~5: Hybrid 분류, 단일 Root 적격 후보의 제한적 기타 배정, 후보 순환, 선택적 원문 확보. 시연 우선/불필요한 제약 추가 금지. 설계 원본: docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_STEP9C_Supply_Diversity_Design_20261128.md. 현재 feat/auto-supply-diversity, dev ca1a0e0 및 PR #142 3389eb3 기준. 기존 PR #142의 이미지/운영 결정·완료 증거는 별도로 보존하고 통합 시 함께 반영.
+- 9-C-6: b1b54c4 SearchApi Hybrid/순환, 1ffedf3 E501 4건 수정. 사용자 실측 45 PASS/21 SKIP (0.62s) 및 Ruff PASS (로컬 정확한 HEAD/skip 상세 미보고). 0abfdac IGDB 복수 플랫폼 GAME/기타, db121b2 응답 전체 탐색 및 집계 진단 로그, 6a0cda6 기존 probe의 --live --content-topic(읽기 전용 Google 1회, News 0) 구현 및 테스트 작성. 이후 변경 영향 시험 미실행. 신규 scope SEARCHAPI_KR_INTEREST_HYBRID_V1 / IGDB_VISITS_FACTS_LINK_DIVERSITY_V1, 기존 V1·D-2 보존. 상태 Cursor는 확인된 Writer 결과만 반영. 기존 DB/API/Journal/6h/Batch 1/AI 0 보존. 추가 실제 원문·이미지 이용 근거 미확보, 운영 검색·추출 배선 없음. 신규 외부 호출 및 운영/DB/Timer/merge 없음.
+- 다음: 최신 브랜치 변경 영향 pytest/Ruff 및 Linux scheduler 검증(기존 PASS 반복 금지), 기존 보호 WSL 환경의 기간 한정 운영 승인에 새 scope 적용·실제 신규 COMMITTED/조회와 진단 확인. PR #142 cover scope와 공통 adapter/profile/freshness 변경 조정 후 결합 검증 및 사용자 최종 통합 승인, Lightsail 별도 승인. 기존 원문 확인 가능한 주제만 선택적 probe, 적격 출처 없으면 fallback 유지하고 신규 트렌드 공급/시연을 막지 않음. 현재 Cursor/쿨다운/Journal 및 기존 운영 데이터 초기화·삭제 금지.
+
 ## 설계 원본
 
 - docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_AP3C_Automatic_Publication_Design_FROZEN_v1.0_20261119.md
