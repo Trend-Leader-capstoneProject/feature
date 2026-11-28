@@ -16,6 +16,8 @@
 
 - STEP 9-B-3 방향 재검토(2026-11-28 사용자 지적): 카드/개별 트렌드별 Frontend 하드코딩은 자동 공급 목적에 맞지 않음. 이전 대안 명칭은 11/27 A=무이미지, B=카테고리 기본, C=실제 출처 대표 이미지, D=AI; 11/28 A=카테고리 자체, B=실제 콘텐츠. 권장 목표는 기존 Source Adapter에서 허용된 이미지 메타데이터를 함께 추출, 독립 Writer 검증·승인 scope·digest를 유지하며 기존 trends.thumbnail_url에 신규 INSERT, API는 기존 필드 반환, Frontend는 범용 이미지 표시/카테고리 fallback만 담당. IGDB cover.image_id, Godot 공식 제품 아이콘(버전별 스크린샷 아님), SearchApi 관심도는 이미지 이용 근거 미확보 시 fallback(시그널2 C+D-1 및 기사 이미지 제외 유지). Godot 표시 계층 특례는 목표 구현으로 이전 후 제거 권장, 저작자/라이선스 표시 보존. 기존 COMMITTED 레코드는 자동 재수집/UPDATE 금지; 필요 시 별도 승인된 제한적 이미지 보강. 신규 승인 scope·필드·권리 조건 확정 및 운영 변경 승인 전 구현/실제 요청/DB 변경 없음. STEP 9-C는 별도 파이프라인 상태 분석 채팅으로 유지; 본 항목은 썸네일만 다룸.
 
+- STEP 9-B-3a 설계 확정(2026-11-28 사용자 명시 동의): A+B 결합, 이미지 URL 확보는 Backend Adapter/독립 Writer 책임, 기존 DB/API 및 Frontend 범용 fallback 유지. 기존 사실·링크 scope는 NULL 유지; 신규 이미지 scope는 기존 source_id와 rotation/기간을 유지하며 이미지 URL만 추가 허용, 실제 승인 파일 전환/운영 배포는 별도 승인. 구현 세부 결정: IGDB Collector의 기존 사실 preview 및 digest는 유지하고 Writer 독립 Games 재조회에서만 cover.image_id 확장(요청 횟수 불변, 고정 HTTPS CDN cover_big jpg, 제한된 영숫자 ID, 누락/부적격은 NULL); Godot Writer 독립 release 검증 이후 공식 고정 Press Kit 아이콘 선택, Frontend는 반환 이미지 URL의 라이선스 귀속과 비율만 처리. 기존 snapshot NULL digest/identity/Journal 및 INSERT-only/중복 SKIP 유지. 이미지 오류는 앱 fallback, 이미지 binary 다운로드·기사 이미지·새 API·자동 기존 레코드 수정 없음. 테스트 241 PASS는 이전 코드 증거로 보존, 신규 구현 이후 변경 영향 검증 필요. STEP 9-C 별도 채팅 유지.
+
 ## 새 채팅 재개 규칙
 
 1. 이 문서의 최신 dev 및 열린 작업 PR 버전, 실제 dev/feature HEAD, 관련 확정안 및 변경 코드를 먼저 확인한다. 열린 작업 PR을 이어가며 중복 브랜치/설계/PoC를 생성하지 않는다.
