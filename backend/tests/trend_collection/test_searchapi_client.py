@@ -96,3 +96,14 @@ def test_official_search_uses_existing_third_call_budget():
     with pytest.raises(SearchApiClientError, match="SEARCHAPI_REQUEST_BUDGET"):
         client.official_search("시그널2")
     assert opener.open.call_count == 3
+
+
+def test_content_search_uses_broader_literal_and_one_request():
+    client, opener = _client()
+    client.official_search("작품2", content_page=True)
+    request = opener.open.call_args.args[0]
+    assert parse_qs(urlsplit(request.full_url).query) == {
+        "engine": ["google"], "q": ['"작품2" 공식'],
+        "gl": ["kr"], "hl": ["ko"],
+    }
+    assert opener.open.call_count == 1

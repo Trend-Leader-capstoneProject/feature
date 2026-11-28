@@ -213,15 +213,16 @@ def parse_related_news(payload: object, *, now: datetime) -> tuple[NewsLead, ...
     return tuple(results)
 
 
-def official_search_query(topic: str) -> str:
+def official_search_query(topic: str, *, content_page: bool = False) -> str:
     """Keep an upstream topic a bounded literal, not a search operator."""
     if _clean_text(topic, limit=255) is None or '"' in topic or "\\" in topic:
         raise SearchApiDiscoveryError("INVALID_OFFICIAL_TOPIC")
-    return f'"{topic}" 공식 발표'
+    suffix = "공식" if content_page else "공식 발표"
+    return f'"{topic}" {suffix}'
 
 
 def parse_official_search_links(
-    payload: object, *, topic: str,
+    payload: object, *, topic: str, content_page: bool = False,
 ) -> tuple[str, ...]:
     """Only first three direct organic links; no redirects or source claims."""
     if not isinstance(payload, dict):
@@ -230,7 +231,7 @@ def parse_official_search_links(
     if (
         not isinstance(params, dict)
         or params.get("engine") != "google"
-        or params.get("q") != official_search_query(topic)
+        or params.get("q") != official_search_query(topic, content_page=content_page)
         or params.get("gl") != "kr" or params.get("hl") != "ko"
     ):
         raise SearchApiDiscoveryError("WRONG_OFFICIAL_SCOPE")
