@@ -358,10 +358,18 @@ def test_thumbnail_dml_in_isolated_mariadb(db_session: Session, thumbnail):
     """Shared INSERT persists the optional URL; fixture owns rollback."""
     key = uuid4().hex
     conn = db_session.connection()
+    root_id = conn.execute(text(
+        "SELECT category_id FROM categories WHERE category_code = 'IT_DIGITAL'"
+    )).scalar_one_or_none()
+    if root_id is None:
+        root_id = conn.execute(text(
+            "INSERT INTO categories (category_code, category_name, sort_order, is_active) "
+            "VALUES ('IT_DIGITAL', :name, 0, 1)"
+        ), {"name": f"Thumbnail root {key}"}).lastrowid
     category_id = conn.execute(text(
-        "INSERT INTO categories (category_name, sort_order, is_active) "
-        "VALUES (:name, 0, 1)"
-    ), {"name": f"Thumbnail fixture {key}"}).lastrowid
+        "INSERT INTO categories (category_name, parent_id, sort_order, is_active) "
+        "VALUES (:name, :parent, 0, 1)"
+    ), {"name": f"Thumbnail fixture {key}", "parent": root_id}).lastrowid
     item = replace(
         snapshot(), title=f"Thumbnail fixture {key}", normalized_title=key,
         external_id=f"fixture-thumbnail:{key}",
