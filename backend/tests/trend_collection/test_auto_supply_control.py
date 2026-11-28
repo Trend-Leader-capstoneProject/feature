@@ -154,6 +154,30 @@ def test_db_connect_retries_same_source_then_halts(tmp_path):
         child.assert_not_called()
 
 
+@pytest.mark.parametrize(('source', 'preview', 'identity'), [
+    ('godotengine/godot-builds',
+     {'candidate_identity': 'github-release:godotengine/godot-builds:42'},
+     'github-release:godotengine/godot-builds:42'),
+    ('searchapi-kr-interest', {'case_key': 'a' * 64},
+     'searchapi-interest:' + 'a' * 64),
+    ('searchapi-kr-reviewed-news', {'case_key': 'b' * 64},
+     'searchapi-event:' + 'b' * 64),
+])
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+def test_db_connect_retry_confirms_each_source_identity(
+    tmp_path, source, preview, identity,
+):
+    path = tmp_path / 'state.json'
+    profile = _profile(source)
+    envelope = {'source_id': source, 'preview': preview}
+    hold = {**DB_CONNECT_HOLD, 'candidate_identity': identity}
+    child = Mock(side_effect=[(0, envelope), (2, hold)])
+    result = cycle(profile, path, READY, child=child, clock=lambda: NOW)
+    assert result['db_connect_failures'] == 1
+    assert result['retry_not_before'] == NOW + INTERVAL
+    assert json.loads(path.read_text())['pending'] is False
+
+
 @pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
 def test_db_connect_retry_rejects_mismatched_identity(tmp_path):
     path = tmp_path / 'state.json'
