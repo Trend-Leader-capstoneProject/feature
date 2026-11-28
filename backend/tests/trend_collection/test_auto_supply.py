@@ -363,7 +363,8 @@ def test_thumbnail_dml_in_isolated_mariadb(db_session: Session, thumbnail):
     )).scalar_one_or_none()
     if root_id is None:
         root_id = conn.execute(text(
-            "INSERT INTO categories (category_code, category_name, sort_order, is_active) "
+            "INSERT INTO categories "
+            "(category_code, category_name, sort_order, is_active) "
             "VALUES ('IT_DIGITAL', :name, 0, 1)"
         ), {"name": f"Thumbnail root {key}"}).lastrowid
     category_id = conn.execute(text(
