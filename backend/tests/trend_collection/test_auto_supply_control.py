@@ -60,6 +60,7 @@ def test_unknown_writer_halts():
 DB_CONNECT_HOLD = {
     'status': 'HOLD', 'reason': 'WRITER_DB_CONNECT_FAILED',
     'db_error_code': 2003, 'candidate_identity': 'igdb-game:87622',
+    'profile': 'AUTO-TREND-MVP',
 }
 
 
@@ -97,9 +98,18 @@ def test_db_connect_counter_rejects_invalid_ready_state(tmp_path, value):
     {'db_error_code': 1045}, {'db_error_code': '2003'},
     {'db_error_code': True}, {'candidate_identity': None},
     {'related_news_status': 'EMPTY'}, {'retry_not_before': NOW + 72000},
+    {'profile': 'UNAPPROVED'}, {'profile': None},
 ])
 def test_only_exact_preclaim_hold_can_retry(changes):
     state = next_state({**DB_CONNECT_HOLD, **changes}, NOW, READY, writer=True)
+    assert state['pending'] is True
+    assert 'db_connect_failures' not in state
+
+
+def test_db_connect_missing_cli_profile_halts():
+    result = {key: value for key, value in DB_CONNECT_HOLD.items()
+              if key != 'profile'}
+    state = next_state(result, NOW, READY, writer=True)
     assert state['pending'] is True
     assert 'db_connect_failures' not in state
 

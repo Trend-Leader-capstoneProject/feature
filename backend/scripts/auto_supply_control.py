@@ -15,6 +15,7 @@ CONTROL = Path('/etc/trend-leader/auto-supply')
 RUNTIME = Path('/opt/trend-leader-auto-supply')
 INTERVAL = 6 * 3600
 MAX_DB_CONNECT_FAILURES = 3
+WRITER_PROFILE = 'AUTO-TREND-MVP'
 MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
 IGDB_DIVERSITY_SCOPE = 'IGDB_VISITS_FACTS_LINK_DIVERSITY_V1'
@@ -91,7 +92,10 @@ def _preserve_rotation(updated, previous, *, source_id=None,
 def _retryable_db_connect(result):
     # Only the exact trusted Writer pre-Claim failure; no News or retry hints.
     return (
-        set(result) == {'status', 'reason', 'candidate_identity', 'db_error_code'}
+        set(result) == {
+            'status', 'reason', 'candidate_identity', 'db_error_code', 'profile',
+        }
+        and result['profile'] == WRITER_PROFILE
         and result['status'] == 'HOLD'
         and result['reason'] == 'WRITER_DB_CONNECT_FAILED'
         and type(result['db_error_code']) is int
