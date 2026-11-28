@@ -24,7 +24,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
-from app.trend_collection.godot_release_collector import REPO, CollectionError, RateLimited
+from app.trend_collection.godot_release_collector import (
+    REPO,
+    CollectionError,
+    RateLimited,
+)
 from app.trend_collection.igdb_adapter import (
     IMAGE_SCOPE as IGDB_IMAGE_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
