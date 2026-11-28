@@ -1,6 +1,6 @@
 import { createThemedStyles } from "../../../shared/theme/createThemedStyles";
 import { useState } from "react";
-import { Image, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 
 import { borders, radius, spacing, textLineLimits, typography } from "../../../shared/constants";
 import type { ColorToken } from "../../../shared/constants";
@@ -9,6 +9,18 @@ import { TrendCategoryChips } from "./TrendCategoryChips";
 import { TrendSourceSection } from "./TrendSourceSection";
 
 const THUMBNAIL_SIZE = 96;
+
+// Presentation-only reference to the official press-kit icon; not release artwork.
+// https://godotengine.org/press/ — Andrea Calabró, CC BY 4.0.
+const GODOT_ICON_URL = "https://godotengine.org/assets/press/icon_color.png";
+const GODOT_LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/";
+const GODOT_RELEASE_URL = /^https:\/\/github\.com\/godotengine\/godot-builds\/releases\/tag\/[0-9]+\.[0-9]+(?:\.[0-9]+)?-(?:stable|beta[0-9]+|rc[0-9]+|dev[0-9]+)$/;
+
+function getOfficialThumbnail(trend: TrendListItem): string | null {
+  const source = trend.latest_source;
+  return source?.platform === "ETC" &&
+    GODOT_RELEASE_URL.test(source.source_url) ? GODOT_ICON_URL : null;
+}
 
 type CategoryThumbnail = {
   icon: string;
@@ -77,7 +89,10 @@ export function TrendCard({
     null,
   );
 
-  const thumbnailUrl = trend.thumbnail_url;
+  const officialThumbnail = trend.thumbnail_url === null
+    ? getOfficialThumbnail(trend)
+    : null;
+  const thumbnailUrl = trend.thumbnail_url ?? officialThumbnail;
 
   const shouldShowThumbnail =
     thumbnailUrl !== null && failedThumbnailUrl !== thumbnailUrl;
@@ -108,7 +123,7 @@ export function TrendCard({
             onError={() => {
               setFailedThumbnailUrl(thumbnailUrl);
             }}
-            resizeMode="cover"
+            resizeMode={officialThumbnail === null ? "cover" : "contain"}
             source={{
               uri: thumbnailUrl,
             }}
@@ -135,6 +150,16 @@ export function TrendCard({
           </View>
         )}
       </View>
+
+      {shouldShowThumbnail && officialThumbnail === GODOT_ICON_URL && (
+        <Pressable accessibilityRole="link"
+          accessibilityLabel="Godot 이미지 라이선스 확인"
+          onPress={() => onOpenSource(GODOT_LICENSE_URL)}>
+          <Text style={styles.imageCredit}>
+            Godot Engine 로고 · © Andrea Calabró · CC BY 4.0
+          </Text>
+        </Pressable>
+      )}
 
       <TrendCategoryChips categories={trend.categories} />
 
@@ -211,6 +236,11 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.label,
     color: colors.textPrimary,
     textAlign: "center",
+  },
+
+  imageCredit: {
+    ...typography.caption,
+    color: colors.textLink,
   },
 
   updatedAt: {
