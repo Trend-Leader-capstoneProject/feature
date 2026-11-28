@@ -24,8 +24,9 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
-from app.trend_collection.godot_release_collector import CollectionError, RateLimited
+from app.trend_collection.godot_release_collector import REPO, CollectionError, RateLimited
 from app.trend_collection.igdb_adapter import (
+    IMAGE_SCOPE as IGDB_IMAGE_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
     IgdbBlocked,
 )
@@ -47,9 +48,11 @@ from app.trend_collection.searchapi_related_articles import (
 from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    GODOT_IMAGE_SCOPE,
     INTEREST_RELATED_SCOPE,
     INTEREST_SOURCE_ID,
     SEARCHAPI_SOURCE_ID,
+    GodotAdapter,
     IgdbOperationalAdapter,
     SupplyBlocked,
     bind_snapshot,
@@ -167,7 +170,10 @@ def parse_profile(raw, now: datetime) -> ApprovedProfile:
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
         source = entry["source_id"]
         if (not isinstance(source, str) or source not in ADAPTERS
-                or (not related and entry["scope"] != ADAPTERS[source].scope)
+                or (not related and entry["scope"] != ADAPTERS[source].scope
+                    and (source, entry["scope"]) not in (
+                        (IGDB_SOURCE_ID, IGDB_IMAGE_SCOPE), (REPO, GODOT_IMAGE_SCOPE),
+                    ))
                 or entry["rights"] != RIGHTS
                 or any(item.source_id == source for item in approved)):
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
@@ -239,9 +245,9 @@ def _bounded(stream):
     return data
 
 
-def _igdb_query(role: str):
+def _igdb_query(role: str, *, include_cover=False):
     """Bind a fresh IGDB client to only the currently executing Linux role."""
-    if role not in {"collect", "write"}:
+    if role not in {"collect", "write"} or (include_cover and role != "write"):
         raise SupplyBlocked("IGDB_EXECUTION_ROLE_INVALID")
     # Administrator-provisioned files only; no .env, token cache or stdout.
     # Each file must be root-owned, 0640, with the executing role's group.
@@ -262,6 +268,7 @@ def _igdb_query(role: str):
     try:
         return IgdbClient(
             credentials["client_id"], credentials["client_secret"],
+            **({"include_cover": True} if include_cover else {}),
         ).query
     except IgdbClientError:
         raise SupplyBlocked("IGDB_CREDENTIALS_INVALID") from None
@@ -306,7 +313,14 @@ def _interest_topics():
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
+        if role == "write" and source.scope == IGDB_IMAGE_SCOPE:
+            return IgdbOperationalAdapter(
+                _igdb_query(role, include_cover=True), include_cover=True,
+            )
         return IgdbOperationalAdapter(_igdb_query(role))
+    if (source.source_id == REPO and source.scope == GODOT_IMAGE_SCOPE
+            and role == "write"):
+        return GodotAdapter(include_icon=True)
     if source.source_id == INTEREST_SOURCE_ID:
         if role not in {"collect", "write"}:
             raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
@@ -555,6 +569,7 @@ def _write(
                     collected_at=utc(snapshot.observed_at_utc).replace(tzinfo=None),
                     summary=snapshot.summary, is_primary=True,
                     status="ACTIVE", platform=snapshot.platform,
+                    thumbnail_url=snapshot.thumbnail_url,
                 )
                 if type(snapshot) is InterestSnapshot and snapshot.related_articles:
                     stage = "RELATED_INSERT"
