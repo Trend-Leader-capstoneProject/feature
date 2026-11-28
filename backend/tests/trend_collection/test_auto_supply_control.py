@@ -57,6 +57,151 @@ def test_unknown_writer_halts():
     assert next_state({'status': 'HOLD'}, NOW, READY, writer=True)['pending']
 
 
+DB_CONNECT_HOLD = {
+    'status': 'HOLD', 'reason': 'WRITER_DB_CONNECT_FAILED',
+    'db_error_code': 2003, 'candidate_identity': 'igdb-game:87622',
+    'profile': 'AUTO-TREND-MVP',
+}
+
+
+def test_db_connect_retry_budget_preserves_cursors_and_deadline(tmp_path):
+    state = {
+        **READY, 'last_completed_source_id': 'godotengine/godot-builds',
+        'igdb_last_game_id': 87622, 'interest_last_case_key': 'a' * 64,
+        'related_news_rate_failures': 1, 'rate_failures': 1,
+    }
+    for failures in range(1, 4):
+        now = NOW + (failures - 1) * INTERVAL
+        state = next_state(
+            DB_CONNECT_HOLD, now, state, writer=True, source_id='igdb:visits',
+        )
+        state = load_state(tmp_path, lambda _: json.loads(json.dumps(state)))
+        assert state['pending'] is (failures == 3)
+        assert state['not_before'] == now + INTERVAL
+        assert state['db_connect_failures'] == failures
+        assert state['last_completed_source_id'] == 'godotengine/godot-builds'
+        assert state['igdb_last_game_id'] == 87622
+        assert state['interest_last_case_key'] == 'a' * 64
+        assert state['related_news_rate_failures'] == 1
+        assert state['rate_failures'] == 1
+
+
+@pytest.mark.parametrize('value', [0, 4, True, '1', None, 3])
+def test_db_connect_counter_rejects_invalid_ready_state(tmp_path, value):
+    with pytest.raises(RuntimeError, match='SCHEDULER_STATE_INVALID'):
+        load_state(tmp_path, lambda _: {**READY, 'db_connect_failures': value})
+
+
+@pytest.mark.parametrize('changes', [
+    {'reason': 'WRITER_COMMIT_FAILED'},
+    {'reason': 'WRITER_JOURNAL_CLAIM_FAILED'},
+    {'db_error_code': 1045}, {'db_error_code': '2003'},
+    {'db_error_code': True}, {'candidate_identity': None},
+    {'related_news_status': 'EMPTY'}, {'retry_not_before': NOW + 72000},
+    {'profile': 'UNAPPROVED'}, {'profile': None},
+])
+def test_only_exact_preclaim_hold_can_retry(changes):
+    state = next_state({**DB_CONNECT_HOLD, **changes}, NOW, READY, writer=True)
+    assert state['pending'] is True
+    assert 'db_connect_failures' not in state
+
+
+def test_db_connect_missing_cli_profile_halts():
+    result = {key: value for key, value in DB_CONNECT_HOLD.items()
+              if key != 'profile'}
+    state = next_state(result, NOW, READY, writer=True)
+    assert state['pending'] is True
+    assert 'db_connect_failures' not in state
+
+
+def test_db_connect_budget_is_not_reset_by_other_failure():
+    previous = {**READY, 'db_connect_failures': 2}
+    state = next_state({'status': 'HOLD'}, NOW, previous, writer=True)
+    assert state['pending'] is True
+    assert state['db_connect_failures'] == 2
+
+
+@pytest.mark.parametrize('status', [
+    'COMMITTED', 'SKIP_EXISTING_RELEASE', 'SKIP_NO_CANDIDATE',
+])
+def test_terminal_outcome_clears_db_connect_budget(status):
+    previous = {**READY, 'db_connect_failures': 2}
+    empty = status == 'SKIP_NO_CANDIDATE'
+    state = next_state(
+        {'status': status}, NOW, previous, writer=not empty, no_candidate=empty,
+    )
+    assert state['pending'] is False
+    assert 'db_connect_failures' not in state
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+def test_db_connect_retries_same_source_then_halts(tmp_path):
+    path = tmp_path / 'state.json'
+    profile = _profile('godotengine/godot-builds', 'igdb:visits')
+    state = {**READY, 'last_completed_source_id': 'godotengine/godot-builds'}
+    envelope = {
+        'source_id': 'igdb:visits',
+        'preview': {'candidate_identity': 'igdb-game:87622'},
+    }
+    for failures in range(1, 4):
+        now = NOW + (failures - 1) * INTERVAL
+        child = Mock(side_effect=[(0, envelope), (2, DB_CONNECT_HOLD)])
+        result = cycle(profile, path, state, child=child, clock=lambda: now)
+        assert child.call_args_list[0].kwargs == {'source_id': 'igdb:visits'}
+        assert child.call_count == 2
+        state = load_state(path, lambda p: json.loads(p.read_text()))
+        assert result['db_connect_failures'] == failures
+        assert state['pending'] is (failures == 3)
+        assert result.get('retry_not_before') == (
+            now + INTERVAL if failures < 3 else None
+        )
+        child.reset_mock()
+        blocked = cycle(profile, path, state, child=child, clock=lambda: now)
+        assert blocked['reason'] == (
+            'SCHEDULER_INVESTIGATION_REQUIRED' if failures == 3
+            else 'SCHEDULER_COOLDOWN'
+        )
+        child.assert_not_called()
+
+
+@pytest.mark.parametrize(('source', 'preview', 'identity'), [
+    ('godotengine/godot-builds',
+     {'candidate_identity': 'github-release:godotengine/godot-builds:42'},
+     'github-release:godotengine/godot-builds:42'),
+    ('searchapi-kr-interest', {'case_key': 'a' * 64},
+     'searchapi-interest:' + 'a' * 64),
+    ('searchapi-kr-reviewed-news', {'case_key': 'b' * 64},
+     'searchapi-event:' + 'b' * 64),
+])
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+def test_db_connect_retry_confirms_each_source_identity(
+    tmp_path, source, preview, identity,
+):
+    path = tmp_path / 'state.json'
+    profile = _profile(source)
+    envelope = {'source_id': source, 'preview': preview}
+    hold = {**DB_CONNECT_HOLD, 'candidate_identity': identity}
+    child = Mock(side_effect=[(0, envelope), (2, hold)])
+    result = cycle(profile, path, READY, child=child, clock=lambda: NOW)
+    assert result['db_connect_failures'] == 1
+    assert result['retry_not_before'] == NOW + INTERVAL
+    assert json.loads(path.read_text())['pending'] is False
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
+def test_db_connect_retry_rejects_mismatched_identity(tmp_path):
+    path = tmp_path / 'state.json'
+    profile = _profile('igdb:visits')
+    envelope = {
+        'source_id': 'igdb:visits',
+        'preview': {'candidate_identity': 'igdb-game:42'},
+    }
+    child = Mock(side_effect=[(0, envelope), (2, DB_CONNECT_HOLD)])
+    with pytest.raises(RuntimeError, match='DB_CONNECT_RETRY_IDENTITY_UNCONFIRMED'):
+        cycle(profile, path, READY, child=child, clock=lambda: NOW)
+    assert json.loads(path.read_text())['pending'] is True
+
+
 @pytest.mark.skipif(os.name != 'posix', reason='Linux durable state only')
 def test_cycle_orders_children_and_blocks_reentry(tmp_path):
     path = tmp_path / 'state.json'

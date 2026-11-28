@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE as IGDB_DIVERSITY_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
     IgdbBlocked,
 )
@@ -47,6 +48,7 @@ from app.trend_collection.searchapi_related_articles import (
 from app.trend_collection.searchapi_supply_snapshot import AutomaticSearchApiAdapter
 from app.trend_collection.supply_adapter import (
     ADAPTERS,
+    INTEREST_HYBRID_SCOPE,
     INTEREST_RELATED_SCOPE,
     INTEREST_SOURCE_ID,
     SEARCHAPI_SOURCE_ID,
@@ -167,7 +169,11 @@ def parse_profile(raw, now: datetime) -> ApprovedProfile:
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
         source = entry["source_id"]
         if (not isinstance(source, str) or source not in ADAPTERS
-                or (not related and entry["scope"] != ADAPTERS[source].scope)
+                or (not related and entry["scope"] != ADAPTERS[source].scope
+                    and (source, entry["scope"]) not in (
+                        (INTEREST_SOURCE_ID, INTEREST_HYBRID_SCOPE),
+                        (IGDB_SOURCE_ID, IGDB_DIVERSITY_SCOPE),
+                    ))
                 or entry["rights"] != RIGHTS
                 or any(item.source_id == source for item in approved)):
             raise SupplyBlocked("SOURCE_SCOPE_NOT_APPROVED")
@@ -306,13 +312,16 @@ def _interest_topics():
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
-        return IgdbOperationalAdapter(_igdb_query(role))
+        return IgdbOperationalAdapter(
+            _igdb_query(role), diversity=source.scope == IGDB_DIVERSITY_SCOPE,
+        )
     if source.source_id == INTEREST_SOURCE_ID:
         if role not in {"collect", "write"}:
             raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")
         return SearchInterestAdapter(
             _searchapi_client(role), topics=_interest_topics(),
             allow_missing_news_token=source.scope == INTEREST_RELATED_SCOPE,
+            hybrid=source.scope == INTEREST_HYBRID_SCOPE,
         )
     if source.source_id == SEARCHAPI_SOURCE_ID:
         if role == "collect":
@@ -611,7 +620,9 @@ def run_writer(profile: ApprovedProfile, envelope: dict) -> dict:
     return outcome
 
 
-def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
+def collect_envelope(
+    source: ApprovedSource, *, after_game_id=None, after_case_key=None,
+) -> dict:
     """Collector-only output; no candidate is not a publication authorization."""
     if after_game_id is not None and (
         source.source_id != IGDB_SOURCE_ID
@@ -619,20 +630,36 @@ def collect_envelope(source: ApprovedSource, *, after_game_id=None) -> dict:
         or not 1 <= after_game_id < 10**20
     ):
         raise SupplyBlocked("GAME_CURSOR_INVALID")
+    hybrid = (
+        source.source_id == INTEREST_SOURCE_ID
+        and source.scope == INTEREST_HYBRID_SCOPE
+    )
+    if after_case_key is not None and not hybrid:
+        raise SupplyBlocked("INTEREST_CURSOR_INVALID")
     adapter = _operational_adapter(source, "collect")
     if source.source_id == IGDB_SOURCE_ID:
         preview = adapter.collect_preview(after_game_id=after_game_id)
+    elif hybrid:
+        preview = adapter.collect_preview(after_case_key=after_case_key)
     else:
         preview = adapter.collect_preview()
+    diagnostics = (
+        {"diagnostics": adapter.diagnostics}
+        if hybrid or (source.source_id == IGDB_SOURCE_ID
+                      and source.scope == IGDB_DIVERSITY_SCOPE) else {}
+    )
     if preview is None:
         if source.source_id not in {
             IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
         }:
             raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
-        return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
+        return {
+            "source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE",
+            **diagnostics,
+        }
     if type(preview) is not dict:
         raise SupplyBlocked("SOURCE_PREVIEW_INVALID")
-    return {"source_id": source.source_id, "preview": preview}
+    return {"source_id": source.source_id, "preview": preview, **diagnostics}
 
 
 def main() -> int:
@@ -640,18 +667,24 @@ def main() -> int:
     parser.add_argument("role", choices=("collect", "write"))
     parser.add_argument("--source-id")
     parser.add_argument("--after-game-id", type=int)
+    parser.add_argument("--after-case-key")
     args = parser.parse_args()
     if args.role == "write" and (
         args.source_id is not None or args.after_game_id is not None
+        or args.after_case_key is not None
     ):
-        parser.error("--source-id and --after-game-id are for collect only")
+        parser.error("source and cursor arguments are for collect only")
     try:
         envelope = _json(_bounded(sys.stdin.buffer)) if args.role == "write" else None
         with approved_cycle(args.role) as profile:
             if args.role == "collect":
                 source = profile.source(args.source_id)
+                cursor = (
+                    {"after_case_key": args.after_case_key}
+                    if args.after_case_key is not None else {}
+                )
                 result = collect_envelope(
-                    source, after_game_id=args.after_game_id,
+                    source, after_game_id=args.after_game_id, **cursor,
                 )
                 profile.validate_time(now_utc())
                 print(json.dumps(result, ensure_ascii=False))

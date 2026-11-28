@@ -12,6 +12,7 @@ from app.trend_collection.searchapi_discovery import (
 )
 from scripts.probe_searchapi_kr import (
     choose_news_leads,
+    collect_content_report,
     collect_official_report,
     collect_report,
     main,
@@ -227,3 +228,23 @@ def test_official_search_response_mismatch_rejected():
         parse_official_search_links(
             client.official_search.return_value, topic="다른 작품",
         )
+
+
+def test_content_source_discovery_never_requests_news_or_trending():
+    client = _official_client()
+    client.official_search.return_value["search_parameters"]["q"] = '"작품2" 공식'
+    result = collect_content_report(client, topic="작품2")
+    assert result["requests_executed"] == 1
+    assert result["publication_authorization"] == "NONE"
+    assert result["candidate"]["official_search_links_unverified"] == [
+        "https://example.org/release",
+    ]
+    client.trending_now.assert_not_called()
+    client.related_news.assert_not_called()
+    client.official_search.assert_called_once_with("작품2", content_page=True)
+
+
+def test_content_discovery_rejects_wrong_query_mode():
+    client = _official_client()
+    with pytest.raises(SearchApiDiscoveryError, match="WRONG_OFFICIAL_SCOPE"):
+        collect_content_report(client, topic="작품2")

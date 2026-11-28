@@ -4,6 +4,8 @@ The trusted topic catalog is injected by the caller, never by a preview.
 Collector and Writer must have independently bound clients and catalogs.
 """
 
+import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -19,6 +21,13 @@ from app.trend_collection.searchapi_discovery import (
     TrendingLead,
     parse_trending_now,
 )
+from app.trend_collection.searchapi_interest_classifier import (
+    BLOCKED,
+    MODIFIERS,
+    RULES,
+    VERSION as CLASSIFIER_VERSION,
+    classify,
+)
 from app.trend_collection.searchapi_related_articles import (
     ArticleLinkRule,
     RelatedArticle,
@@ -26,6 +35,7 @@ from app.trend_collection.searchapi_related_articles import (
     fetch_related_articles,
 )
 from app.trend_collection.supply_adapter import (
+    INTEREST_HYBRID_SCOPE,
     INTEREST_SCOPE,
     INTEREST_SOURCE_ID,
     SupplyBlocked,
@@ -88,19 +98,22 @@ def _case_key(query: str) -> str:
 
 
 class SearchInterestAdapter:
-    """Only an active, catalogued query is eligible; no event inference."""
+    """Interest observations only; legacy catalog or approved hybrid policy."""
 
     scope = SCOPE
 
     def __init__(
         self, client, *, topics: Mapping[str, tuple[str, str]], clock=None,
-        allow_missing_news_token: bool = False,
+        allow_missing_news_token: bool = False, hybrid: bool = False,
     ):
         if not callable(getattr(client, "trending_now", None)):
             raise SupplyBlocked("INTEREST_CLIENT_REQUIRED")
         self._client = client
         self._topics = dict(topics)
-        self._allow_missing_news_token = allow_missing_news_token
+        self._hybrid = hybrid
+        self.scope = INTEREST_HYBRID_SCOPE if hybrid else SCOPE
+        self._allow_missing_news_token = allow_missing_news_token or hybrid
+        self.diagnostics: dict[str, int] = {}
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         for query, category in self._topics.items():
             if (
@@ -112,8 +125,20 @@ class SearchInterestAdapter:
                 or not 1 <= len(category[1].strip()) <= 255
             ):
                 raise SupplyBlocked("INTEREST_CATALOG_INVALID")
+        self._policy_ref = _digest({
+            "version": CLASSIFIER_VERSION,
+            "catalog": self._topics,
+            "rules": sorted((list(pair), terms) for pair, terms in RULES.items()),
+            "modifiers": sorted(MODIFIERS),
+            "blocked": sorted(BLOCKED),
+        }) if hybrid else None
 
     def _eligible(self, lead: TrendingLead, now: datetime) -> bool:
+        if self._hybrid:
+            return (
+                lead.is_active and timedelta(0) <= now - lead.started_at_utc <= WINDOW
+                and classify(lead, self._topics).eligible
+            )
         category = self._topics.get(lead.query)
         return (
             category is not None
@@ -122,27 +147,55 @@ class SearchInterestAdapter:
             and timedelta(0) <= now - lead.started_at_utc <= WINDOW
         )
 
-    @staticmethod
-    def _preview(lead: TrendingLead, observed: datetime) -> dict:
-        return {
+    def _preview(self, lead: TrendingLead, observed: datetime) -> dict:
+        preview = {
             "source_id": SOURCE_ID,
-            "scope": SCOPE,
+            "scope": self.scope,
             "case_key": _case_key(lead.query),
             "query": lead.query,
             "started_at_utc": lead.started_at_utc.isoformat(),
             "observed_at_utc": observed.isoformat(),
         }
+        if self._hybrid:
+            decision = classify(lead, self._topics)
+            preview["classification"] = asdict(decision)
+            preview["classification"]["rule_ids"] = list(decision.rule_ids)
+            preview["classification_policy_ref"] = self._policy_ref
+        return preview
 
-    def collect_preview(self) -> dict | None:
+    def collect_preview(self, *, after_case_key=None) -> dict | None:
+        if after_case_key is not None and (
+            not self._hybrid or not isinstance(after_case_key, str)
+            or re.fullmatch(r"[a-f0-9]{64}", after_case_key) is None
+        ):
+            raise SupplyBlocked("INTEREST_CURSOR_INVALID")
         now = _clock(self._clock())
+        counts = Counter()
         leads = parse_trending_now(
             self._client.trending_now(), now=now,
             allow_missing_news_token=self._allow_missing_news_token,
+            interest_only=self._hybrid,
+            diagnostics=counts if self._hybrid else None,
         )
+        if not self._hybrid:
+            for lead in leads:
+                if self._eligible(lead, now):
+                    return self._preview(lead, now)
+            return None
+        eligible = []
         for lead in leads:
-            if self._eligible(lead, now):
-                return self._preview(lead, now)
-        return None
+            decision = classify(lead, self._topics)
+            counts[decision.method if decision.eligible else decision.reason_code] += 1
+            if decision.eligible:
+                eligible.append(lead)
+        self.diagnostics = {"examined": len(leads), "eligible": len(eligible), **counts}
+        if not eligible:
+            return None
+        index = next((
+            i + 1 for i, lead in enumerate(eligible)
+            if _case_key(lead.query) == after_case_key
+        ), 0)
+        return self._preview(eligible[index % len(eligible)], now)
 
     def verify(self, preview: dict, now: datetime) -> InterestSnapshot:
         now = _clock(now)
@@ -152,6 +205,8 @@ class SearchInterestAdapter:
         self, preview: dict, now: datetime, *, rules: tuple[ArticleLinkRule, ...],
     ) -> tuple[InterestSnapshot, RelatedNewsResult]:
         """Caller must bind the independently approved Writer scope."""
+        if self._hybrid:
+            raise SupplyBlocked("ARTICLE_SCOPE_NOT_APPROVED")
         now = _clock(now)
         lead = self._verified_lead(preview, now)
         snapshot = self._snapshot(lead, now)
@@ -160,14 +215,21 @@ class SearchInterestAdapter:
 
     def _verified_lead(self, preview: dict, now: datetime) -> TrendingLead:
         now = _clock(now)
+        keys = {
+            "source_id", "scope", "case_key", "query",
+            "started_at_utc", "observed_at_utc",
+        }
+        if self._hybrid:
+            keys |= {"classification", "classification_policy_ref"}
         if (
-            type(preview) is not dict or set(preview) != {
-                "source_id", "scope", "case_key", "query",
-                "started_at_utc", "observed_at_utc",
-            }
-            or preview["source_id"] != SOURCE_ID or preview["scope"] != SCOPE
+            type(preview) is not dict or set(preview) != keys
+            or preview["source_id"] != SOURCE_ID or preview["scope"] != self.scope
             or not isinstance(preview["query"], str)
-            or preview["query"] not in self._topics
+            or (not self._hybrid and preview["query"] not in self._topics)
+            or (
+                self._hybrid
+                and preview["classification_policy_ref"] != self._policy_ref
+            )
             or preview["case_key"] != _case_key(preview["query"])
         ):
             raise SupplyBlocked("INTEREST_PREVIEW_INVALID")
@@ -184,6 +246,7 @@ class SearchInterestAdapter:
         leads = parse_trending_now(
             self._client.trending_now(), now=now,
             allow_missing_news_token=self._allow_missing_news_token,
+            interest_only=self._hybrid,
         )
         for lead in leads:
             if (
@@ -197,7 +260,13 @@ class SearchInterestAdapter:
         title = normalize_title(lead.query)
         if title is None:
             raise SupplyBlocked("INTEREST_TOPIC_INVALID")
-        parent, child = self._topics[lead.query]
+        if self._hybrid:
+            decision = classify(lead, self._topics)
+            if not decision.eligible:
+                raise SupplyBlocked("INTEREST_CLASSIFICATION_UNCONFIRMED")
+            parent, child = decision.parent_code, decision.child_name
+        else:
+            parent, child = self._topics[lead.query]
         identity = "searchapi-interest:" + _case_key(lead.query)
         return InterestSnapshot(
             profile_id=PROFILE,
@@ -205,7 +274,11 @@ class SearchInterestAdapter:
             target="UNBOUND_OPERATIONAL",
             candidate_identity=identity,
             evidence_ref=_digest({
-                "scope": SCOPE, "query": lead.query,
+                "scope": self.scope, "query": lead.query,
+                **(
+                    {"classification_policy_ref": self._policy_ref}
+                    if self._hybrid else {}
+                ),
                 "started_at": lead.started_at_utc.isoformat(),
                 "observed_at": now.isoformat(),
                 "category": [parent, child],

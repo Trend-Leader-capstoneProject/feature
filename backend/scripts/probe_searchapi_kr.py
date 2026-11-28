@@ -154,6 +154,24 @@ def collect_official_report(
     return report
 
 
+def collect_content_report(client: SearchApiClient, *, topic: str) -> dict:
+    """One Google request for a manually selected non-sensitive product/work."""
+    links = parse_official_search_links(
+        client.official_search(topic, content_page=True),
+        topic=topic, content_page=True,
+    )
+    return {
+        "status": "READ_ONLY_DISCOVERY",
+        "publication_authorization": "NONE",
+        "mode": "CONTENT_SOURCE_DISCOVERY",
+        "requests_executed": 1,
+        "candidate": {
+            "query": topic,
+            "official_search_links_unverified": list(links),
+        },
+    }
+
+
 def _choose_official_lead(leads: tuple[TrendingLead, ...]) -> int | None:
     print("Choose one product/work/service topic (blank to cancel):",
           file=sys.stderr)
@@ -174,9 +192,14 @@ def main(argv: list[str] | None = None) -> int:
         "--live", action="store_true",
         help="Explicitly allow up to 3 SearchApi HTTP GET requests",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--official-source", action="store_true",
         help="Choose one current topic; spend the third call on official links",
+    )
+    mode.add_argument(
+        "--content-topic",
+        help="One Google request for a reviewed product/work topic, no News calls",
     )
     args = parser.parse_args(argv)
     if not args.live:
@@ -189,7 +212,9 @@ def main(argv: list[str] | None = None) -> int:
         client = SearchApiClient(key)
         del key
         now = datetime.now(timezone.utc)
-        if args.official_source:
+        if args.content_topic is not None:
+            report = collect_content_report(client, topic=args.content_topic)
+        elif args.official_source:
             report = collect_official_report(
                 client, now=now, choose=_choose_official_lead,
             )

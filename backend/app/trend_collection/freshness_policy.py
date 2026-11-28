@@ -6,6 +6,7 @@ from hashlib import sha256
 
 from app.trend_collection.godot_release_collector import REPO
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE as IGDB_DIVERSITY_SCOPE,
     SCOPE as IGDB_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
     SOURCE_URL,
@@ -34,6 +35,7 @@ from app.trend_collection.searchapi_supply_snapshot import (
     NewsSnapshot,
 )
 from app.trend_collection.supply_adapter import (
+    INTEREST_HYBRID_SCOPE,
     INTEREST_RELATED_SCOPE,
     INTEREST_SCOPE,
     INTEREST_SOURCE_ID,
@@ -69,6 +71,10 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
         window = RELEASE_WINDOW
     elif type(snapshot) is PopularitySnapshot:
         source_id, scope = IGDB_SOURCE_ID, IGDB_SCOPE
+        children = {"PC 게임", "모바일 게임", "콘솔 게임"}
+        if profile.source(source_id).scope == IGDB_DIVERSITY_SCOPE:
+            scope = IGDB_DIVERSITY_SCOPE
+            children.add("기타")
         identity = snapshot.candidate_identity
         if (
             not isinstance(identity, str)
@@ -77,7 +83,7 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
             or snapshot.metric_id != VISITS_ID
             or type(snapshot.rank) is not int or not 1 <= snapshot.rank <= 20
             or snapshot.parent_code != "GAME"
-            or snapshot.child_name not in {"PC 게임", "모바일 게임", "콘솔 게임"}
+            or snapshot.child_name not in children
             or not isinstance(snapshot.source_url, str)
             or SOURCE_URL.fullmatch(snapshot.source_url) is None
         ):
@@ -114,6 +120,8 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
                 raise SupplyBlocked("ARTICLE_SNAPSHOT_INVALID") from None
         elif snapshot.related_articles:
             raise SupplyBlocked("ARTICLE_SCOPE_NOT_APPROVED")
+        elif approved.scope == INTEREST_HYBRID_SCOPE:
+            scope = INTEREST_HYBRID_SCOPE
         reference_time = snapshot.started_at_utc
         window = INTEREST_WINDOW
     elif type(snapshot) is NewsSnapshot:

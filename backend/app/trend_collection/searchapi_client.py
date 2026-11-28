@@ -113,8 +113,10 @@ class SearchApiClient:
                          news_token=news_token)
 
 
-    def official_search(self, topic: str) -> dict:
+    def official_search(self, topic: str, *, content_page: bool = False) -> dict:
         """Find possible official links; results are not verified sources."""
         return self._get(
-            engine="google", q=official_search_query(topic), gl="kr", hl="ko",
+            engine="google",
+            q=official_search_query(topic, content_page=content_page),
+            gl="kr", hl="ko",
         )

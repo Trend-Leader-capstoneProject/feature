@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE,
     IGDB_ID,
     SCOPE,
     SOURCE_ID,
@@ -128,6 +129,9 @@ def test_igdb_requires_profile_source_scope():
     now = datetime(2026, 11, 21, tzinfo=timezone.utc)
     accepted = supply.parse_profile(raw, now)
     assert accepted.source(SOURCE_ID).scope == SCOPE
+    diverse = {**raw, "sources": [{**raw["sources"][0], "scope": DIVERSITY_SCOPE}]}
+    approved = supply.parse_profile(diverse, now)
+    assert approved.source(SOURCE_ID).scope == DIVERSITY_SCOPE
     wrong = {**raw, "sources": [{**raw["sources"][0], "scope": "OTHER"}]}
     with pytest.raises(SupplyBlocked, match="SOURCE_SCOPE_NOT_APPROVED"):
         supply.parse_profile(wrong, now)
@@ -240,3 +244,32 @@ def test_igdb_without_eligible_games_skips_before_writer(monkeypatch):
         "source_id": SOURCE_ID, "status": "NO_ELIGIBLE_CANDIDATE",
     }
     assert calls == ["popularity_types", "popularity_primitives"]
+
+
+def test_diversity_scope_multiplatform_snapshot_and_freshness(monkeypatch):
+    query, calls = _fixture_query()
+
+    def multi_query(endpoint, body):
+        rows = query(endpoint, body)
+        if endpoint == "games":
+            rows[0]["platforms"].append({"id": 167, "name": "PlayStation 5"})
+        return rows
+
+    monkeypatch.setattr(supply, "_igdb_query", lambda role: multi_query)
+    source = supply.ApprovedSource(SOURCE_ID, DIVERSITY_SCOPE, "fixture-evidence")
+    collector = supply._operational_adapter(source, "collect")
+    preview = collector.collect_preview()
+    writer = supply._operational_adapter(source, "write")
+    now = datetime.now(timezone.utc)
+    snapshot = writer.verify(preview, now)
+    assert snapshot.child_name == "기타"
+    assert snapshot.candidate_identity == "igdb-game:1"
+    profile = Mock()
+    profile.source.return_value = source
+    supply.validate_snapshot_freshness(profile, snapshot, now)
+    profile.source.return_value = supply.ApprovedSource(
+        SOURCE_ID, SCOPE, "fixture-evidence",
+    )
+    with pytest.raises(SupplyBlocked, match="SOURCE_SNAPSHOT_MISMATCH"):
+        supply.validate_snapshot_freshness(profile, snapshot, now)
+    assert len(calls) == 6

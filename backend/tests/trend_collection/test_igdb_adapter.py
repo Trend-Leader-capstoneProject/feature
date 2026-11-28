@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE,
     IGDB_ID,
     VISITS_ID,
     IgdbBlocked,
@@ -42,7 +43,7 @@ def game(game_id=1, *, mobile=False):
     }
 
 
-def adapter(rows=None, games=None):
+def adapter(rows=None, games=None, *, diversity=False):
     rows = [popularity()] if rows is None else rows
     games = [game()] if games is None else games
     calls = []
@@ -59,7 +60,7 @@ def adapter(rows=None, games=None):
             return deepcopy([row for row in games if str(row["id"]) in ids])
         raise AssertionError("unexpected endpoint")
 
-    return IgdbReviewAdapter(query), calls
+    return IgdbReviewAdapter(query, diversity=diversity), calls
 
 
 def test_collect_and_independent_verify_are_review_only():
@@ -200,3 +201,23 @@ def test_wrong_metric_identity_rejected():
 def test_missing_metadata_does_not_create_candidate():
     client, _ = adapter(games=[])
     assert client.collect_review(NOW) is None
+
+
+def test_diversity_multiplatform_preserves_rating_and_independent_verification():
+    multi = game()
+    multi["platforms"].append({"id": 167, "name": "PlayStation 5"})
+    collector, calls = adapter(games=[multi], diversity=True)
+    preview = collector.collect_review(NOW)
+    assert preview["scope"] == DIVERSITY_SCOPE
+    assert preview["proposed_category_ref"]["child_name"] == "기타"
+    assert collector.diagnostics == {"examined": 1, "eligible": 1, "ROOT_OTHER": 1}
+    assert len(calls) == 3
+    writer, calls = adapter(games=[multi], diversity=True)
+    assert writer.verify_review(preview, NOW) == preview
+    assert len(calls) == 3
+    legacy, _ = adapter(games=[multi])
+    assert legacy.collect_review(NOW) is None
+    multi["age_ratings"][0]["rating_category"] = {"id": 26, "rating": "19+"}
+    blocked, _ = adapter(games=[multi], diversity=True)
+    assert blocked.collect_review(NOW) is None
+    assert blocked.diagnostics["ADULT_RATING"] == 1

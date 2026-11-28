@@ -225,6 +225,28 @@ def test_preclaim_hold_diagnostic_is_bounded(monkeypatch, method, stage):
     insert.assert_not_called()
 
 
+def test_db_connect_2003_precedes_claim_and_dml(monkeypatch):
+    conn, journal, insert = _mock_writer(monkeypatch)
+    engine = supply._make_engine.return_value
+    engine.connect.side_effect = OperationalError(
+        None, None, Exception(2003, "private connection details"),
+    )
+    diagnostic = {}
+    assert supply._write(
+        profile(), snapshot(), journal, diagnostic=diagnostic,
+    ) == "HOLD"
+    assert diagnostic == {
+        "reason": "WRITER_DB_CONNECT_FAILED", "db_error_code": 2003,
+    }
+    journal.check_ready.assert_called_once_with()
+    journal.claim.assert_not_called()
+    journal.finish.assert_not_called()
+    conn.exec_driver_sql.assert_not_called()
+    conn.commit.assert_not_called()
+    insert.assert_not_called()
+    engine.dispose.assert_called_once_with()
+
+
 @pytest.mark.parametrize(("failure", "stage", "journal_state"), [
     ("insert", "PARENT_INSERT", "ROLLED_BACK"),
     ("commit", "COMMIT", "COMMIT_UNKNOWN"),
@@ -241,6 +263,51 @@ def test_postclaim_diagnostic_preserves_journal_state(
     ) == "HOLD"
     assert diagnostic == {"reason": f"WRITER_{stage}_FAILED"}
     assert journal.finish.call_args.args[-1] == journal_state
+
+
+def test_db_connect_2003_cli_output_is_retryable(monkeypatch, capsys):
+    from contextlib import nullcontext
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from scripts.auto_supply_control import INTERVAL, next_state
+
+    conn, journal, insert = _mock_writer(monkeypatch)
+    engine = supply._make_engine.return_value
+    engine.connect.side_effect = OperationalError(
+        None, None, Exception(2003, "private connection details"),
+    )
+    adapter = Mock()
+    adapter.verify.return_value = snapshot()
+    monkeypatch.setattr(supply, "_operational_adapter", Mock(return_value=adapter))
+    monkeypatch.setattr(supply, "now_utc", lambda: NOW)
+    monkeypatch.setattr(supply, "OperationalJournal", Mock(return_value=journal))
+    monkeypatch.setattr(supply, "approved_cycle", lambda _: nullcontext(profile()))
+    monkeypatch.setattr(supply.sys, "argv", ["run_auto_supply", "write"])
+    envelope = {"source_id": REPO, "preview": candidate()}
+    monkeypatch.setattr(supply.sys, "stdin", SimpleNamespace(
+        buffer=BytesIO(json.dumps(envelope).encode()),
+    ))
+
+    assert supply.main() == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "status": "HOLD", "reason": "WRITER_DB_CONNECT_FAILED",
+        "candidate_identity": snapshot().candidate_identity,
+        "db_error_code": 2003, "profile": supply.PROFILE,
+    }
+    now = int(NOW.timestamp())
+    state = next_state(
+        result, now, {"pending": False, "not_before": 0, "rate_failures": 0},
+        writer=True,
+    )
+    assert state["pending"] is False
+    assert state["not_before"] == now + INTERVAL
+    assert state["db_connect_failures"] == 1
+    journal.claim.assert_not_called()
+    journal.finish.assert_not_called()
+    conn.commit.assert_not_called()
+    insert.assert_not_called()
 
 
 def test_run_writer_propagates_safe_hold_diagnostic(monkeypatch):
