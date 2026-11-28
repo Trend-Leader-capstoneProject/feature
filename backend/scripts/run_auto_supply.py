@@ -643,15 +643,23 @@ def collect_envelope(
         preview = adapter.collect_preview(after_case_key=after_case_key)
     else:
         preview = adapter.collect_preview()
+    diagnostics = (
+        {"diagnostics": adapter.diagnostics}
+        if hybrid or (source.source_id == IGDB_SOURCE_ID
+                      and source.scope == IGDB_DIVERSITY_SCOPE) else {}
+    )
     if preview is None:
         if source.source_id not in {
             IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
         }:
             raise SupplyBlocked("SOURCE_PREVIEW_MISSING")
-        return {"source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE"}
+        return {
+            "source_id": source.source_id, "status": "NO_ELIGIBLE_CANDIDATE",
+            **diagnostics,
+        }
     if type(preview) is not dict:
         raise SupplyBlocked("SOURCE_PREVIEW_INVALID")
-    return {"source_id": source.source_id, "preview": preview}
+    return {"source_id": source.source_id, "preview": preview, **diagnostics}
 
 
 def main() -> int:

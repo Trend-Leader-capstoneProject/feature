@@ -64,7 +64,7 @@ def _timestamp(value: object, now: datetime) -> datetime | None:
 
 def parse_trending_now(
     payload: object, *, now: datetime, allow_missing_news_token: bool = False,
-    interest_only: bool = False,
+    interest_only: bool = False, diagnostics: Counter | None = None,
 ) -> tuple[TrendingLead, ...]:
     """Use category labels only as hints, never as a concrete child category."""
     if now.tzinfo is None or now.utcoffset() is None:
@@ -79,8 +79,12 @@ def parse_trending_now(
         raise SearchApiDiscoveryError("WRONG_TREND_SCOPE")
     seen: set[str] = set()
     candidates: list[TrendingLead] = []
+    if diagnostics is not None:
+        diagnostics["raw_total"] = len(payload["trends"])
     for item in payload["trends"]:
         if not isinstance(item, dict) or type(item.get("is_active")) is not bool:
+            if diagnostics is not None:
+                diagnostics["INVALID_RECORD"] += 1
             continue
         query = _clean_text(item.get("query"), limit=255)
         token = _clean_text(item.get("news_token"), limit=2048)
@@ -91,25 +95,39 @@ def parse_trending_now(
         if (query is None or token is None or started is None
                 or not isinstance(categories, list) or not categories
                 or any(not isinstance(value, str) for value in categories)):
+            if diagnostics is not None:
+                diagnostics["INVALID_RECORD"] += 1
             continue
         # An unknown / out-of-scope category cannot silently become a safe one.
         if any(value not in _ALLOWED_TOPICS for value in categories):
+            if diagnostics is not None:
+                diagnostics["OUT_OF_SCOPE"] += 1
             continue
         possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
-        if interest_only and (
-            not item["is_active"]
-            or not timedelta(0) <= now - started <= timedelta(hours=24)
-            or not possible <= {"FOOD", "FASHION", "BEAUTY", "ENTERTAINMENT"}
-        ):
-            continue
+        if interest_only:
+            reason = None
+            if not item["is_active"]:
+                reason = "INACTIVE_TREND"
+            elif not timedelta(0) <= now - started <= timedelta(hours=24):
+                reason = "STALE_TREND"
+            elif not possible <= {"FOOD", "FASHION", "BEAUTY", "ENTERTAINMENT"}:
+                reason = "OUT_OF_SCOPE"
+            if reason is not None:
+                if diagnostics is not None:
+                    diagnostics[reason] += 1
+                continue
         key = query.casefold()
         if key in seen:
+            if diagnostics is not None:
+                diagnostics["DUPLICATE_QUERY"] += 1
             continue
         seen.add(key)
         candidates.append(
             TrendingLead(query, started, token, possible, item["is_active"])
         )
-        if len(candidates) == MAX_CANDIDATES:
+        # Hybrid scans the already byte-bounded client response.
+        # Earlier unclassifiable leads must not hide later eligible subjects.
+        if not interest_only and len(candidates) == MAX_CANDIDATES:
             break
     return tuple(candidates)
 

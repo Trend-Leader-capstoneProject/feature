@@ -5,7 +5,7 @@ from unicodedata import normalize
 
 from app.trend_collection.searchapi_discovery import TrendingLead
 
-VERSION = "interest-rules-1"
+VERSION = "interest-rules-2"
 RULES = {
     ("FASHION", "의류"): "재킷 자켓 코트 셔츠 니트 원피스 패딩 스웨터",
     ("FASHION", "신발"): "운동화 러닝화 스니커즈 부츠",
@@ -90,9 +90,15 @@ def classify(
     specific = {pair for pair in matches if pair[1] != "기타"}
     candidates = specific or matches
     # An explicit film context disambiguates the homonym.
-    if words == {"영화", "향수"} and "ENTERTAINMENT" in hints:
+    if query == "영화 향수" and "ENTERTAINMENT" in hints:
         candidates = {("ENTERTAINMENT", "영화")}
     roots = {root for root, _ in candidates}
+    generic_roots = {root for root, child in matches if child == "기타"}
+    # Resolve brand/product context, not unrelated generic root conflicts.
+    if generic_roots - roots and not (
+        "브랜드" in words and roots | generic_roots <= {"FASHION", "BEAUTY"}
+    ):
+        return _reject("AMBIGUOUS_ROOT")
     if len(roots) != 1:
         return _reject("AMBIGUOUS_ROOT")
     root = next(iter(roots))

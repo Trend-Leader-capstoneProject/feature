@@ -98,7 +98,7 @@ def _case_key(query: str) -> str:
 
 
 class SearchInterestAdapter:
-    """Only an active, catalogued query is eligible; no event inference."""
+    """Interest observations only; legacy catalog or approved hybrid policy."""
 
     scope = SCOPE
 
@@ -170,10 +170,12 @@ class SearchInterestAdapter:
         ):
             raise SupplyBlocked("INTEREST_CURSOR_INVALID")
         now = _clock(self._clock())
+        counts = Counter()
         leads = parse_trending_now(
             self._client.trending_now(), now=now,
             allow_missing_news_token=self._allow_missing_news_token,
             interest_only=self._hybrid,
+            diagnostics=counts if self._hybrid else None,
         )
         if not self._hybrid:
             for lead in leads:
@@ -181,7 +183,6 @@ class SearchInterestAdapter:
                     return self._preview(lead, now)
             return None
         eligible = []
-        counts = Counter()
         for lead in leads:
             decision = classify(lead, self._topics)
             counts[decision.method if decision.eligible else decision.reason_code] += 1

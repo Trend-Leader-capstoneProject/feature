@@ -16,6 +16,7 @@ RUNTIME = Path('/opt/trend-leader-auto-supply')
 INTERVAL = 6 * 3600
 MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
+IGDB_DIVERSITY_SCOPE = 'IGDB_VISITS_FACTS_LINK_DIVERSITY_V1'
 SEARCHAPI_SOURCE_ID = 'searchapi-kr-reviewed-news'
 INTEREST_SOURCE_ID = 'searchapi-kr-interest'
 INTEREST_RELATED_SCOPE = 'SEARCHAPI_KR_INTEREST_RELATED_V1'
@@ -24,6 +25,29 @@ EMPTY_CANDIDATE_SOURCES = frozenset({
     IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
 })
 IGDB_GAME = re.compile(r'igdb-game:([1-9][0-9]{0,19})\Z')
+
+
+# Aggregate counters only: no upstream queries, tokens or credentials.
+DIAGNOSTIC_KEYS = frozenset({
+    'raw_total', 'examined', 'eligible', 'CATALOG_EXACT', 'RULE_EXACT',
+    'RULE_RESOLVED', 'ROOT_OTHER', 'NO_MATCHING_RULE', 'AMBIGUOUS_ROOT',
+    'CATEGORY_CONFLICT', 'TOPIC_ELIGIBILITY_UNCONFIRMED', 'OUT_OF_SCOPE',
+    'INACTIVE_TREND', 'STALE_TREND', 'INVALID_RECORD', 'DUPLICATE_QUERY',
+    'GAME_METADATA_MISSING', 'UNCERTAIN_RANK', 'GAME_ID_MISMATCH',
+    'GAME_TYPE_EXCLUDED', 'UNKNOWN_RATING', 'UNKNOWN_OR_CONFLICTING_RATING',
+    'ADULT_RATING', 'GRAC_UNVERIFIED', 'UNKNOWN_THEME', 'EROTIC_THEME',
+    'UNKNOWN_PLATFORM', 'MULTIPLE_CATEGORIES', 'INVALID_TITLE_OR_URL',
+    'INVALID_LIST', 'INVALID_OBJECT', 'INVALID_ID',
+})
+
+
+def _safe_diagnostics(value):
+    if type(value) is not dict:
+        return {}
+    return {
+        key: count for key, count in value.items()
+        if key in DIAGNOSTIC_KEYS and type(count) is int and 0 <= count <= 512000
+    }
 
 
 def atomic_json(path, value, mode=0o600):
@@ -207,9 +231,12 @@ def run_child(uid, role, envelope=None, *, source_id=None,
     if result.returncode == 2 and payload.get('status') != 'HOLD':
         raise RuntimeError('CHILD_OUTCOME_UNKNOWN')
     if result.returncode == 0 and role == 'collect':
-        preview = (set(payload) == {'source_id', 'preview'}
+        keys = set(payload)
+        if source_id in {IGDB_SOURCE_ID, INTEREST_SOURCE_ID}:
+            keys.discard('diagnostics')
+        preview = (keys == {'source_id', 'preview'}
                    and type(payload['preview']) is dict)
-        empty = (set(payload) == {'source_id', 'status'}
+        empty = (keys == {'source_id', 'status'}
                  and source_id in EMPTY_CANDIDATE_SOURCES
                  and payload['status'] == 'NO_ELIGIBLE_CANDIDATE')
         if (not (preview or empty)
@@ -256,7 +283,15 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     no_candidate = False
     game_id = None
     case_key = None
+    diagnostics = {}
+    report = hybrid or (
+        source.source_id == IGDB_SOURCE_ID
+        and getattr(source, 'scope', None) == IGDB_DIVERSITY_SCOPE
+    )
     if code == 0:
+        if report and type(envelope) is dict:
+            envelope = dict(envelope)
+            diagnostics = _safe_diagnostics(envelope.pop('diagnostics', None))
         if (type(envelope) is dict
                 and set(envelope) == {'source_id', 'status'}
                 and source.source_id in EMPTY_CANDIDATE_SOURCES
@@ -320,13 +355,17 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     # Single-source Godot retains its three-field legacy state.
     rotate = (len(profile.sources) > 1
               or 'last_completed_source_id' in state
-              or source.source_id == IGDB_SOURCE_ID)
+              or source.source_id == IGDB_SOURCE_ID or hybrid)
     updated = next_state(
         result, int(clock()), state, writer=writer,
         no_candidate=no_candidate, game_id=game_id, case_key=case_key,
         source_id=source.source_id if rotate else None,
     )
     atomic_json(path, updated)
+    if report:
+        result = {**result, 'source_id': source.source_id}
+        if diagnostics:
+            result['diagnostics'] = diagnostics
     return result
 
 def main():
@@ -388,8 +427,11 @@ def main():
         # Only bounded diagnostic fields, never previews or raw stderr.
         output = {key: result[key] for key in (
             'status', 'reason', 'candidate_identity', 'retry_not_before',
-            'related_news_status',
+            'related_news_status', 'source_id',
         ) if key in result}
+        diagnostics = _safe_diagnostics(result.get('diagnostics'))
+        if diagnostics:
+            output['diagnostics'] = diagnostics
         error_code = result.get('db_error_code')
         if (result.get('status') == 'HOLD' and type(error_code) is int
                 and 1 <= error_code <= 65535):
