@@ -246,6 +246,53 @@ describe("TrendCard", () => {
     expect(screen.queryByLabelText("카테고리 썸네일: 게임")).toBeNull();
   });
 
+  const godotSource = {
+    source_id: 1, platform: "ETC" as const, source_title: null,
+    source_url: "https://github.com/godotengine/godot-builds/releases/tag/4.8-beta4",
+  };
+  const godotIcon = "https://godotengine.org/assets/press/icon_color.png";
+
+  test("Godot 공식 출시 출처는 공식 아이콘과 라이선스 링크를 표시한다", async () => {
+    const onOpenSource = jest.fn();
+    const trend = createTrend({ title: "Godot 4.8 beta4 공개", latest_source: godotSource });
+    await render(<TrendCard onOpenSource={onOpenSource} trend={trend} />);
+    const image = screen.getByLabelText("Godot 4.8 beta4 공개 썸네일");
+    expect(image).toHaveProp("source", { uri: godotIcon });
+    expect(image).toHaveProp("resizeMode", "contain");
+    expect(screen.getByText(/Andrea Calabró · CC BY 4.0/)).toBeTruthy();
+    await fireEvent.press(screen.getByRole("link", { name: "Godot 이미지 라이선스 확인" }));
+    expect(onOpenSource).toHaveBeenCalledWith("https://creativecommons.org/licenses/by/4.0/");
+    await fireEvent.press(screen.getByRole("button", { name: "원문 보기" }));
+    expect(onOpenSource).toHaveBeenLastCalledWith(godotSource.source_url);
+  });
+
+  test("기존 썸네일이 있다면 Godot 공식 아이콘보다 우선한다", async () => {
+    const url = "https://example.com/existing.jpg";
+    const trend = createTrend({ latest_source: godotSource, thumbnail_url: url });
+    await render(<TrendCard onOpenSource={jest.fn()} trend={trend} />);
+    expect(screen.getByLabelText(trend.title + " 썸네일")).toHaveProp("source", { uri: url });
+    expect(screen.queryByRole("link", { name: "Godot 이미지 라이선스 확인" })).toBeNull();
+  });
+
+  test("공식 아이콘 로딩 실패 시 카테고리 fallback을 사용한다", async () => {
+    const trend = createTrend({ latest_source: godotSource });
+    await render(<TrendCard onOpenSource={jest.fn()} trend={trend} />);
+    await fireEvent(screen.getByLabelText(trend.title + " 썸네일"), "error");
+    expect(screen.getByLabelText("카테고리 썸네일: 게임")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Godot 이미지 라이선스 확인" })).toBeNull();
+  });
+
+  test.each([
+    "https://github.com.example.org/godotengine/godot-builds/releases/tag/4.8-beta4",
+    "https://github.com/godotengine/godot-builds/releases/tag/4.8-beta4?redirect=1",
+    "https://www.igdb.com/games/free-fire",
+  ])("검증되지 않은 출처에는 Godot 아이콘을 사용하지 않는다: %s", async (url) => {
+    const trend = createTrend({ title: "Godot", latest_source: { ...godotSource, source_url: url } });
+    await render(<TrendCard onOpenSource={jest.fn()} trend={trend} />);
+    expect(screen.getByLabelText("카테고리 썸네일: 게임")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Godot 이미지 라이선스 확인" })).toBeNull();
+  });
+
   test("thumbnail_url이 null이면 첫 번째 표시 카테고리의 자체 썸네일을 사용한다", async () => {
     await render(
       <TrendCard
