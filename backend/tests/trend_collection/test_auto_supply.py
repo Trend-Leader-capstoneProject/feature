@@ -3,10 +3,14 @@
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from unittest.mock import MagicMock, Mock
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import (
@@ -346,3 +350,35 @@ def test_image_scope_does_not_update_existing_trend(monkeypatch):
     insert.assert_not_called()
     journal.claim.assert_not_called()
     conn.commit.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("thumbnail", [None, GODOT_ICON_URL])
+def test_thumbnail_dml_in_isolated_mariadb(db_session: Session, thumbnail):
+    """Shared INSERT persists the optional URL; fixture owns rollback."""
+    key = uuid4().hex
+    conn = db_session.connection()
+    category_id = conn.execute(text(
+        "INSERT INTO categories (category_name, sort_order, is_active) "
+        "VALUES (:name, 0, 1)"
+    ), {"name": f"Thumbnail fixture {key}"}).lastrowid
+    item = replace(
+        snapshot(), title=f"Thumbnail fixture {key}", normalized_title=key,
+        external_id=f"fixture-thumbnail:{key}",
+        source_key=sha256(f"ETC:fixture-thumbnail:{key}".encode()).hexdigest(),
+        thumbnail_url=thumbnail,
+    )
+    trend_id = supply.insert_trend_item(
+        conn, item, category_id=category_id, collected_at=NOW.replace(tzinfo=None),
+        summary=item.summary, is_primary=True, status="ACTIVE", platform="ETC",
+        thumbnail_url=thumbnail,
+    )
+    assert conn.execute(text(
+        "SELECT thumbnail_url FROM trends WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == thumbnail
+    assert conn.execute(text(
+        "SELECT count(*) FROM trend_sources WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == 1
+    assert conn.execute(text(
+        "SELECT count(*) FROM trend_category_map WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == 1
