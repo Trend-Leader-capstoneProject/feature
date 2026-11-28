@@ -310,3 +310,18 @@ def test_cover_query_is_not_permitted_by_legacy_client():
                         include_cover=True)
     with pytest.raises(SupplyBlocked, match="IGDB_EXECUTION_ROLE_INVALID"):
         supply._igdb_query("collect", include_cover=True)
+
+
+def test_image_scope_does_not_trust_collector_thumbnail(monkeypatch):
+    query, _ = _fixture_query()
+    monkeypatch.setattr(supply, "_igdb_query", lambda role, **kwargs: query)
+    source = supply.ApprovedSource(SOURCE_ID, IMAGE_SCOPE, "fixture-rights")
+    envelope = supply.collect_envelope(source)
+    envelope["preview"]["thumbnail_url"] = COVER_PREFIX + "cofixture.jpg"
+    profile = Mock()
+    profile.source.return_value = source
+    writer = Mock()
+    monkeypatch.setattr(supply, "_write", writer)
+    with pytest.raises(IgdbBlocked, match="PREVIEW_MISMATCH"):
+        supply.run_writer(profile, envelope)
+    writer.assert_not_called()
