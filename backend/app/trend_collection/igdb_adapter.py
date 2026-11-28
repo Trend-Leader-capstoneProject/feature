@@ -13,6 +13,7 @@ from app.external_trends.normalizer import normalize_title
 
 SOURCE_ID = "igdb:visits"
 SCOPE = "IGDB_VISITS_FACTS_LINK_V1"
+IMAGE_SCOPE = "IGDB_VISITS_FACTS_LINK_COVER_V1"
 VISITS_ID = 1
 IGDB_ID = 121
 LIMIT = 20
@@ -28,7 +29,20 @@ GAME_FIELDS = (
     "age_ratings.organization.name,age_ratings.rating_category.rating,"
     "themes.name"
 )
+GAME_IMAGE_FIELDS = GAME_FIELDS + ",cover.image_id"
+COVER_PREFIX = "https://images.igdb.com/igdb/image/upload/t_cover_big/"
+COVER_ID = re.compile(r"[A-Za-z0-9]{1,64}")
+COVER_URL = re.compile(re.escape(COVER_PREFIX) + r"[A-Za-z0-9]{1,64}\.jpg")
 Query = Callable[[str, str], object]
+
+
+def cover_url(game: dict) -> str | None:
+    """Optional metadata only: never trust an upstream URL or fetch a binary."""
+    cover = game.get("cover")
+    image_id = cover.get("image_id") if type(cover) is dict else None
+    if isinstance(image_id, str) and COVER_ID.fullmatch(image_id):
+        return COVER_PREFIX + image_id + ".jpg"
+    return None
 
 # Explicit observed ID/name pairs. No classification from display names alone.
 PLATFORMS = {
@@ -293,13 +307,14 @@ class IgdbReviewAdapter:
             "popularity_primitives", POPULARITY_QUERY,
         ), now)
 
-    def _games(self, ids):
+    def _games(self, ids, *, include_cover=False):
         ids = tuple(_id(value) for value in ids)
         if not 1 <= len(ids) <= LIMIT or len(set(ids)) != len(ids):
             raise IgdbBlocked("INVALID_GAME_REQUEST")
         joined = ",".join(map(str, ids))
+        fields = GAME_IMAGE_FIELDS if include_cover else GAME_FIELDS
         rows = _objects(self._query(
-            "games", f"fields {GAME_FIELDS}; where id = ({joined}); limit {len(ids)};",
+            "games", f"fields {fields}; where id = ({joined}); limit {len(ids)};",
         ), len(ids))
         result = {}
         for row in rows:
@@ -333,7 +348,7 @@ class IgdbReviewAdapter:
         ), 0)
         return build_preview(eligible[index % len(eligible)], now)
 
-    def verify_review(self, preview, now):
+    def verify_review(self, preview, now, *, include_cover=False):
         now = _utc(now)
         if type(preview) is not dict:
             raise IgdbBlocked("INVALID_PREVIEW")
@@ -348,7 +363,7 @@ class IgdbReviewAdapter:
         chosen = next((item for item in items if item.game_id == game_id), None)
         if chosen is None:
             raise IgdbBlocked("CANDIDATE_NOT_IN_TOP_LIST")
-        games = self._games((game_id,))
+        games = self._games((game_id,), include_cover=include_cover)
         if game_id not in games:
             raise IgdbBlocked("GAME_RESPONSE_MISMATCH")
         expected = build_preview(evaluate_game(chosen, games[game_id]), observed)
@@ -358,4 +373,7 @@ class IgdbReviewAdapter:
             raise IgdbBlocked("PREVIEW_MISMATCH") from None
         if not matches:
             raise IgdbBlocked("PREVIEW_MISMATCH")
+        if include_cover:
+            # Only the independent Writer response can supply the optional image.
+            return {**expected, "thumbnail_url": cover_url(games[game_id])}
         return expected
