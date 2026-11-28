@@ -265,6 +265,23 @@ describe("LatestTrendScreen", () => {
     );
   });
 
+  test("최신 트렌드에서 인증 없이 앱 설정 진입 동작을 제공한다", async () => {
+    mockedUseTrends.mockReturnValue(createTrendQueryResult({ isError: true }));
+    const onOpenSettings = jest.fn();
+    await render(<LatestTrendScreen onOpenSettings={onOpenSettings} />);
+    await fireEvent.press(screen.getByRole("button", { name: "앱 설정" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  test("설정 화면 전환 중에는 중복 이동을 막는다", async () => {
+    mockedUseTrends.mockReturnValue(createTrendQueryResult({ isPending: true }));
+    const onOpenSettings = jest.fn();
+    await render(<LatestTrendScreen onOpenSettings={onOpenSettings} settingsDisabled />);
+    expect(screen.getByRole("button", { name: "앱 설정" })).toBeDisabled();
+    await fireEvent.press(screen.getByRole("button", { name: "앱 설정" }));
+    expect(onOpenSettings).not.toHaveBeenCalled();
+  });
+
   test("초기 Trend 조회 중에는 Loading Feedback을 표시한다", async () => {
     mockedUseTrends.mockReturnValue(
       createTrendQueryResult({
