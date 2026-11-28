@@ -679,9 +679,12 @@ def main() -> int:
         with approved_cycle(args.role) as profile:
             if args.role == "collect":
                 source = profile.source(args.source_id)
+                cursor = (
+                    {"after_case_key": args.after_case_key}
+                    if args.after_case_key is not None else {}
+                )
                 result = collect_envelope(
-                    source, after_game_id=args.after_game_id,
-                    after_case_key=args.after_case_key,
+                    source, after_game_id=args.after_game_id, **cursor,
                 )
                 profile.validate_time(now_utc())
                 print(json.dumps(result, ensure_ascii=False))

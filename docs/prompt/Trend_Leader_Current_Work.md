@@ -169,6 +169,7 @@
 
 - 사용자 승인 9-C-2~5: Hybrid 분류, 단일 Root 적격 후보의 제한적 기타 배정, 후보 순환, 선택적 원문 확보. 시연 우선/불필요한 제약 추가 금지. 설계 원본: docs/designs-feature/외부_트렌드_데이터_수집_및_연동/Trend_Leader_STEP9C_Supply_Diversity_Design_20261128.md. 현재 feat/auto-supply-diversity, dev ca1a0e0 및 PR #142 3389eb3 기준. 기존 PR #142의 이미지/운영 결정·완료 증거는 별도로 보존하고 통합 시 함께 반영.
 - 9-C-6: b1b54c4 SearchApi Hybrid/순환, 1ffedf3 E501 4건 수정. 사용자 실측 45 PASS/21 SKIP (0.62s) 및 Ruff PASS (로컬 정확한 HEAD/skip 상세 미보고). 0abfdac IGDB 복수 플랫폼 GAME/기타, db121b2 응답 전체 탐색 및 집계 진단 로그, 6a0cda6 기존 probe의 --live --content-topic(읽기 전용 Google 1회, News 0) 구현 및 테스트 작성. 이후 변경 영향 시험 미실행. 신규 scope SEARCHAPI_KR_INTEREST_HYBRID_V1 / IGDB_VISITS_FACTS_LINK_DIVERSITY_V1, 기존 V1·D-2 보존. 상태 Cursor는 확인된 Writer 결과만 반영. 기존 DB/API/Journal/6h/Batch 1/AI 0 보존. 추가 실제 원문·이미지 이용 근거 미확보, 운영 검색·추출 배선 없음. 신규 외부 호출 및 운영/DB/Timer/merge 없음.
+- 후속 검증: 사용자 210 PASS/1 FAIL/21 SKIP(2.48s), Ruff PASS 보고. SKIP 21건 전부 Linux 전용 scheduler durable state/child process. 기존 IGDB CLI mock의 호출 불일치(미지정 after_case_key=None 전달)만 실패. 기존 호출 형태 보존하도록 CLI 최소 수정 및 Hybrid CLI cursor 유무 2건 시험 추가, 기존 테스트 변경 없음. 수정 후 대상 시험 및 Ruff 재실행 대기; 나머지 통과 증거 보존.
 - 다음: 최신 브랜치 변경 영향 pytest/Ruff 및 Linux scheduler 검증(기존 PASS 반복 금지), 기존 보호 WSL 환경의 기간 한정 운영 승인에 새 scope 적용·실제 신규 COMMITTED/조회와 진단 확인. PR #142 cover scope와 공통 adapter/profile/freshness 변경 조정 후 결합 검증 및 사용자 최종 통합 승인, Lightsail 별도 승인. 기존 원문 확인 가능한 주제만 선택적 probe, 적격 출처 없으면 fallback 유지하고 신규 트렌드 공급/시연을 막지 않음. 현재 Cursor/쿨다운/Journal 및 기존 운영 데이터 초기화·삭제 금지.
 
 ## 설계 원본
