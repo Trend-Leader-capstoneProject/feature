@@ -1,12 +1,18 @@
 """Operational connection tests; no live HTTP or MariaDB credentials."""
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from unittest.mock import MagicMock, Mock
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
+from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import (
     RELEASES,
     REPO,
@@ -15,6 +21,8 @@ from app.trend_collection.godot_release_collector import (
 )
 from app.trend_collection.rule_first_preview import build_rule_first_preview
 from app.trend_collection.supply_adapter import (
+    GODOT_ICON_URL,
+    GODOT_IMAGE_SCOPE,
     GodotAdapter,
     SupplyBlocked,
     bind_snapshot,
@@ -305,3 +313,81 @@ def test_new_adapter_does_not_change_writer(monkeypatch):
     assert writer.call_args.args[2] is journal_factory.return_value
     with pytest.raises(SupplyBlocked):
         approved.source(None)
+
+
+def test_godot_icon_is_source_scoped_and_written_in_same_transaction(monkeypatch):
+    raw = profile_data()
+    raw["sources"][0]["scope"] = GODOT_IMAGE_SCOPE
+    approved = supply.parse_profile(raw, NOW)
+    source = approved.source(REPO)
+    assert supply._operational_adapter(source, "collect") is supply.ADAPTERS[REPO]
+    assert isinstance(supply._operational_adapter(source, "write"), GodotAdapter)
+    verified = GodotAdapter(lambda _: RAW, include_icon=True).verify(candidate(), NOW)
+    item = bind_snapshot(verified, policy=supply.VERSION, target=approved.target)
+    assert item.thumbnail_url == GODOT_ICON_URL
+    assert item.content_digest != snapshot().content_digest
+    validate_snapshot_freshness(approved, item, NOW)
+    with pytest.raises(SupplyBlocked, match="THUMBNAIL_SCOPE_NOT_APPROVED"):
+        validate_snapshot_freshness(profile(), item, NOW)
+    with pytest.raises(SupplyBlocked, match="THUMBNAIL_SNAPSHOT_INVALID"):
+        validate_snapshot_freshness(
+            approved, replace(item, thumbnail_url="https://example.invalid/x"), NOW,
+        )
+    conn, journal, insert = _mock_writer(monkeypatch)
+    assert supply._write(approved, item, journal) == "COMMITTED"
+    assert insert.call_args.kwargs["thumbnail_url"] == GODOT_ICON_URL
+    conn.commit.assert_called_once()
+    assert journal.finish.call_args.args[-1] == "COMMITTED"
+
+
+def test_image_scope_does_not_update_existing_trend(monkeypatch):
+    raw = profile_data()
+    raw["sources"][0]["scope"] = GODOT_IMAGE_SCOPE
+    approved = supply.parse_profile(raw, NOW)
+    item = replace(snapshot(), thumbnail_url=GODOT_ICON_URL)
+    conn, journal, insert = _mock_writer(monkeypatch, duplicate="SKIP_EXISTING_RELEASE")
+    assert supply._write(approved, item, journal) == "SKIP_EXISTING_RELEASE"
+    insert.assert_not_called()
+    journal.claim.assert_not_called()
+    conn.commit.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("thumbnail", [None, GODOT_ICON_URL])
+def test_thumbnail_dml_in_isolated_mariadb(db_session: Session, thumbnail):
+    """Shared INSERT persists the optional URL; fixture owns rollback."""
+    key = uuid4().hex
+    conn = db_session.connection()
+    root_id = conn.execute(text(
+        "SELECT category_id FROM categories WHERE category_code = 'IT_DIGITAL'"
+    )).scalar_one_or_none()
+    if root_id is None:
+        root_id = conn.execute(text(
+            "INSERT INTO categories "
+            "(category_code, category_name, sort_order, is_active) "
+            "VALUES ('IT_DIGITAL', :name, 0, 1)"
+        ), {"name": f"Thumbnail root {key}"}).lastrowid
+    category_id = conn.execute(text(
+        "INSERT INTO categories (category_name, parent_id, sort_order, is_active) "
+        "VALUES (:name, :parent, 0, 1)"
+    ), {"name": f"Thumbnail fixture {key}", "parent": root_id}).lastrowid
+    item = replace(
+        snapshot(), title=f"Thumbnail fixture {key}", normalized_title=key,
+        external_id=f"fixture-thumbnail:{key}",
+        source_key=sha256(f"ETC:fixture-thumbnail:{key}".encode()).hexdigest(),
+        thumbnail_url=thumbnail,
+    )
+    trend_id = supply.insert_trend_item(
+        conn, item, category_id=category_id, collected_at=NOW.replace(tzinfo=None),
+        summary=item.summary, is_primary=True, status="ACTIVE", platform="ETC",
+        thumbnail_url=thumbnail,
+    )
+    assert conn.execute(text(
+        "SELECT thumbnail_url FROM trends WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == thumbnail
+    assert conn.execute(text(
+        "SELECT count(*) FROM trend_sources WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == 1
+    assert conn.execute(text(
+        "SELECT count(*) FROM trend_category_map WHERE trend_id = :id"
+    ), {"id": trend_id}).scalar_one() == 1

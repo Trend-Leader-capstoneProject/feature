@@ -31,6 +31,8 @@ SEARCHAPI_SCOPE = "SEARCHAPI_REVIEWED_NEWS_V1"
 INTEREST_SOURCE_ID = "searchapi-kr-interest"
 INTEREST_SCOPE = "SEARCHAPI_KR_INTEREST_V1"
 INTEREST_RELATED_SCOPE = "SEARCHAPI_KR_INTEREST_RELATED_V1"
+GODOT_IMAGE_SCOPE = "GODOT_FACTS_LINK_ICON_V1"
+GODOT_ICON_URL = "https://godotengine.org/assets/press/icon_color.png"
 
 
 class SupplyBlocked(RuntimeError):
@@ -60,7 +62,8 @@ def utc(value: str) -> datetime:
 class GodotAdapter:
     scope = "GODOT_FACTS_LINK_V1"
 
-    def __init__(self, request_json=None):
+    def __init__(self, request_json=None, *, include_icon=False):
+        self._include_icon = include_icon is True
         self._request_json = (
             request_json if request_json is not None
             else lambda url: _request_json(url, enforce_rate_limit=True)
@@ -96,6 +99,8 @@ class GodotAdapter:
         if decision.decision != "DEFERRED" or decision.snapshot is None:
             raise SupplyBlocked("PREVIEW_MISMATCH")
         # The AP-3C-1 decision remains review-only; no authority is inherited.
+        if self._include_icon:
+            return replace(decision.snapshot, thumbnail_url=GODOT_ICON_URL)
         return decision.snapshot
 
 
@@ -104,8 +109,11 @@ class IgdbOperationalAdapter:
 
     scope = IGDB_SCOPE
 
-    def __init__(self, query=None):
-        self._bridge = IgdbSnapshotBridge(query) if query is not None else None
+    def __init__(self, query=None, *, include_cover=False):
+        self._bridge = (
+            IgdbSnapshotBridge(query, include_cover=include_cover)
+            if query is not None else None
+        )
 
     def _ready(self) -> IgdbSnapshotBridge:
         if self._bridge is None:

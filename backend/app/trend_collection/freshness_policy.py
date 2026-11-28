@@ -6,6 +6,8 @@ from hashlib import sha256
 
 from app.trend_collection.godot_release_collector import REPO
 from app.trend_collection.igdb_adapter import (
+    COVER_URL,
+    IMAGE_SCOPE as IGDB_IMAGE_SCOPE,
     SCOPE as IGDB_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
     SOURCE_URL,
@@ -34,6 +36,8 @@ from app.trend_collection.searchapi_supply_snapshot import (
     NewsSnapshot,
 )
 from app.trend_collection.supply_adapter import (
+    GODOT_ICON_URL,
+    GODOT_IMAGE_SCOPE,
     INTEREST_RELATED_SCOPE,
     INTEREST_SCOPE,
     INTEREST_SOURCE_ID,
@@ -139,8 +143,22 @@ def validate_snapshot_freshness(profile, snapshot, now: datetime) -> None:
         window = NEWS_WINDOW
     else:
         raise SupplyBlocked("SNAPSHOT_TYPE_NOT_SUPPORTED")
+    approved_scope = profile.source(source_id).scope
+    thumbnail = snapshot.thumbnail_url
+    if type(snapshot) is ContentSnapshot and approved_scope == GODOT_IMAGE_SCOPE:
+        scope = GODOT_IMAGE_SCOPE
+        if thumbnail != GODOT_ICON_URL and thumbnail is not None:
+            raise SupplyBlocked("THUMBNAIL_SNAPSHOT_INVALID")
+    elif type(snapshot) is PopularitySnapshot and approved_scope == IGDB_IMAGE_SCOPE:
+        scope = IGDB_IMAGE_SCOPE
+        if thumbnail is not None and (
+            not isinstance(thumbnail, str) or COVER_URL.fullmatch(thumbnail) is None
+        ):
+            raise SupplyBlocked("THUMBNAIL_SNAPSHOT_INVALID")
+    elif thumbnail is not None:
+        raise SupplyBlocked("THUMBNAIL_SCOPE_NOT_APPROVED")
     if (
-        profile.source(source_id).scope != scope
+        approved_scope != scope
         or snapshot.external_id != snapshot.candidate_identity
         or snapshot.platform != "ETC"
         or snapshot.source_key != sha256(

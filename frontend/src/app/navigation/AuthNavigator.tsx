@@ -8,12 +8,16 @@ import {
 import {
   SignupScreen,
 } from "../../features/auth/screens/SignupScreen";
-import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
+import { LatestTrendRoute } from "../../features/trend/screens/LatestTrendScreen";
+import { AppSettingsScreen, AppInfoScreen, HelpSupportScreen } from "../../features/settings/screens/SettingsScreens";
 
 export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
   LatestTrend: undefined;
+  AppSettings: undefined;
+  AppInfo: undefined;
+  HelpSupport: undefined;
 };
 
 const Stack =
@@ -38,8 +42,12 @@ export function AuthNavigator() {
 
       <Stack.Screen
         name="LatestTrend"
-        component={LatestTrendScreen}
+        component={LatestTrendRoute}
       />
+
+      <Stack.Screen name="AppSettings" component={AppSettingsScreen} />
+      <Stack.Screen name="AppInfo" component={AppInfoScreen} />
+      <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
 
     </Stack.Navigator>
   );

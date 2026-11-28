@@ -113,14 +113,15 @@ def _stage_items(
 
 def insert_trend_item(conn: Connection, item, *, category_id: int, collected_at,
                       summary: str | None, is_primary: bool, status: str,
-                      platform: str) -> int:
+                      platform: str, thumbnail_url: str | None = None) -> int:
     """Shared DML only; caller owns authority, isolation and transaction."""
     trend_id = conn.execute(text(
         "INSERT INTO trends (title, normalized_title, summary, thumbnail_url, "
         "status, first_collected_at, last_collected_at) "
-        "VALUES (:title, :normalized, :summary, NULL, :status, :at, :at)"
+        "VALUES (:title, :normalized, :summary, :thumbnail, :status, :at, :at)"
     ), {"title": item.title, "normalized": item.normalized_title,
-        "at": collected_at, "summary": summary, "status": status}).lastrowid
+        "at": collected_at, "summary": summary, "status": status,
+        "thumbnail": thumbnail_url}).lastrowid
     if type(trend_id) is not int or trend_id <= 0:
         raise FixtureBlocked("FIXTURE_INSERT_ID_INVALID")
     conn.execute(text(

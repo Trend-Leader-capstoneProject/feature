@@ -9,7 +9,7 @@ import {
 import {
   InterestEditScreen,
 } from "../../features/interest/screens/InterestEditScreen";
-import { LatestTrendScreen } from "../../features/trend/screens/LatestTrendScreen";
+import { LatestTrendRoute } from "../../features/trend/screens/LatestTrendScreen";
 
 import { MyInfoScreen } from "../../features/account/screens/MyInfoScreen";
 import { PasswordChangeScreen } from "../../features/account/screens/PasswordChangeScreen";
@@ -51,7 +51,7 @@ export function AppNavigator() {
 
       <Stack.Screen
         name="LatestTrend"
-        component={LatestTrendScreen}
+        component={LatestTrendRoute}
       />
 
       <Stack.Screen name="MyInfo" component={MyInfoScreen} />

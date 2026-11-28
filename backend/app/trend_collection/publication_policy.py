@@ -63,7 +63,7 @@ class ContentSnapshot:
     source_published_at: str
     proposed_status: str
     is_primary: bool = True
-    thumbnail_url: None = None
+    thumbnail_url: str | None = None
     source_title: None = None
 
     @property
@@ -126,6 +126,9 @@ class PersistableSnapshot(Protocol):
     def is_primary(self) -> bool: ...
 
     @property
+    def thumbnail_url(self) -> str | None: ...
+
+    @property
     def content_digest(self) -> str: ...
 
 
@@ -153,7 +156,7 @@ class PopularitySnapshot:
     metric_id: int
     proposed_status: str
     is_primary: bool = True
-    thumbnail_url: None = None
+    thumbnail_url: str | None = None
     source_title: None = None
 
     @property

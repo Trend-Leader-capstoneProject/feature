@@ -12,6 +12,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.igdb_adapter import (
     GAME_FIELDS,
+    GAME_IMAGE_FIELDS,
     LIMIT,
     POPULARITY_QUERY,
     TYPE_QUERY,
@@ -36,6 +37,11 @@ GAME_QUERY = re.compile(
     + r"([1-9][0-9]{0,19}(?:,[1-9][0-9]{0,19}){0,19})\); limit ([1-9][0-9]?);"
 )
 
+IMAGE_GAME_QUERY = re.compile(
+    re.escape(f"fields {GAME_IMAGE_FIELDS}; where id = (")
+    + r"([1-9][0-9]{0,19})\); limit (1);"
+)
+
 
 class IgdbClientError(CollectionError):
     """Bounded diagnostic without upstream messages or credential values."""
@@ -53,7 +59,7 @@ class _NoRedirect(HTTPRedirectHandler):
     http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
-def _validate_query(endpoint, body):
+def _validate_query(endpoint, body, *, include_cover=False):
     if not isinstance(endpoint, str) or not isinstance(body, str):
         raise IgdbClientError("IGDB_QUERY_NOT_ALLOWED")
     if endpoint == "popularity_types" and body == TYPE_QUERY:
@@ -62,6 +68,8 @@ def _validate_query(endpoint, body):
         return
     if endpoint == "games" and len(body) <= 2048:
         match = GAME_QUERY.fullmatch(body)
+        if match is None and include_cover:
+            match = IMAGE_GAME_QUERY.fullmatch(body)
         if match:
             ids = match[1].split(",")
             if len(ids) == len(set(ids)) == int(match[2]) <= LIMIT:
@@ -96,7 +104,8 @@ class IgdbClient:
     """
 
     def __init__(self, client_id, client_secret, *, opener=None,
-                 monotonic=time.monotonic, wall_clock=time.time, sleep=time.sleep):
+                 monotonic=time.monotonic, wall_clock=time.time, sleep=time.sleep,
+                 include_cover=False):
         if (
             not isinstance(client_id, str)
             or not re.fullmatch(r"[A-Za-z0-9]{1,128}", client_id)
@@ -105,6 +114,7 @@ class IgdbClient:
             or any(not 33 <= ord(char) <= 126 for char in client_secret)
         ):
             raise IgdbClientError("IGDB_CREDENTIALS_INVALID")
+        self._include_cover = include_cover is True
         self._client_id = client_id
         self._client_secret = client_secret
         self._opener = (opener if opener is not None
@@ -233,7 +243,7 @@ class IgdbClient:
 
     def query(self, endpoint, body):
         """Adapter Query implementation; no retries except one rejected token."""
-        _validate_query(endpoint, body)
+        _validate_query(endpoint, body, include_cover=self._include_cover)
         with self._lock:
             if self._failed:
                 raise IgdbClientError("IGDB_CYCLE_BLOCKED")
