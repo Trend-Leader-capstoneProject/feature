@@ -10,7 +10,7 @@ jest.mock("../../src/app/screens/PersonalizedMainScreen", () => ({
   PersonalizedMainScreen: () => require("react").createElement(require("react-native").Text, null, "홈 화면"),
 }));
 jest.mock("../../src/features/interest/screens/InterestEditScreen", () => ({ InterestEditScreen: () => null }));
-jest.mock("../../src/features/trend/screens/LatestTrendScreen", () => ({ LatestTrendScreen: () => null }));
+jest.mock("../../src/features/trend/screens/LatestTrendScreen", () => ({ LatestTrendRoute: () => null }));
 jest.mock("../../src/features/account/screens/PasswordChangeScreen", () => ({ PasswordChangeScreen: () => null }));
 jest.mock("../../src/features/account/components/ProfileEditorModal", () => ({ ProfileEditorModal: () => null }));
 jest.mock("../../src/features/account/components/WithdrawalModal", () => ({ WithdrawalModal: () => null }));
