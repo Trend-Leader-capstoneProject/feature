@@ -64,6 +64,7 @@ def _timestamp(value: object, now: datetime) -> datetime | None:
 
 def parse_trending_now(
     payload: object, *, now: datetime, allow_missing_news_token: bool = False,
+    interest_only: bool = False,
 ) -> tuple[TrendingLead, ...]:
     """Use category labels only as hints, never as a concrete child category."""
     if now.tzinfo is None or now.utcoffset() is None:
@@ -94,11 +95,17 @@ def parse_trending_now(
         # An unknown / out-of-scope category cannot silently become a safe one.
         if any(value not in _ALLOWED_TOPICS for value in categories):
             continue
+        possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
+        if interest_only and (
+            not item["is_active"]
+            or not timedelta(0) <= now - started <= timedelta(hours=24)
+            or not possible <= {"FOOD", "FASHION", "BEAUTY", "ENTERTAINMENT"}
+        ):
+            continue
         key = query.casefold()
         if key in seen:
             continue
         seen.add(key)
-        possible = frozenset().union(*(_ALLOWED_TOPICS[value] for value in categories))
         candidates.append(
             TrendingLead(query, started, token, possible, item["is_active"])
         )

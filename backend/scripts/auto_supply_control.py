@@ -19,6 +19,7 @@ IGDB_SOURCE_ID = 'igdb:visits'
 SEARCHAPI_SOURCE_ID = 'searchapi-kr-reviewed-news'
 INTEREST_SOURCE_ID = 'searchapi-kr-interest'
 INTEREST_RELATED_SCOPE = 'SEARCHAPI_KR_INTEREST_RELATED_V1'
+INTEREST_HYBRID_SCOPE = 'SEARCHAPI_KR_INTEREST_HYBRID_V1'
 EMPTY_CANDIDATE_SOURCES = frozenset({
     IGDB_SOURCE_ID, SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID,
 })
@@ -46,20 +47,22 @@ def atomic_json(path, value, mode=0o600):
 
 
 def _preserve_rotation(updated, previous, *, source_id=None,
-                       completed=False, game_id=None):
+                       completed=False, game_id=None, case_key=None):
     """Keep cursor state coupled to the durable scheduler record."""
-    for key in ('last_completed_source_id', 'igdb_last_game_id'):
+    for key in ('last_completed_source_id', 'igdb_last_game_id', 'interest_last_case_key'):
         if key in previous:
             updated[key] = previous[key]
     if source_id is not None and completed:
         updated['last_completed_source_id'] = source_id
     if game_id is not None and completed and source_id == IGDB_SOURCE_ID:
         updated['igdb_last_game_id'] = game_id
+    if case_key is not None and completed and source_id == INTEREST_SOURCE_ID:
+        updated['interest_last_case_key'] = case_key
     return updated
 
 
 def next_state(result, now, previous, *, writer=False, source_id=None,
-               no_candidate=False, game_id=None):
+               no_candidate=False, game_id=None, case_key=None):
     """Global >=6h cooldown; rotate only on a confirmed terminal outcome."""
     status = result.get('status')
     reason = result.get('reason')
@@ -105,7 +108,7 @@ def next_state(result, now, previous, *, writer=False, source_id=None,
                      in {'AVAILABLE', 'EMPTY'})):
         updated['related_news_rate_failures'] = previous['related_news_rate_failures']
     return _preserve_rotation(updated, previous, source_id=source_id,
-                              completed=completed, game_id=game_id)
+                              completed=completed, game_id=game_id, case_key=case_key)
 
 
 def choose_source(profile, state):
@@ -127,7 +130,7 @@ def load_state(path, read_record):
         'pending', 'not_before', 'rate_failures',
     } <= set(data) or set(data) - {
         'pending', 'not_before', 'rate_failures', 'last_completed_source_id',
-        'igdb_last_game_id', 'related_news_rate_failures',
+        'igdb_last_game_id', 'related_news_rate_failures', 'interest_last_case_key',
     } or type(data['pending']) is not bool
             or type(data['not_before']) is not int or data['not_before'] < 0
             or type(data['rate_failures']) is not int
@@ -139,6 +142,9 @@ def load_state(path, read_record):
                 and (not isinstance(data['last_completed_source_id'], str)
                      or re.fullmatch(r'[a-z0-9][a-z0-9_./:-]{0,127}',
                                      data['last_completed_source_id']) is None))
+            or ('interest_last_case_key' in data
+                and (not isinstance(data['interest_last_case_key'], str)
+                     or re.fullmatch(r'[a-f0-9]{64}', data['interest_last_case_key']) is None))
             or ('igdb_last_game_id' in data
                 and (type(data['igdb_last_game_id']) is not int
                      or not 1 <= data['igdb_last_game_id'] < 10**20))):
@@ -147,7 +153,7 @@ def load_state(path, read_record):
 
 
 def run_child(uid, role, envelope=None, *, source_id=None,
-              after_game_id=None):
+              after_game_id=None, after_case_key=None):
     import pwd
 
     account = pwd.getpwuid(uid)
@@ -164,6 +170,12 @@ def run_child(uid, role, envelope=None, *, source_id=None,
         or not 1 <= after_game_id < 10**20
     ):
         raise RuntimeError('GAME_CURSOR_INVALID')
+    if after_case_key is not None and (
+        role != 'collect' or source_id != INTEREST_SOURCE_ID
+        or not isinstance(after_case_key, str)
+        or re.fullmatch(r'[a-f0-9]{64}', after_case_key) is None
+    ):
+        raise RuntimeError('INTEREST_CURSOR_INVALID')
     expected = 'trend-collector' if role == 'collect' else 'trend-writer'
     if account.pw_name != expected:
         raise RuntimeError('EXECUTION_PRINCIPAL_MISMATCH')
@@ -173,6 +185,8 @@ def run_child(uid, role, envelope=None, *, source_id=None,
         command.extend(('--source-id', source_id))
     if after_game_id is not None:
         command.extend(('--after-game-id', str(after_game_id)))
+    if after_case_key is not None:
+        command.extend(('--after-case-key', after_case_key))
     result = subprocess.run(
         command,
         cwd=RUNTIME / 'backend',
@@ -229,10 +243,15 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
     kwargs = {'source_id': source.source_id}
     if source.source_id == IGDB_SOURCE_ID and 'igdb_last_game_id' in state:
         kwargs['after_game_id'] = state['igdb_last_game_id']
+    hybrid = (source.source_id == INTEREST_SOURCE_ID
+              and getattr(source, 'scope', None) == INTEREST_HYBRID_SCOPE)
+    if hybrid and 'interest_last_case_key' in state:
+        kwargs['after_case_key'] = state['interest_last_case_key']
     code, envelope = child(profile.collector_uid, 'collect', **kwargs)
     writer = False
     no_candidate = False
     game_id = None
+    case_key = None
     if code == 0:
         if (type(envelope) is dict
                 and set(envelope) == {'source_id', 'status'}
@@ -287,6 +306,8 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
                         or result.get('candidate_identity')
                         != f'searchapi-interest:{key}'):
                     raise RuntimeError('INTEREST_WRITER_IDENTITY_UNCONFIRMED')
+                if hybrid:
+                    case_key = key
     elif (code == 2 and type(envelope) is dict
           and envelope.get('status') == 'HOLD'):
         result = envelope
@@ -298,7 +319,7 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
               or source.source_id == IGDB_SOURCE_ID)
     updated = next_state(
         result, int(clock()), state, writer=writer,
-        no_candidate=no_candidate, game_id=game_id,
+        no_candidate=no_candidate, game_id=game_id, case_key=case_key,
         source_id=source.source_id if rotate else None,
     )
     atomic_json(path, updated)
