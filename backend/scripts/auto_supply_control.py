@@ -14,6 +14,7 @@ from pathlib import Path
 CONTROL = Path('/etc/trend-leader/auto-supply')
 RUNTIME = Path('/opt/trend-leader-auto-supply')
 INTERVAL = 6 * 3600
+MAX_DB_CONNECT_FAILURES = 3
 MAX_OUTPUT = 65536
 IGDB_SOURCE_ID = 'igdb:visits'
 IGDB_DIVERSITY_SCOPE = 'IGDB_VISITS_FACTS_LINK_DIVERSITY_V1'
@@ -87,6 +88,34 @@ def _preserve_rotation(updated, previous, *, source_id=None,
     return updated
 
 
+def _retryable_db_connect(result):
+    # Only the exact trusted Writer pre-Claim failure; no News or retry hints.
+    return (
+        set(result) == {'status', 'reason', 'candidate_identity', 'db_error_code'}
+        and result['status'] == 'HOLD'
+        and result['reason'] == 'WRITER_DB_CONNECT_FAILED'
+        and type(result['db_error_code']) is int
+        and result['db_error_code'] == 2003
+        and isinstance(result['candidate_identity'], str)
+        and bool(result['candidate_identity'])
+    )
+
+
+def _confirm_retry_identity(source_id, preview, result):
+    if source_id in {SEARCHAPI_SOURCE_ID, INTEREST_SOURCE_ID}:
+        key = preview.get('case_key')
+        prefix = ('searchapi-event:' if source_id == SEARCHAPI_SOURCE_ID
+                  else 'searchapi-interest:')
+        expected = (
+            prefix + key if isinstance(key, str)
+            and re.fullmatch(r'[a-f0-9]{64}', key) else None
+        )
+    else:
+        expected = preview.get('candidate_identity')
+    if expected != result['candidate_identity']:
+        raise RuntimeError('DB_CONNECT_RETRY_IDENTITY_UNCONFIRMED')
+
+
 def next_state(result, now, previous, *, writer=False, source_id=None,
                no_candidate=False, game_id=None, case_key=None):
     """Global >=6h cooldown; rotate only on a confirmed terminal outcome."""
@@ -118,6 +147,16 @@ def next_state(result, now, previous, *, writer=False, source_id=None,
             updated = {'pending': False, 'not_before': max(
                 deadline, now + INTERVAL * 2 ** (failures - 1),
             ), 'rate_failures': failures}
+    elif writer and _retryable_db_connect(result):
+        failures = min(
+            MAX_DB_CONNECT_FAILURES, previous.get('db_connect_failures', 0) + 1,
+        )
+        updated = {
+            'pending': failures >= MAX_DB_CONNECT_FAILURES,
+            'not_before': max(previous['not_before'], now + INTERVAL),
+            'rate_failures': previous['rate_failures'],
+            'db_connect_failures': failures,
+        }
     elif writer and not completed:
         # Unknown Writer outcomes require investigation, not automatic replay.
         updated = {'pending': True, 'not_before': now + INTERVAL,
@@ -127,6 +166,9 @@ def next_state(result, now, previous, *, writer=False, source_id=None,
             'pending': False, 'not_before': now + INTERVAL,
             'rate_failures': previous['rate_failures'] if status == 'HOLD' else 0,
         }
+    # Preserve the DB failure budget until a confirmed terminal outcome.
+    if not completed and 'db_connect_failures' in previous:
+        updated.setdefault('db_connect_failures', previous['db_connect_failures'])
     # A successful unrelated source must not erase the optional News streak.
     if ('related_news_rate_failures' in previous
             and 'related_news_rate_failures' not in updated
@@ -157,10 +199,16 @@ def load_state(path, read_record):
     } <= set(data) or set(data) - {
         'pending', 'not_before', 'rate_failures', 'last_completed_source_id',
         'igdb_last_game_id', 'related_news_rate_failures', 'interest_last_case_key',
+        'db_connect_failures',
     } or type(data['pending']) is not bool
             or type(data['not_before']) is not int or data['not_before'] < 0
             or type(data['rate_failures']) is not int
             or not 0 <= data['rate_failures'] <= 3
+            or ('db_connect_failures' in data
+                and (type(data['db_connect_failures']) is not int
+                     or not 1 <= data['db_connect_failures'] <= MAX_DB_CONNECT_FAILURES
+                     or (data['db_connect_failures'] == MAX_DB_CONNECT_FAILURES
+                         and not data['pending'])))
             or ('related_news_rate_failures' in data
                 and (type(data['related_news_rate_failures']) is not int
                      or not 1 <= data['related_news_rate_failures'] <= 3))
@@ -314,6 +362,8 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
             }
             if (write_code == 0) != success or write_code not in {0, 2}:
                 raise RuntimeError('WRITER_OUTCOME_MISMATCH')
+            if write_code == 2 and _retryable_db_connect(result):
+                _confirm_retry_identity(source.source_id, envelope['preview'], result)
             if (success and source.source_id == INTEREST_SOURCE_ID
                     and getattr(source, 'scope', None) == INTEREST_RELATED_SCOPE
                     and 'related_news_status' not in result):
@@ -362,6 +412,10 @@ def cycle(profile, path, state, *, child=run_child, clock=time.time):
         source_id=source.source_id if rotate else None,
     )
     atomic_json(path, updated)
+    if writer and _retryable_db_connect(result):
+        result = {**result, 'db_connect_failures': updated['db_connect_failures']}
+        if not updated['pending']:
+            result['retry_not_before'] = updated['not_before']
     if report:
         result = {**result, 'source_id': source.source_id}
         if diagnostics:
@@ -436,6 +490,9 @@ def main():
         if (result.get('status') == 'HOLD' and type(error_code) is int
                 and 1 <= error_code <= 65535):
             output['db_error_code'] = error_code
+        failures = result.get('db_connect_failures')
+        if type(failures) is int and 1 <= failures <= MAX_DB_CONNECT_FAILURES:
+            output['db_connect_failures'] = failures
         print(json.dumps(output))
         success = result.get('status') in {
             'COMMITTED', 'SKIP_EXISTING_RELEASE', 'SKIP_NO_CANDIDATE',
