@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE,
     SCOPE,
     SOURCE_ID,
     VISITS_ID,
@@ -21,14 +22,17 @@ from app.trend_collection.publication_policy import (
 UNBOUND = "UNBOUND_OPERATIONAL"
 
 
-def project_verified_popularity(verified: dict) -> PopularitySnapshot:
+def project_verified_popularity(
+    verified: dict, *, diversity=False,
+) -> PopularitySnapshot:
     """Call only on IgdbReviewAdapter.verify_review's rebuilt output.
 
     This is a value projection, not proof of rights or authorization.
     """
     if type(verified) is not dict or verified.get("source_id") != SOURCE_ID:
         raise IgdbBlocked("INVALID_VERIFIED_PREVIEW")
-    if (verified.get("scope") != SCOPE
+    scope = DIVERSITY_SCOPE if diversity else SCOPE
+    if (verified.get("scope") != scope
             or verified.get("publication_status") != "NOT_FOR_PUBLICATION"
             or verified.get("publish_authorization") != "NONE"):
         raise IgdbBlocked("INVALID_VERIFIED_PREVIEW")
@@ -46,7 +50,7 @@ def project_verified_popularity(verified: dict) -> PopularitySnapshot:
         target=UNBOUND,
         candidate_identity=identity,
         evidence_ref=_digest({
-            "scope": SCOPE,
+            "scope": scope,
             "candidate_identity": identity,
             "evidence_digest": verified["evidence_digest"],
             "calculated_at": verified["calculated_at"],
@@ -73,8 +77,14 @@ class IgdbSnapshotBridge:
 
     scope = SCOPE
 
-    def __init__(self, query: Query):
-        self._review = IgdbReviewAdapter(query)
+    def __init__(self, query: Query, *, diversity=False):
+        self._review = IgdbReviewAdapter(query, diversity=diversity)
+        self._diversity = diversity
+        self.scope = self._review.scope
+
+    @property
+    def diagnostics(self):
+        return self._review.diagnostics
 
     def collect_preview(self, *, after_game_id=None):
         return self._review.collect_review(
@@ -83,4 +93,4 @@ class IgdbSnapshotBridge:
 
     def verify(self, preview, now: datetime) -> PopularitySnapshot:
         verified = self._review.verify_review(preview, now)
-        return project_verified_popularity(verified)
+        return project_verified_popularity(verified, diversity=self._diversity)

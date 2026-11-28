@@ -105,8 +105,17 @@ class IgdbOperationalAdapter:
 
     scope = IGDB_SCOPE
 
-    def __init__(self, query=None):
-        self._bridge = IgdbSnapshotBridge(query) if query is not None else None
+    def __init__(self, query=None, *, diversity=False):
+        self._bridge = (
+            IgdbSnapshotBridge(query, diversity=diversity)
+            if query is not None else None
+        )
+        if self._bridge is not None:
+            self.scope = self._bridge.scope
+
+    @property
+    def diagnostics(self):
+        return self._ready().diagnostics
 
     def _ready(self) -> IgdbSnapshotBridge:
         if self._bridge is None:

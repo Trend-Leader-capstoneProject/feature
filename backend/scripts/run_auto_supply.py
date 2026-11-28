@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 from app.trend_collection.freshness_policy import validate_snapshot_freshness
 from app.trend_collection.godot_release_collector import CollectionError, RateLimited
 from app.trend_collection.igdb_adapter import (
+    DIVERSITY_SCOPE as IGDB_DIVERSITY_SCOPE,
     SOURCE_ID as IGDB_SOURCE_ID,
     IgdbBlocked,
 )
@@ -169,8 +170,9 @@ def parse_profile(raw, now: datetime) -> ApprovedProfile:
         source = entry["source_id"]
         if (not isinstance(source, str) or source not in ADAPTERS
                 or (not related and entry["scope"] != ADAPTERS[source].scope
-                    and (source, entry["scope"]) != (
-                        INTEREST_SOURCE_ID, INTEREST_HYBRID_SCOPE,
+                    and (source, entry["scope"]) not in (
+                        (INTEREST_SOURCE_ID, INTEREST_HYBRID_SCOPE),
+                        (IGDB_SOURCE_ID, IGDB_DIVERSITY_SCOPE),
                     ))
                 or entry["rights"] != RIGHTS
                 or any(item.source_id == source for item in approved)):
@@ -310,7 +312,9 @@ def _interest_topics():
 def _operational_adapter(source: ApprovedSource, role: str):
     """Static registry scope plus separately supplied principal-scoped secrets."""
     if source.source_id == IGDB_SOURCE_ID:
-        return IgdbOperationalAdapter(_igdb_query(role))
+        return IgdbOperationalAdapter(
+            _igdb_query(role), diversity=source.scope == IGDB_DIVERSITY_SCOPE,
+        )
     if source.source_id == INTEREST_SOURCE_ID:
         if role not in {"collect", "write"}:
             raise SupplyBlocked("SEARCHAPI_EXECUTION_ROLE_INVALID")

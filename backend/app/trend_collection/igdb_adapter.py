@@ -3,6 +3,7 @@
 import json
 import math
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -13,6 +14,7 @@ from app.external_trends.normalizer import normalize_title
 
 SOURCE_ID = "igdb:visits"
 SCOPE = "IGDB_VISITS_FACTS_LINK_V1"
+DIVERSITY_SCOPE = "IGDB_VISITS_FACTS_LINK_DIVERSITY_V1"
 VISITS_ID = 1
 IGDB_ID = 121
 LIMIT = 20
@@ -209,7 +211,7 @@ def _named_ids(rows, known, reason):
     return sorted(result)
 
 
-def evaluate_game(popularity, game):
+def evaluate_game(popularity, game, *, diversity=False):
     """Eligibility on already validated popularity evidence; no permission grant."""
     if popularity.tied:
         raise IgdbBlocked("UNCERTAIN_RANK")
@@ -225,8 +227,9 @@ def evaluate_game(popularity, game):
     platform_names = {key: item[0] for key, item in PLATFORMS.items()}
     platforms = _named_ids(game.get("platforms"), platform_names, "UNKNOWN_PLATFORM")
     children = {PLATFORMS[key][1] for key in platforms}
-    if len(children) != 1:
+    if len(children) != 1 and not diversity:
         raise IgdbBlocked("MULTIPLE_CATEGORIES")
+    child = next(iter(children)) if len(children) == 1 else "기타"
     title, url = game.get("name"), game.get("url")
     if (
         not isinstance(title, str) or not 1 <= len(title) <= 255
@@ -244,11 +247,11 @@ def evaluate_game(popularity, game):
     }
     return Candidate(
         popularity.game_id, popularity.rank, popularity.calculated_at,
-        title, normalized.normalized_title, children.pop(), url, _digest(evidence),
+        title, normalized.normalized_title, child, url, _digest(evidence),
     )
 
 
-def build_preview(candidate, observed_at):
+def build_preview(candidate, observed_at, *, diversity=False):
     """Review-only projection; no executable ContentSnapshot or ACTIVE flag."""
     observed_at = _utc(observed_at)
     calculated = datetime.fromtimestamp(candidate.calculated_at, timezone.utc)
@@ -256,7 +259,7 @@ def build_preview(candidate, observed_at):
         raise IgdbBlocked("STALE_POPULARITY")
     date = calculated.astimezone(timezone(timedelta(hours=9))).date().isoformat()
     return {
-        "source_id": SOURCE_ID, "scope": SCOPE,
+        "source_id": SOURCE_ID, "scope": DIVERSITY_SCOPE if diversity else SCOPE,
         "candidate_identity": candidate.identity,
         "game_id": candidate.game_id, "rank": candidate.rank,
         "calculated_at": calculated.isoformat(),
@@ -284,8 +287,11 @@ class IgdbReviewAdapter:
 
     scope = SCOPE
 
-    def __init__(self, query: Query):
+    def __init__(self, query: Query, *, diversity=False):
         self._query = query
+        self._diversity = diversity
+        self.scope = DIVERSITY_SCOPE if diversity else SCOPE
+        self.diagnostics: dict[str, int] = {}
 
     def _popularity(self, now):
         validate_metric(self._query("popularity_types", TYPE_QUERY))
@@ -314,24 +320,36 @@ class IgdbReviewAdapter:
         if after_game_id is not None:
             _id(after_game_id)
         items = self._popularity(now)
+        self.diagnostics = {"examined": len(items), "eligible": 0}
         if not items:
             return None
         games = self._games(item.game_id for item in items)
         eligible = []
+        counts = Counter()
         for item in items:
             if item.game_id not in games:
+                counts["GAME_METADATA_MISSING"] += 1
                 continue
             try:
-                eligible.append(evaluate_game(item, games[item.game_id]))
-            except IgdbBlocked:
+                candidate = evaluate_game(
+                    item, games[item.game_id], diversity=self._diversity,
+                )
+            except IgdbBlocked as exc:
+                counts[str(exc)] += 1
                 continue
+            eligible.append(candidate)
+            if candidate.child_name == "기타":
+                counts["ROOT_OTHER"] += 1
+        self.diagnostics = {"examined": len(items), "eligible": len(eligible), **counts}
         if not eligible:
             return None
         index = next((
             i + 1 for i, item in enumerate(eligible)
             if item.game_id == after_game_id
         ), 0)
-        return build_preview(eligible[index % len(eligible)], now)
+        return build_preview(
+            eligible[index % len(eligible)], now, diversity=self._diversity,
+        )
 
     def verify_review(self, preview, now):
         now = _utc(now)
@@ -351,7 +369,10 @@ class IgdbReviewAdapter:
         games = self._games((game_id,))
         if game_id not in games:
             raise IgdbBlocked("GAME_RESPONSE_MISMATCH")
-        expected = build_preview(evaluate_game(chosen, games[game_id]), observed)
+        expected = build_preview(
+            evaluate_game(chosen, games[game_id], diversity=self._diversity),
+            observed, diversity=self._diversity,
+        )
         try:
             matches = _digest(preview) == _digest(expected)
         except (TypeError, ValueError, RecursionError, UnicodeError):
